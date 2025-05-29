@@ -87,4 +87,25 @@ app.get('/api/planeaciones', async (req, res) => {
     }
 });
 
+// Obtener una sola planeación por ID
+app.get('/api/planeaciones/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const { data, error } = await supabase
+            .from('planeaciones')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (error) throw error;
+
+        res.json(data);
+    } catch (err) {
+        console.error('❌ Error al obtener planeación:', err.message);
+        res.status(500).json({ error: 'Error al obtener planeación' });
+    }
+});
+
+
 
