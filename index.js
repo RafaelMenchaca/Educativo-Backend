@@ -107,5 +107,24 @@ app.get('/api/planeaciones/:id', async (req, res) => {
     }
 });
 
+// Boton para borrar una planeación
+app.delete('/api/planeaciones/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const { error } = await supabase
+            .from('planeaciones')
+            .delete()
+            .eq('id', id);
+
+        if (error) throw error;
+
+        res.status(200).json({ message: 'Planeación eliminada' });
+    } catch (err) {
+        console.error('❌ Error al eliminar planeación:', err.message);
+        res.status(500).json({ error: 'Error al eliminar planeación' });
+    }
+});
+
 
 
