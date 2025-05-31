@@ -26,7 +26,7 @@ app.post('/api/planeaciones', async (req, res) => {
         grado,
         tema,
         duracion,
-        detalles_completos // este es el objeto con todos los demás datos
+        detalles_completos
     } = req.body;
 
     try {
@@ -37,21 +37,21 @@ app.post('/api/planeaciones', async (req, res) => {
                     materia,
                     grado,
                     tema,
-                    duracion: parseInt(duracion), // por si viene como string
-                    detalles_completos // columna jsonb
+                    duracion: parseInt(duracion),
+                    detalles_completos
                 }
             ])
-            .select();
+            .select(); // 👈 Esto asegura que Supabase devuelva el ID generado
 
         if (error) throw error;
 
-        res.status(201).json({ success: true, data });
+        // ✅ Retornar solo el ID para usarlo en detalle.html?id=XX
+        res.status(201).json({ id: data[0].id });
     } catch (err) {
         console.error("❌ Error al insertar:", err.message);
-        res.status(500).json({ success: false, error: err.message });
+        res.status(500).json({ error: err.message });
     }
 });
-
 
 app.listen(PORT, () => {
     console.log(`Servidor escuchando en http://localhost:${PORT}`);
