@@ -1,13 +1,10 @@
-// // index.js
-// const express = require('express');
-// const app = express();
-// const PORT = process.env.PORT || 3000;
-
 // index.js
-const cors = require('cors');
-const express = require('express');
-const supabase = require('./supabaseClient');
-require('dotenv').config();
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { supabase } from './supabaseClient.js';
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,11 +12,12 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Ruta de prueba
 app.get('/', (req, res) => {
     res.send('Servidor educativo-ia funcionando 🚀');
 });
 
-// NUEVA RUTA: Guardar planeación
+// Guardar planeación
 app.post('/api/planeaciones', async (req, res) => {
     const {
         materia,
@@ -32,20 +30,17 @@ app.post('/api/planeaciones', async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('planeaciones')
-            .insert([
-                {
-                    materia,
-                    grado,
-                    tema,
-                    duracion: parseInt(duracion),
-                    detalles_completos
-                }
-            ])
-            .select(); // 👈 Esto asegura que Supabase devuelva el ID generado
+            .insert([{
+                materia,
+                grado,
+                tema,
+                duracion: parseInt(duracion),
+                detalles_completos
+            }])
+            .select();
 
         if (error) throw error;
 
-        // ✅ Retornar solo el ID para usarlo en detalle.html?id=XX
         res.status(201).json({ id: data[0].id });
     } catch (err) {
         console.error("❌ Error al insertar:", err.message);
@@ -53,41 +48,24 @@ app.post('/api/planeaciones', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Servidor escuchando en http://localhost:${PORT}`);
-});
-
-// Middleware para leer JSON
-app.use(express.json());
-
-// Ruta de prueba
-app.get('/', (req, res) => {
-    res.send('Servidor educativo-ia funcionando 🚀');
-});
-
-// Iniciar servidor
-app.listen(PORT, () => {
-    console.log(`Servidor escuchando en http://localhost:${PORT}`);
-});
-
-// GET /api/planeaciones - Obtener todas las planeaciones
+// Obtener todas las planeaciones
 app.get('/api/planeaciones', async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('planeaciones')
             .select('*')
-            .order('fecha_creacion', { ascending: false })
+            .order('fecha_creacion', { ascending: false });
 
         if (error) throw error;
 
         res.json(data);
     } catch (err) {
-        console.error('Error al obtener planeaciones:', err.message);
+        console.error('❌ Error al obtener planeaciones:', err.message);
         res.status(500).json({ error: 'Error al obtener planeaciones' });
     }
 });
 
-// Obtener una sola planeación por ID
+// Obtener planeación por ID
 app.get('/api/planeaciones/:id', async (req, res) => {
     const { id } = req.params;
 
@@ -107,7 +85,7 @@ app.get('/api/planeaciones/:id', async (req, res) => {
     }
 });
 
-// Boton para borrar una planeación
+// Eliminar planeación
 app.delete('/api/planeaciones/:id', async (req, res) => {
     const { id } = req.params;
 
@@ -126,5 +104,6 @@ app.delete('/api/planeaciones/:id', async (req, res) => {
     }
 });
 
-
-
+app.listen(PORT, () => {
+    console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
+});
