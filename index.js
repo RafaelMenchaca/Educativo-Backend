@@ -8,102 +8,183 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const CORS_ORIGIN = process.env.CORS_ORIGIN;
 
-app.use(cors());
-app.use(express.json());
+// CORS: en dev permite todo, en prod limita
+app.use(cors({
+  origin: NODE_ENV === 'development' ? true : (origin, cb) => {
+    if (!origin) return cb(null, true); // permite curl/postman
+    const allowed = Array.isArray(CORS_ORIGIN)
+      ? CORS_ORIGIN
+      : (CORS_ORIGIN ? [CORS_ORIGIN] : []);
+    if (allowed.length === 0 || allowed.includes(origin)) return cb(null, true);
+    cb(new Error('CORS: Origin no permitido'));
+  },
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  credentials: false,
+}));
+
+app.use(express.json({ limit: '1mb' }));
+
+// Healthcheck
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, env: NODE_ENV });
+});
 
 // Ruta de prueba
-app.get('/', (req, res) => {
-    res.send('Servidor educativo-ia funcionando 🚀');
+app.get('/', (_req, res) => {
+  res.send('Servidor educativo-ia funcionando 🚀');
 });
 
-// Guardar planeación
+// Helpers de validación
+const isPositiveInt = (v) => Number.isInteger(v) && v > 0;
+
+// Crear planeación
 app.post('/api/planeaciones', async (req, res) => {
-    const {
-        materia,
-        grado,
-        tema,
-        duracion,
-        detalles_completos
-    } = req.body;
+  const { materia, grado, tema, duracion, detalles_completos } = req.body || {};
 
-    try {
-        const { data, error } = await supabase
-            .from('planeaciones')
-            .insert([{
-                materia,
-                grado,
-                tema,
-                duracion: parseInt(duracion),
-                detalles_completos
-            }])
-            .select();
+  if (!materia || !grado || !tema) {
+    return res.status(400).json({ error: 'materia, grado y tema son requeridos' });
+  }
+  const dur = parseInt(duracion, 10);
+  if (!Number.isFinite(dur) || dur < 0 || dur > 10000) {
+    return res.status(400).json({ error: 'duracion debe ser un número válido' });
+  }
 
-        if (error) throw error;
+  try {
+    const { data, error } = await supabase
+      .from('planeaciones')
+      .insert([{ materia, grado, tema, duracion: dur, detalles_completos }])
+      .select();
 
-        res.status(201).json({ id: data[0].id });
-    } catch (err) {
-        console.error("❌ Error al insertar:", err.message);
-        res.status(500).json({ error: err.message });
-    }
+    if (error) throw error;
+    if (!data || !data[0]) return res.status(500).json({ error: 'No se recibió ID de inserción' });
+
+    res.status(201).json({ id: data[0].id });
+  } catch (err) {
+    console.error('❌ Error al insertar:', err.message);
+    res.status(500).json({ error: 'Error al insertar planeación' });
+  }
 });
 
-// Obtener todas las planeaciones
+// Listar planeaciones (con paginación opcional)
 app.get('/api/planeaciones', async (req, res) => {
-    try {
-        const { data, error } = await supabase
-            .from('planeaciones')
-            .select('*')
-            .order('fecha_creacion', { ascending: false });
+  const page = parseInt(req.query.page ?? '1', 10);
+  const pageSize = parseInt(req.query.pageSize ?? '50', 10);
 
-        if (error) throw error;
+  const from = (isPositiveInt(page) ? (page - 1) : 0) * (isPositiveInt(pageSize) ? pageSize : 50);
+  const to = from + (isPositiveInt(pageSize) ? pageSize : 50) - 1;
 
-        res.json(data);
-    } catch (err) {
-        console.error('❌ Error al obtener planeaciones:', err.message);
-        res.status(500).json({ error: 'Error al obtener planeaciones' });
-    }
+  try {
+    let query = supabase
+      .from('planeaciones')
+      .select('*', { count: 'exact' })
+      .order('fecha_creacion', { ascending: false })
+      .range(from, to);
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+
+    res.json({
+      items: data ?? [],
+      page,
+      pageSize,
+      total: count ?? 0
+    });
+  } catch (err) {
+    console.error('❌ Error al obtener planeaciones:', err.message);
+    res.status(500).json({ error: 'Error al obtener planeaciones' });
+  }
 });
 
 // Obtener planeación por ID
 app.get('/api/planeaciones/:id', async (req, res) => {
-    const { id } = req.params;
+  const id = parseInt(req.params.id, 10);
+  if (!isPositiveInt(id)) return res.status(400).json({ error: 'ID inválido' });
 
-    try {
-        const { data, error } = await supabase
-            .from('planeaciones')
-            .select('*')
-            .eq('id', id)
-            .single();
+  try {
+    const { data, error } = await supabase
+      .from('planeaciones')
+      .select('*')
+      .eq('id', id)
+      .single();
 
-        if (error) throw error;
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'No encontrado' });
 
-        res.json(data);
-    } catch (err) {
-        console.error('❌ Error al obtener planeación:', err.message);
-        res.status(500).json({ error: 'Error al obtener planeación' });
+    res.json(data);
+  } catch (err) {
+    console.error('❌ Error al obtener planeación:', err.message);
+    res.status(500).json({ error: 'Error al obtener planeación' });
+  }
+});
+
+// Actualizar planeación (PUT)
+app.put('/api/planeaciones/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!isPositiveInt(id)) return res.status(400).json({ error: 'ID inválido' });
+
+  const { materia, grado, tema, duracion, detalles_completos } = req.body || {};
+
+  const update = {};
+  if (materia !== undefined) update.materia = materia;
+  if (grado !== undefined) update.grado = grado;
+  if (tema !== undefined) update.tema = tema;
+  if (duracion !== undefined) {
+    const dur = parseInt(duracion, 10);
+    if (!Number.isFinite(dur) || dur < 0 || dur > 10000) {
+      return res.status(400).json({ error: 'duracion debe ser un número válido' });
     }
+    update.duracion = dur;
+  }
+  if (detalles_completos !== undefined) update.detalles_completos = detalles_completos;
+
+  if (Object.keys(update).length === 0) {
+    return res.status(400).json({ error: 'Nada que actualizar' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('planeaciones')
+      .update(update)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'No encontrado' });
+
+    res.json(data);
+  } catch (err) {
+    console.error('❌ Error al actualizar planeación:', err.message);
+    res.status(500).json({ error: 'Error al actualizar planeación' });
+  }
 });
 
 // Eliminar planeación
 app.delete('/api/planeaciones/:id', async (req, res) => {
-    const { id } = req.params;
+  const id = parseInt(req.params.id, 10);
+  if (!isPositiveInt(id)) return res.status(400).json({ error: 'ID inválido' });
 
-    try {
-        const { error } = await supabase
-            .from('planeaciones')
-            .delete()
-            .eq('id', id);
+  try {
+    const { error } = await supabase
+      .from('planeaciones')
+      .delete()
+      .eq('id', id);
 
-        if (error) throw error;
+    if (error) throw error;
 
-        res.status(200).json({ message: 'Planeación eliminada' });
-    } catch (err) {
-        console.error('❌ Error al eliminar planeación:', err.message);
-        res.status(500).json({ error: 'Error al eliminar planeación' });
-    }
+    res.status(200).json({ message: 'Planeación eliminada' });
+  } catch (err) {
+    console.error('❌ Error al eliminar planeación:', err.message);
+    res.status(500).json({ error: 'Error al eliminar planeación' });
+  }
 });
 
+// 404 por defecto
+app.use((_req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
+
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
+  console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
 });
