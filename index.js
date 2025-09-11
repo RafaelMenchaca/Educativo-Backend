@@ -10,6 +10,19 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
+// Helper de logs para errores de Supabase
+const logSbError = (label, error) => {
+  console.error(`${label}:`, {
+    message: error?.message,
+    code: error?.code,
+    details: error?.details,
+    hint: error?.hint
+  });
+};
+
+
+
+
 // --- CORS: en dev permite todo, en prod solo orígenes listados ---
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
@@ -72,7 +85,7 @@ app.post('/api/planeaciones', async (req, res) => {
       .insert([{ materia, grado, tema, duracion: dur, detalles_completos }])
       .select();
 
-    if (error) throw error;
+    if (error) { logSbError('Supabase insert error', error); throw error; }
     if (!data || !data[0]) return res.status(500).json({ error: 'No se recibió ID de inserción' });
 
     res.status(201).json({ id: data[0].id });
@@ -97,7 +110,7 @@ app.get('/api/planeaciones', async (req, res) => {
       .order('fecha_creacion', { ascending: false })
       .range(from, to);
 
-    if (error) throw error;
+    if (error) { logSbError('Supabase insert error', error); throw error; }
 
     res.json({
       items: data ?? [],
@@ -123,7 +136,7 @@ app.get('/api/planeaciones/:id', async (req, res) => {
       .eq('id', id)
       .maybeSingle();
 
-    if (error) throw error;
+    if (error) { logSbError('Supabase insert error', error); throw error; }
     if (!data) return res.status(404).json({ error: 'No encontrado' });
 
     res.json(data);
@@ -165,7 +178,7 @@ app.put('/api/planeaciones/:id', async (req, res) => {
       .select()
       .maybeSingle();
 
-    if (error) throw error;
+    if (error) { logSbError('Supabase insert error', error); throw error; }
     if (!data) return res.status(404).json({ error: 'No encontrado' });
 
     res.json(data);
@@ -187,7 +200,7 @@ app.delete('/api/planeaciones/:id', async (req, res) => {
       .eq('id', id)
       .select('id');
 
-    if (error) throw error;
+    if (error) { logSbError('Supabase insert error', error); throw error; }
     if (!data || data.length === 0) return res.status(404).json({ error: 'No encontrado' });
 
     return res.status(204).send(); // No Content
