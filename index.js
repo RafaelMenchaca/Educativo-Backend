@@ -16,17 +16,25 @@ const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .map(s => s.trim())
   .filter(Boolean);
 
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true; // curl/postman o file://
+  if (allowedOrigins.includes(origin)) return true;
+  // permite dev locales aunque NODE_ENV sea production (útil para debug)
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+  // opcional: permitir *.github.io (si usas GitHub Pages)
+  if (/^https?:\/\/([a-z0-9-]+\.)?github\.io$/.test(origin)) return true;
+  return false;
+};
+
 app.use(cors({
-  origin: NODE_ENV === 'development'
-    ? true
-    : (origin, cb) => {
-        if (!origin) return cb(null, true); // permite curl/postman
-        if (allowedOrigins.includes(origin)) return cb(null, true);
-        return cb(new Error('CORS: Origin no permitido'));
-      },
+  origin: NODE_ENV === 'development' ? true : (origin, cb) => {
+    if (isAllowedOrigin(origin)) return cb(null, true);
+    cb(new Error('CORS: Origin no permitido'));
+  },
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   credentials: false,
 }));
+
 
 app.use(express.json({ limit: '1mb' }));
 
