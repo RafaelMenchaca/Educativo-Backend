@@ -187,28 +187,59 @@ app.put('/api/planeaciones/:id', async (req, res) => {
     res.status(500).json({ error: 'Error al actualizar planeación' });
   }
 });
+// habilita respuestas a preflights de todos los endpoints
+app.options('*', cors({
+  origin: NODE_ENV === 'development'
+    ? true
+    : (origin, cb) => {
+        if (!origin) return cb(null, true);
+        if (allowedOrigins.includes(origin)) return cb(null, true);
+        return cb(new Error('CORS: Origin no permitido'));
+      },
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  credentials: false,
+}));
 
-// Eliminar planeación
+// Eliminar planeación (mejor logging y respuesta)
 app.delete('/api/planeaciones/:id', async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!isPositiveInt(id)) return res.status(400).json({ error: 'ID inválido' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: 'ID inválido' });
+  }
 
   try {
+    console.log(`[DELETE] /api/planeaciones/${id} origin=${req.headers.origin || 'n/a'}`);
+
     const { data, error } = await supabase
       .from('planeaciones')
       .delete()
       .eq('id', id)
-      .select('id');
+      .select('id'); // importante: necesitamos SELECT para saber si borró algo
 
-    if (error) { logSbError('Supabase insert error', error); throw error; }
-    if (!data || data.length === 0) return res.status(404).json({ error: 'No encontrado' });
+    if (error) {
+      // log detallado
+      console.error('[SB_DELETE_ERROR]', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
+      return res.status(500).json({ error: 'Error al eliminar planeación' });
+    }
 
-    return res.status(204).send(); // No Content
+    if (!data || data.length === 0) {
+      // No existía (o políticas impiden devolver fila)
+      return res.status(404).json({ error: 'No encontrado' });
+    }
+
+    // ok
+    return res.status(200).json({ id: data[0].id, message: 'Planeación eliminada' });
   } catch (err) {
-    console.error('❌ Error al eliminar planeación:', err.message);
-    res.status(500).json({ error: 'Error al eliminar planeación' });
+    console.error('❌ Error al eliminar planeación (catch):', err);
+    return res.status(500).json({ error: 'Error al eliminar planeación' });
   }
 });
+
 
 // Middleware de errores (incluye CORS)
 app.use((err, _req, res, _next) => {
