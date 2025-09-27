@@ -65,35 +65,29 @@ app.get('/', (_req, res) => {
 const isPositiveInt = (v) => Number.isInteger(v) && v > 0;
 
 // Crear planeación
-app.post('/api/planeaciones', async (req, res) => {
-  const { materia, grado, tema, duracion, detalles_completos } = req.body || {};
-
-  if (!materia || !grado || !tema) {
-    return res.status(400).json({ error: 'materia, grado y tema son requeridos' });
-  }
-  if (duracion === undefined) {
-    return res.status(400).json({ error: 'duracion es requerida' });
-  }
-  const dur = parseInt(duracion, 10);
-  if (!Number.isFinite(dur) || dur < 0 || dur > 10000) {
-    return res.status(400).json({ error: 'duracion debe ser un número válido' });
-  }
-
+app.post("/api/planeaciones", async (req, res) => {
   try {
+    const { materia, nivel, tema, subtema, duracion, sesiones, tabla_ia } = req.body;
+
+    if (!materia || !nivel || !tema) {
+      return res.status(400).json({ error: "Faltan campos obligatorios" });
+    }
+
     const { data, error } = await supabase
-      .from('planeaciones')
-      .insert([{ materia, grado, tema, duracion: dur, detalles_completos }])
-      .select();
+      .from("planeaciones")
+      .insert([{ materia, nivel, tema, subtema, duracion, sesiones, tabla_ia }])
+      .select()
+      .single();
 
-    if (error) { logSbError('Supabase insert error', error); throw error; }
-    if (!data || !data[0]) return res.status(500).json({ error: 'No se recibió ID de inserción' });
+    if (error) throw error;
 
-    res.status(201).json({ id: data[0].id });
+    res.json(data);
   } catch (err) {
-    console.error('❌ Error al insertar:', err.message);
-    res.status(500).json({ error: 'Error al insertar planeación' });
+    console.error("❌ Error insertando planeación:", err);
+    res.status(500).json({ error: "Error al guardar planeación" });
   }
 });
+
 
 // Listar planeaciones (paginación opcional)
 app.get('/api/planeaciones', async (req, res) => {
