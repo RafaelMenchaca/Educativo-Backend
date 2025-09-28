@@ -235,6 +235,76 @@ app.delete('/api/planeaciones/:id', async (req, res) => {
 });
 
 
+
+// Generar planeación (mock de IA)
+app.post('/api/planeaciones/generate', async (req, res) => {
+  try {
+    const { materia, nivel, tema, subtema, duracion, sesiones } = req.body;
+
+    if (!materia || !nivel || !tema) {
+      return res.status(400).json({ error: "Faltan campos obligatorios" });
+    }
+
+    // 🔹 Mock de IA (JSON fijo de ejemplo)
+    const tablaIaMock = [
+      {
+        tiempo_sesion: "Conocimientos previos",
+        actividades: "Discusión guiada sobre conocimientos previos",
+        paec: "Previo",
+        tiempo_min: 10,
+        producto: "Mapa mental inicial",
+        instrumento: "Lista de cotejo",
+        formativa: "Diagnóstica",
+        sumativa: "-"
+      },
+      {
+        tiempo_sesion: "Desarrollo",
+        actividades: "Resolución de problemas en equipo",
+        paec: "Aplicación",
+        tiempo_min: 30,
+        producto: "Ejercicios resueltos",
+        instrumento: "Rúbrica",
+        formativa: "Formativa",
+        sumativa: "-"
+      },
+      {
+        tiempo_sesion: "Cierre",
+        actividades: "Reflexión grupal y conclusión escrita",
+        paec: "Reflexión",
+        tiempo_min: 10,
+        producto: "Conclusión escrita",
+        instrumento: "Lista de cotejo",
+        formativa: "-",
+        sumativa: "Sumativa"
+      }
+    ];
+
+    // 🔹 Guardar en Supabase
+    const { data, error } = await supabase
+      .from("planeaciones")
+      .insert([{
+        materia,
+        nivel,
+        tema,
+        subtema,
+        duracion,
+        sesiones,
+        tabla_ia: tablaIaMock
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Error generando planeación:", err);
+    res.status(500).json({ error: "Error al generar planeación" });
+  }
+});
+
+
+
 // Middleware de errores (incluye CORS)
 app.use((err, _req, res, _next) => {
   if (err?.message?.includes('CORS')) {
