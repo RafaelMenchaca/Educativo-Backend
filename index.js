@@ -245,7 +245,7 @@ app.post('/api/planeaciones/generate', async (req, res) => {
       return res.status(400).json({ error: "Faltan campos obligatorios" });
     }
 
-    // 🔹 Mock de IA (JSON fijo de ejemplo)
+    //  Mock de IA (JSON fijo de ejemplo)
     const tablaIaMock = [
       {
         tiempo_sesion: "Conocimientos previos",
@@ -279,7 +279,7 @@ app.post('/api/planeaciones/generate', async (req, res) => {
       }
     ];
 
-    // 🔹 Guardar en Supabase
+    //  Guardar en Supabase
     const { data, error } = await supabase
       .from("planeaciones")
       .insert([{
