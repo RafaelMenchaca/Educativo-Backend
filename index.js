@@ -3,6 +3,13 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { supabase } from './supabaseClient.js';
+import OpenAI from "openai";
+
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
 
 dotenv.config();
 
@@ -236,7 +243,7 @@ app.delete('/api/planeaciones/:id', async (req, res) => {
 
 
 
-// Generar planeación (mock de IA)
+// --- Generar planeación con IA real (usando gpt-4o-mini) ---
 app.post('/api/planeaciones/generate', async (req, res) => {
   try {
     const { materia, nivel, tema, subtema, duracion, sesiones } = req.body;
@@ -245,63 +252,147 @@ app.post('/api/planeaciones/generate', async (req, res) => {
       return res.status(400).json({ error: "Faltan campos obligatorios" });
     }
 
-    //  Mock de IA (JSON fijo de ejemplo)
-    const tablaIaMock = [
-      {
-        tiempo_sesion: "Conocimientos previos",
-        actividades: "Discusión guiada sobre conocimientos previos",
-        paec: "Previo",
-        tiempo_min: 10,
-        producto: "Mapa mental inicial",
-        instrumento: "Lista de cotejo",
-        formativa: "Diagnóstica",
-        sumativa: "-"
-      },
-      {
-        tiempo_sesion: "Desarrollo",
-        actividades: "Resolución de problemas en equipo",
-        paec: "Aplicación",
-        tiempo_min: 30,
-        producto: "Ejercicios resueltos",
-        instrumento: "Rúbrica",
-        formativa: "Formativa",
-        sumativa: "-"
-      },
-      {
-        tiempo_sesion: "Cierre",
-        actividades: "Reflexión grupal y conclusión escrita",
-        paec: "Reflexión",
-        tiempo_min: 10,
-        producto: "Conclusión escrita",
-        instrumento: "Lista de cotejo",
-        formativa: "-",
-        sumativa: "Sumativa"
-      }
-    ];
+    // Prompt educativo
+    const prompt = `
+      Eres un experto diseñador de planeaciones didácticas en español, con dominio del modelo educativo mexicano y enfoque por competencias.
 
-    //  Guardar en Supabase
+      Tu tarea es generar una planeación breve para un docente, basada en los siguientes datos:
+      - Materia: ${materia}
+      - Nivel educativo: ${nivel}
+      - Tema: ${tema}
+      - Subtema: ${subtema}
+      - Duración total: ${duracion} minutos
+      - Número de sesiones: ${sesiones}
+
+      Sigue estas reglas:
+      1. Devuelve **solo un arreglo JSON válido** con exactamente tres objetos.
+      2. Cada objeto representa un momento de clase:
+        - Conocimientos previos
+        - Desarrollo
+        - Cierre
+      3. Cada objeto debe incluir las siguientes claves y valores coherentes:
+
+      {
+        "tiempo_sesion": "Conocimientos previos | Desarrollo | Cierre",
+        "actividades": "Describe de forma breve y clara una actividad realista y participativa para este momento.",
+        "paec": "Previo | Aplicación | Reflexión",
+        "tiempo_min": número (en minutos, ajustado al total de ${duracion}),
+        "producto": "Producto o evidencia tangible del aprendizaje.",
+        "instrumento": "Instrumento de evaluación apropiado (lista, rúbrica, guía, etc.)",
+        "formativa": "Tipo de evaluación formativa (Diagnóstica, Formativa, etc.)",
+        "sumativa": "Tipo de evaluación sumativa (Sumativa, Cuantitativa, etc.)"
+      }
+
+      Requisitos de calidad:
+      - Usa un tono formal, claro y profesional, evitando frases genéricas.
+      - Adecúa el lenguaje y complejidad al nivel indicado (${nivel}).
+      - Asegúrate de que las tres actividades sean diferentes entre sí, coherentes con el tema y con tiempos que sumen aproximadamente ${duracion} minutos.
+      - No incluyas explicaciones, encabezados ni texto fuera del JSON.
+      `;
+
+
+    // --- Llamada a la IA ---
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "Eres un experto en educación que crea planeaciones didácticas estructuradas y realistas."
+        },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.6,
+      max_tokens: 800
+    });
+
+    const rawText = completion.choices[0].message.content?.trim() || "";
+
+    // --- Limpieza y validación del JSON ---
+    let tablaIa = [];
+    try {
+      // intenta parsear directamente
+      tablaIa = JSON.parse(rawText);
+    } catch (parseErr) {
+      // intenta limpiar texto si vino con texto extra
+      const match = rawText.match(/\[.*\]/s);
+      if (match) {
+        try {
+          tablaIa = JSON.parse(match[0]);
+        } catch {
+          console.warn("⚠️ JSON aún inválido tras limpieza.");
+        }
+      }
+    }
+
+    // --- fallback si la IA falla ---
+    // Generar planeación (mock de IA)
+    if (!Array.isArray(tablaIa) || tablaIa.length === 0) {
+      console.warn("⚠️ La IA no devolvió un JSON válido, usando fallback básico.");
+      tablaIa = [
+        {
+          tiempo_sesion: "Conocimientos previos",
+          actividades: "Discusión guiada sobre conocimientos previos",
+          paec: "Previo",
+          tiempo_min: 10,
+          producto: "Mapa mental inicial",
+          instrumento: "Lista de cotejo",
+          formativa: "Diagnóstica",
+          sumativa: "-"
+        },
+        {
+          tiempo_sesion: "Desarrollo",
+          actividades: "Resolución de problemas en equipo",
+          paec: "Aplicación",
+          tiempo_min: duracion - 20,
+          producto: "Ejercicios resueltos",
+          instrumento: "Rúbrica",
+          formativa: "Formativa",
+          sumativa: "-"
+        },
+        {
+          tiempo_sesion: "Cierre",
+          actividades: "Reflexión grupal y conclusión escrita",
+          paec: "Reflexión",
+          tiempo_min: 10,
+          producto: "Conclusión escrita",
+          instrumento: "Lista de cotejo",
+          formativa: "-",
+          sumativa: "Sumativa"
+        }
+      ];
+    }
+
+    // --- Guarda la planeación en Supabase ---
     const { data, error } = await supabase
       .from("planeaciones")
-      .insert([{
-        materia,
-        nivel,
-        tema,
-        subtema,
-        duracion,
-        sesiones,
-        tabla_ia: tablaIaMock
-      }])
+      .insert([
+        {
+          materia,
+          nivel,
+          tema,
+          subtema,
+          duracion,
+          sesiones,
+          tabla_ia: tablaIa
+        }
+      ])
       .select()
       .single();
 
     if (error) throw error;
 
+    // --- Devuelve resultado al frontend ---
     res.json(data);
+
   } catch (err) {
-    console.error("❌ Error generando planeación:", err);
-    res.status(500).json({ error: "Error al generar planeación" });
+    console.error("❌ Error al generar planeación con IA:", err);
+    res.status(500).json({
+      error: "Error al generar planeación con IA",
+      details: err.message
+    });
   }
 });
+
 
 
 
