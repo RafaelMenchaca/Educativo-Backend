@@ -152,7 +152,9 @@ app.put('/api/planeaciones/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!isPositiveInt(id)) return res.status(400).json({ error: 'ID inválido' });
 
-  const { materia, grado, tema, duracion, detalles_completos } = req.body || {};
+  // 🔹 Agregamos tabla_ia a la desestructuración
+  const { materia, grado, tema, duracion, detalles_completos, tabla_ia } = req.body || {};
+
 
   const update = {};
   if (materia !== undefined) update.materia = materia;
@@ -166,6 +168,8 @@ app.put('/api/planeaciones/:id', async (req, res) => {
     update.duracion = dur;
   }
   if (detalles_completos !== undefined) update.detalles_completos = detalles_completos;
+
+  if (tabla_ia !== undefined) update.tabla_ia = tabla_ia;
 
   if (Object.keys(update).length === 0) {
     return res.status(400).json({ error: 'Nada que actualizar' });
@@ -188,6 +192,7 @@ app.put('/api/planeaciones/:id', async (req, res) => {
     res.status(500).json({ error: 'Error al actualizar planeación' });
   }
 });
+
 // habilita respuestas a preflights de todos los endpoints
 app.options('*', cors({
   origin: NODE_ENV === 'development'
