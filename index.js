@@ -257,68 +257,131 @@ app.post('/api/planeaciones/generate', async (req, res) => {
       return res.status(400).json({ error: "Faltan campos obligatorios" });
     }
 
-    // Prompt educativo
-    const prompt = `
-      Eres un experto diseñador de planeaciones didácticas en español, con dominio del modelo educativo mexicano y enfoque por competencias.
+    // Función para construir prompt adaptativo por nivel
+    function buildPromptByLevel({ materia, nivel, tema, subtema, duracion, sesiones }) {
+      const base = `
+Genera una planeación didáctica estructurada en tres momentos:
+1️⃣ Conocimientos previos
+2️⃣ Desarrollo
+3️⃣ Cierre
 
-      Tu tarea es generar una planeación breve para un docente, basada en los siguientes datos:
-      - Materia: ${materia}
-      - Nivel educativo: ${nivel}
-      - Tema: ${tema}
-      - Subtema: ${subtema}
-      - Duración total: ${duracion} minutos
-      - Número de sesiones: ${sesiones}
+Usa el formato JSON siguiente:
+[
+  {
+    "tiempo_sesion": "Conocimientos previos | Desarrollo | Cierre",
+    "actividades": "...",
+    "paec": "Previo | Aplicación | Reflexión",
+    "tiempo_min": número (en minutos, ajustado al total de ${duracion}),
+    "producto": "...",
+    "instrumento": "...",
+    "formativa": "...",
+    "sumativa": "..."
+  }
+]
 
-      Sigue estas reglas:
-      1. Devuelve **solo un arreglo JSON válido** con exactamente tres objetos.
-      2. Cada objeto representa un momento de clase:
-        - Conocimientos previos
-        - Desarrollo
-        - Cierre
-      3. Cada objeto debe incluir las siguientes claves y valores coherentes:
+Debe mantener exactamente tres objetos en el arreglo (uno por momento).
+No incluyas texto fuera del JSON.
+`;
 
-      {
-        "tiempo_sesion": "Conocimientos previos | Desarrollo | Cierre",
-        "actividades": "Describe de forma breve y clara una actividad realista y participativa para este momento.",
-        "paec": "Previo | Aplicación | Reflexión",
-        "tiempo_min": número (en minutos, ajustado al total de ${duracion}),
-        "producto": "Producto o evidencia tangible del aprendizaje.",
-        "instrumento": "Instrumento de evaluación apropiado (lista, rúbrica, guía, etc.)",
-        "formativa": "Tipo de evaluación formativa (Diagnóstica, Formativa, etc.)",
-        "sumativa": "Tipo de evaluación sumativa (Sumativa, Cuantitativa, etc.)"
+      // Adaptaciones según nivel educativo
+      if (/primaria/i.test(nivel)) {
+        return `
+${base}
+📘 Contexto: Nivel Primaria
+Usa un lenguaje sencillo y alegre, con ejemplos concretos, visuales y actividades cortas (10–15 min).
+Evita tecnicismos. Usa productos como dibujos, esquemas, dramatizaciones o explicaciones breves.
+Materia: ${materia}
+Tema: ${tema}
+Subtema: ${subtema}
+Duración total: ${duracion} minutos
+Sesiones: ${sesiones}
+`;
       }
 
-      Requisitos de calidad:
-      - Usa un tono formal, claro y profesional, evitando frases genéricas.
-      - Adecúa el lenguaje y complejidad al nivel indicado (${nivel}).
-      - Asegúrate de que las tres actividades sean diferentes entre sí, coherentes con el tema y con tiempos que sumen aproximadamente ${duracion} minutos.
-      - No incluyas explicaciones, encabezados ni texto fuera del JSON.
-      `;
+      if (/secundaria/i.test(nivel)) {
+        return `
+${base}
+📗 Contexto: Nivel Secundaria
+Usa un lenguaje intermedio, fomenta el trabajo colaborativo y la reflexión.
+Incluye actividades de exploración, análisis, debates o resolución de problemas aplicados.
+Materia: ${materia}
+Tema: ${tema}
+Subtema: ${subtema}
+Duración total: ${duracion} minutos
+Sesiones: ${sesiones}
+`;
+      }
+
+      if (/prepa|bachiller/i.test(nivel)) {
+        return `
+${base}
+📙 Contexto: Nivel Preparatoria
+Usa un lenguaje formal y técnico.
+Promueve el pensamiento crítico, el trabajo autónomo y la aplicación de conocimientos.
+Las actividades deben incluir análisis, exposición oral o proyectos escritos.
+Materia: ${materia}
+Tema: ${tema}
+Subtema: ${subtema}
+Duración total: ${duracion} minutos
+Sesiones: ${sesiones}
+`;
+      }
+
+      if (/universidad|licenciatura|ingenier|posgrado/i.test(nivel)) {
+  return `
+${base}
+📘 Contexto: Nivel Universitario
+Usa un lenguaje académico, formal y técnico.
+Fomenta la investigación, la argumentación y la aplicación práctica de conceptos teóricos.
+Las actividades deben incluir análisis de casos, debates, proyectos integradores o exposiciones.
+Promueve la autonomía y la evaluación por competencias.
+Materia: ${materia}
+Tema: ${tema}
+Subtema: ${subtema}
+Duración total: ${duracion} minutos
+Sesiones: ${sesiones}
+`;
+}
 
 
-    // --- Llamada a la IA ---
+      // Por defecto
+      return `
+${base}
+Nivel educativo: ${nivel}
+Materia: ${materia}
+Tema: ${tema}
+Subtema: ${subtema}
+Duración total: ${duracion} minutos
+Sesiones: ${sesiones}
+`;
+    }
+
+    // Construir prompt adaptativo
+    const prompt = buildPromptByLevel({ materia, nivel, tema, subtema, duracion, sesiones });
+    console.log("Prompt generado:\n", prompt);
+
+    // --- Llamada a OpenAI ---
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: "Eres un experto en educación que crea planeaciones didácticas estructuradas y realistas."
+          content: "Eres un experto diseñador instruccional en educación mexicana que genera planeaciones didácticas realistas y bien estructuradas."
         },
         { role: "user", content: prompt }
       ],
-      temperature: 0.6,
-      max_tokens: 800
+      temperature: 0.4, // 🔹 más consistencia, menos variabilidad
+      max_tokens: 700
     });
 
     const rawText = completion.choices[0].message.content?.trim() || "";
+    console.log("Respuesta IA:\n", rawText);
 
     // --- Limpieza y validación del JSON ---
     let tablaIa = [];
     try {
-      // intenta parsear directamente
       tablaIa = JSON.parse(rawText);
-    } catch (parseErr) {
-      // intenta limpiar texto si vino con texto extra
+    } catch {
       const match = rawText.match(/\[.*\]/s);
       if (match) {
         try {
@@ -329,10 +392,9 @@ app.post('/api/planeaciones/generate', async (req, res) => {
       }
     }
 
-    // --- fallback si la IA falla ---
-    // Generar planeación (mock de IA)
+    // --- Fallback si la IA falla ---
     if (!Array.isArray(tablaIa) || tablaIa.length === 0) {
-      console.warn("⚠️ La IA no devolvió un JSON válido, usando fallback básico.");
+      console.warn("⚠️ La IA no devolvió JSON válido. Usando fallback básico.");
       tablaIa = [
         {
           tiempo_sesion: "Conocimientos previos",
@@ -367,7 +429,7 @@ app.post('/api/planeaciones/generate', async (req, res) => {
       ];
     }
 
-    // --- Guarda la planeación en Supabase ---
+    // --- Guardar planeación en Supabase ---
     const { data, error } = await supabase
       .from("planeaciones")
       .insert([
@@ -386,7 +448,7 @@ app.post('/api/planeaciones/generate', async (req, res) => {
 
     if (error) throw error;
 
-    // --- Devuelve resultado al frontend ---
+    // --- Devolver resultado al frontend ---
     res.json(data);
 
   } catch (err) {
@@ -397,6 +459,7 @@ app.post('/api/planeaciones/generate', async (req, res) => {
     });
   }
 });
+
 
 
 
