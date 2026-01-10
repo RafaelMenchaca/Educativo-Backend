@@ -1,3 +1,24 @@
+## [v1.1-IA-Metrics-and-Export-Release] - 2026-01-10
+
+### 🚀 Novedades
+- Nuevo sistema de métricas de IA mediante la tabla `ia_metrics` en Supabase.
+- Registro automático de consumo de tokens, consistencia del JSON y versión del prompt por planeación.
+- Prompt adaptativo optimizado por nivel educativo (Primaria, Secundaria, Preparatoria y Universidad).
+- Nuevo endpoint de exportación **Excel profesional (.xlsx)** para planeaciones didácticas.
+- Exportación disponible tanto al crear la planeación como desde la vista de detalle.
+
+### 🧰 Técnicos
+- Integración de `exceljs` para generación de archivos Excel desde backend.
+- Manejo seguro de métricas sin afectar el flujo principal de generación.
+- Arquitectura preparada para análisis posterior de costos y calidad de IA.
+- Compatibilidad total con Supabase y frontend existente.
+
+### 🧩 Próximos pasos
+- Análisis de métricas IA para optimización de prompts y costos.
+- Añadir branding institucional (logo) a los archivos exportados.
+- Exportación a PDF con formato oficial.
+
+
 ## [v1.0-IA-Integration-Release] - 2026-01-03
 
 ### 🚀 Novedades
