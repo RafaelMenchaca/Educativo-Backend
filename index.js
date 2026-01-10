@@ -4,6 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { supabase } from './supabaseClient.js';
 import OpenAI from "openai";
+import ExcelJS from "exceljs";
 
 
 const openai = new OpenAI({
@@ -152,7 +153,7 @@ app.put('/api/planeaciones/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!isPositiveInt(id)) return res.status(400).json({ error: 'ID inválido' });
 
-  // 🔹 Agregamos tabla_ia a la desestructuración
+  // Agregamos tabla_ia a la desestructuración
   const { materia, grado, tema, duracion, detalles_completos, tabla_ia } = req.body || {};
 
 
@@ -246,6 +247,106 @@ app.delete('/api/planeaciones/:id', async (req, res) => {
   }
 });
 
+// exportar a excel (CSV) GET /api/planeaciones/:id/export/excel
+app.get("/api/planeaciones/:id/export/excel", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 1. Obtener planeación
+    const { data, error } = await supabase
+      .from("planeaciones")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error || !data) {
+      return res.status(404).json({ error: "Planeación no encontrada" });
+    }
+
+    const {
+      materia,
+      nivel,
+      tema,
+      subtema,
+      duracion,
+      sesiones,
+      tabla_ia
+    } = data;
+
+    // 2. Crear workbook
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Planeación");
+
+    // 3. Encabezado institucional
+    sheet.addRow(["Planeación Didáctica"]);
+    sheet.mergeCells("A1:H1");
+    sheet.getCell("A1").font = { bold: true, size: 16 };
+    sheet.getCell("A1").alignment = { horizontal: "center" };
+
+    sheet.addRow([]);
+    sheet.addRow(["Materia:", materia]);
+    sheet.addRow(["Nivel:", nivel]);
+    sheet.addRow(["Tema:", tema]);
+    sheet.addRow(["Subtema:", subtema || "-"]);
+    sheet.addRow(["Duración (min):", duracion]);
+    sheet.addRow(["Sesiones:", sesiones]);
+    sheet.addRow([]);
+
+    // 4. Encabezados de tabla
+    sheet.addRow([
+      "Momento",
+      "Actividades",
+      "PAEC",
+      "Tiempo (min)",
+      "Producto",
+      "Instrumento",
+      "Formativa",
+      "Sumativa"
+    ]);
+
+    const headerRow = sheet.lastRow;
+    headerRow.font = { bold: true };
+    headerRow.alignment = { horizontal: "center" };
+
+    // 5. Filas IA
+    tabla_ia.forEach(row => {
+      sheet.addRow([
+        row.tiempo_sesion,
+        row.actividades,
+        row.paec,
+        row.tiempo_min,
+        row.producto,
+        row.instrumento,
+        row.formativa,
+        row.sumativa
+      ]);
+    });
+
+    // 6. Ajustes visuales
+    sheet.columns.forEach(col => {
+      col.width = 25;
+      col.alignment = { vertical: "top", wrapText: true };
+    });
+
+    // 7. Enviar archivo
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="Planeacion_${materia}_${nivel}.xlsx"`
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error("❌ Error exportando Excel:", err);
+    res.status(500).json({ error: "Error al exportar Excel" });
+  }
+});
+
 
 
 // --- Generar planeación con IA real (usando gpt-4o-mini) ---
@@ -312,7 +413,7 @@ Sesiones: ${sesiones}
 `;
       }
 
-      if (/prepa|bachiller/i.test(nivel)) {
+      if (/prepa|preparatoria|bachiller/i.test(nivel)) {
         return `
 ${base}
 📙 Contexto: Nivel Preparatoria
@@ -370,58 +471,69 @@ Sesiones: ${sesiones}
         },
         { role: "user", content: prompt }
       ],
-      temperature: 0.4, // 🔹 más consistencia, menos variabilidad
+      temperature: 0.5, // regular entre 0.2 a 0.6 más consistencia, menos variabilidad
       max_tokens: 700
     });
 
-    const rawText = completion.choices[0].message.content?.trim() || "";
-    console.log("Respuesta IA:\n", rawText);
+    const usage = completion.usage || {};
+    const tokens_prompt = usage.prompt_tokens || 0;
+    const tokens_completion = usage.completion_tokens || 0;
+    const tokens_total = usage.total_tokens || 0;
 
-    // --- Limpieza y validación del JSON ---
+    const rawText = completion.choices[0].message.content?.trim() || "";
+
+    // JSON 
+    let jsonOk = true;
+    let errorTipo = null;
     let tablaIa = [];
+
     try {
       tablaIa = JSON.parse(rawText);
     } catch {
+      jsonOk = false;
+      errorTipo = "invalid_json";
+
       const match = rawText.match(/\[.*\]/s);
       if (match) {
         try {
           tablaIa = JSON.parse(match[0]);
-        } catch {
-          console.warn("⚠️ JSON aún inválido tras limpieza.");
-        }
+          jsonOk = true;
+          errorTipo = "json_recovered";
+        } catch {}
       }
     }
 
-    // --- Fallback si la IA falla ---
     if (!Array.isArray(tablaIa) || tablaIa.length === 0) {
-      console.warn("⚠️ La IA no devolvió JSON válido. Usando fallback básico.");
+      jsonOk = false;
+      errorTipo = "fallback_used";
+
       tablaIa = [
         {
           tiempo_sesion: "Conocimientos previos",
-          actividades: "Discusión guiada sobre conocimientos previos",
+          actividades: "Discusión guiada",
           paec: "Previo",
           tiempo_min: 10,
-          producto: "Mapa mental inicial",
+          producto: "Mapa mental",
           instrumento: "Lista de cotejo",
           formativa: "Diagnóstica",
           sumativa: "-"
         },
         {
           tiempo_sesion: "Desarrollo",
-          actividades: "Resolución de problemas en equipo",
+          actividades: "Trabajo colaborativo",
           paec: "Aplicación",
           tiempo_min: duracion - 20,
-          producto: "Ejercicios resueltos",
+          producto: "Ejercicios",
           instrumento: "Rúbrica",
           formativa: "Formativa",
           sumativa: "-"
         },
         {
           tiempo_sesion: "Cierre",
-          actividades: "Reflexión grupal y conclusión escrita",
+          actividades: "Reflexión final",
           paec: "Reflexión",
           tiempo_min: 10,
-          producto: "Conclusión escrita",
+          producto: "Conclusión",
           instrumento: "Lista de cotejo",
           formativa: "-",
           sumativa: "Sumativa"
@@ -429,7 +541,7 @@ Sesiones: ${sesiones}
       ];
     }
 
-    // --- Guardar planeación en Supabase ---
+    // DB PLANEACIONES 
     const { data, error } = await supabase
       .from("planeaciones")
       .insert([
@@ -448,7 +560,28 @@ Sesiones: ${sesiones}
 
     if (error) throw error;
 
-    // --- Devolver resultado al frontend ---
+    // MÉTRICAS IA (NO BLOQUEANTE)
+    const { error: metricsError } = await supabase
+      .from("ia_metrics")
+      .insert([
+        {
+          nivel,
+          materia,
+          prompt_version: "v1_adaptativo_niveles",
+          tokens_prompt,
+          tokens_completion,
+          tokens_total,
+          json_ok: jsonOk,
+          error_tipo: errorTipo
+        }
+      ]);
+
+    if (metricsError) {
+      console.warn("⚠️ Error guardando métricas IA:", metricsError);
+    }
+
+
+
     res.json(data);
 
   } catch (err) {
@@ -459,6 +592,7 @@ Sesiones: ${sesiones}
     });
   }
 });
+
 
 
 
