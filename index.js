@@ -1,4 +1,3 @@
-// index.js
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -6,21 +5,22 @@ import { supabase } from './supabaseClient.js';
 import OpenAI from "openai";
 import ExcelJS from "exceljs";
 
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
-
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
 // Helper de logs para errores de Supabase
+
+const isPositiveInt = (v) => Number.isInteger(v) && v > 0;
+
 const logSbError = (label, error) => {
-  console.error(`${label}:`, {
+  console.error(label, {
     message: error?.message,
     code: error?.code,
     details: error?.details,
@@ -28,325 +28,230 @@ const logSbError = (label, error) => {
   });
 };
 
-
-
-
 // --- CORS: en dev permite todo, en prod solo orígenes listados ---
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
 
-const isAllowedOrigin = (origin) => {
-  if (!origin) return true; // curl/postman o file://
-  if (allowedOrigins.includes(origin)) return true;
-  // permite dev locales aunque NODE_ENV sea production (útil para debug)
-  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
-  // opcional: permitir *.github.io (si usas GitHub Pages)
-  if (/^https?:\/\/([a-z0-9-]+\.)?github\.io$/.test(origin)) return true;
-  return false;
-};
-
 app.use(cors({
-  origin: NODE_ENV === 'development' ? true : (origin, cb) => {
-    if (isAllowedOrigin(origin)) return cb(null, true);
-    cb(new Error('CORS: Origin no permitido'));
-  },
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  credentials: false,
+  origin: NODE_ENV === 'development'
+    ? true
+    : (origin, cb) => {
+        if (!origin) return cb(null, true);
+        if (allowedOrigins.includes(origin)) return cb(null, true);
+        // permite dev locales aunque NODE_ENV sea production (útil para debug)
+        if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
+        // opcional: permitir *.github.io (si usas GitHub Pages)
+        if (/^https?:\/\/([a-z0-9-]+\.)?github\.io$/.test(origin)) return cb(null, true);
+        cb(new Error('CORS: Origin no permitido'));
+      }
 }));
 
-
 app.use(express.json({ limit: '1mb' }));
+
+
+// Auth middleware 
+async function requireUser(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace('Bearer ', '');
+
+  if (!token) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+
+  const { data, error } = await supabase.auth.getUser(token);
+
+  if (error || !data?.user) {
+    return res.status(401).json({ error: 'Sesión inválida' });
+  }
+
+  req.user = data.user;
+  next();
+}
 
 // Healthcheck
 app.get('/health', (_req, res) => {
   res.json({ ok: true, env: NODE_ENV });
 });
 
-// Ruta de prueba
-app.get('/', (_req, res) => {
-  res.send('Servidor educativo-ia funcionando 🚀');
-});
-
-// Helpers
-const isPositiveInt = (v) => Number.isInteger(v) && v > 0;
-
-// Crear planeación
-app.post("/api/planeaciones", async (req, res) => {
-  try {
-    const { materia, nivel, tema, subtema, duracion, sesiones, tabla_ia } = req.body;
-
-    if (!materia || !nivel || !tema) {
-      return res.status(400).json({ error: "Faltan campos obligatorios" });
-    }
-
-    const { data, error } = await supabase
-      .from("planeaciones")
-      .insert([{ materia, nivel, tema, subtema, duracion, sesiones, tabla_ia }])
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    res.json(data);
-  } catch (err) {
-    console.error("❌ Error insertando planeación:", err);
-    res.status(500).json({ error: "Error al guardar planeación" });
-  }
-});
-
-
 // Listar planeaciones (paginación opcional)
-app.get('/api/planeaciones', async (req, res) => {
+app.get('/api/planeaciones', requireUser, async (req, res) => {
   const page = parseInt(req.query.page ?? '1', 10);
   const pageSize = parseInt(req.query.pageSize ?? '50', 10);
 
-  const from = (isPositiveInt(page) ? (page - 1) : 0) * (isPositiveInt(pageSize) ? pageSize : 50);
-  const to = from + (isPositiveInt(pageSize) ? pageSize : 50) - 1;
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
 
   try {
     const { data, error, count } = await supabase
       .from('planeaciones')
       .select('*', { count: 'exact' })
+      .eq('user_id', req.user.id)
       .order('fecha_creacion', { ascending: false })
       .range(from, to);
 
-    if (error) { logSbError('Supabase insert error', error); throw error; }
+    if (error) throw error;
 
-    res.json({
-      items: data ?? [],
-      page,
-      pageSize,
-      total: count ?? 0
-    });
+    res.json({ items: data, page, pageSize, total: count });
   } catch (err) {
-    console.error('❌ Error al obtener planeaciones:', err.message);
+    console.error(err);
     res.status(500).json({ error: 'Error al obtener planeaciones' });
   }
 });
 
-// Obtener planeación por ID
-app.get('/api/planeaciones/:id', async (req, res) => {
+// Obtener planeación por ID=
+app.get('/api/planeaciones/:id', requireUser, async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!isPositiveInt(id)) return res.status(400).json({ error: 'ID inválido' });
+  if (!isPositiveInt(id)) {
+    return res.status(400).json({ error: 'ID inválido' });
+  }
 
   try {
     const { data, error } = await supabase
       .from('planeaciones')
       .select('*')
       .eq('id', id)
+      .eq('user_id', req.user.id)
       .maybeSingle();
 
-    if (error) { logSbError('Supabase insert error', error); throw error; }
+    if (error) throw error;
     if (!data) return res.status(404).json({ error: 'No encontrado' });
 
     res.json(data);
   } catch (err) {
-    console.error('❌ Error al obtener planeación:', err.message);
     res.status(500).json({ error: 'Error al obtener planeación' });
   }
 });
 
 // Actualizar planeación (PUT)
-app.put('/api/planeaciones/:id', async (req, res) => {
+app.put('/api/planeaciones/:id', requireUser, async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!isPositiveInt(id)) return res.status(400).json({ error: 'ID inválido' });
-
-  // Agregamos tabla_ia a la desestructuración
-  const { materia, grado, tema, duracion, detalles_completos, tabla_ia } = req.body || {};
-
-
-  const update = {};
-  if (materia !== undefined) update.materia = materia;
-  if (grado !== undefined) update.grado = grado;
-  if (tema !== undefined) update.tema = tema;
-  if (duracion !== undefined) {
-    const dur = parseInt(duracion, 10);
-    if (!Number.isFinite(dur) || dur < 0 || dur > 10000) {
-      return res.status(400).json({ error: 'duracion debe ser un número válido' });
-    }
-    update.duracion = dur;
+  if (!isPositiveInt(id)) {
+    return res.status(400).json({ error: 'ID inválido' });
   }
-  if (detalles_completos !== undefined) update.detalles_completos = detalles_completos;
 
-  if (tabla_ia !== undefined) update.tabla_ia = tabla_ia;
-
-  if (Object.keys(update).length === 0) {
-    return res.status(400).json({ error: 'Nada que actualizar' });
-  }
+  const update = req.body || {};
 
   try {
     const { data, error } = await supabase
       .from('planeaciones')
       .update(update)
       .eq('id', id)
+      .eq('user_id', req.user.id)
       .select()
       .maybeSingle();
 
-    if (error) { logSbError('Supabase insert error', error); throw error; }
+    if (error) throw error;
     if (!data) return res.status(404).json({ error: 'No encontrado' });
 
     res.json(data);
   } catch (err) {
-    console.error('❌ Error al actualizar planeación:', err.message);
     res.status(500).json({ error: 'Error al actualizar planeación' });
   }
 });
 
-// habilita respuestas a preflights de todos los endpoints
-app.options('*', cors({
-  origin: NODE_ENV === 'development'
-    ? true
-    : (origin, cb) => {
-        if (!origin) return cb(null, true);
-        if (allowedOrigins.includes(origin)) return cb(null, true);
-        return cb(new Error('CORS: Origin no permitido'));
-      },
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  credentials: false,
-}));
 
-// Eliminar planeación (mejor logging y respuesta)
-app.delete('/api/planeaciones/:id', async (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) {
+// Eliminar planeación
+app.delete('/api/planeaciones/:id', requireUser, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!isPositiveInt(id)) {
     return res.status(400).json({ error: 'ID inválido' });
   }
 
   try {
-    console.log(`[DELETE] /api/planeaciones/${id} origin=${req.headers.origin || 'n/a'}`);
-
     const { data, error } = await supabase
       .from('planeaciones')
       .delete()
       .eq('id', id)
-      .select('id'); // importante: necesitamos SELECT para saber si borró algo
+      .eq('user_id', req.user.id)
+      .select('id');
 
-    if (error) {
-      // log detallado
-      console.error('[SB_DELETE_ERROR]', {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint
-      });
-      return res.status(500).json({ error: 'Error al eliminar planeación' });
-    }
-
+    if (error) throw error;
     if (!data || data.length === 0) {
-      // No existía (o políticas impiden devolver fila)
       return res.status(404).json({ error: 'No encontrado' });
     }
 
-    // ok
-    return res.status(200).json({ id: data[0].id, message: 'Planeación eliminada' });
+    res.json({ id: data[0].id, message: 'Planeación eliminada' });
   } catch (err) {
-    console.error('❌ Error al eliminar planeación (catch):', err);
-    return res.status(500).json({ error: 'Error al eliminar planeación' });
+    res.status(500).json({ error: 'Error al eliminar planeación' });
   }
 });
 
-// exportar a excel (CSV) GET /api/planeaciones/:id/export/excel
-app.get("/api/planeaciones/:id/export/excel", async (req, res) => {
-  try {
-    const { id } = req.params;
 
-    // 1. Obtener planeación
-    const { data, error } = await supabase
-      .from("planeaciones")
-      .select("*")
-      .eq("id", id)
-      .single();
+// Exportar planeación a Excel
+app.get('/api/planeaciones/:id/export/excel', requireUser, async (req, res) => {
+  const { id } = req.params;
 
-    if (error || !data) {
-      return res.status(404).json({ error: "Planeación no encontrada" });
-    }
+  const { data, error } = await supabase
+    .from('planeaciones')
+    .select('*')
+    .eq('id', id)
+    .eq('user_id', req.user.id)
+    .single();
 
-    const {
-      materia,
-      nivel,
-      tema,
-      subtema,
-      duracion,
-      sesiones,
-      tabla_ia
-    } = data;
+  if (error || !data) {
+    return res.status(404).json({ error: 'Planeación no encontrada' });
+  }
 
-    // 2. Crear workbook
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Planeación");
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Planeación');
 
-    // 3. Encabezado institucional
-    sheet.addRow(["Planeación Didáctica"]);
-    sheet.mergeCells("A1:H1");
-    sheet.getCell("A1").font = { bold: true, size: 16 };
-    sheet.getCell("A1").alignment = { horizontal: "center" };
+  sheet.addRow(['Planeación Didáctica']);
+  sheet.mergeCells('A1:H1');
+  sheet.getCell('A1').font = { bold: true, size: 16 };
+  sheet.getCell('A1').alignment = { horizontal: 'center' };
 
-    sheet.addRow([]);
-    sheet.addRow(["Materia:", materia]);
-    sheet.addRow(["Nivel:", nivel]);
-    sheet.addRow(["Tema:", tema]);
-    sheet.addRow(["Subtema:", subtema || "-"]);
-    sheet.addRow(["Duración (min):", duracion]);
-    sheet.addRow(["Sesiones:", sesiones]);
-    sheet.addRow([]);
+  sheet.addRow([]);
+  sheet.addRow(['Materia:', data.materia]);
+  sheet.addRow(['Nivel:', data.nivel]);
+  sheet.addRow(['Tema:', data.tema]);
+  sheet.addRow(['Subtema:', data.subtema || '-']);
+  sheet.addRow(['Duración:', data.duracion]);
+  sheet.addRow(['Sesiones:', data.sesiones]);
+  sheet.addRow([]);
 
-    // 4. Encabezados de tabla
+  sheet.addRow([
+    'Momento',
+    'Actividades',
+    'PAEC',
+    'Tiempo',
+    'Producto',
+    'Instrumento',
+    'Formativa',
+    'Sumativa'
+  ]);
+
+  data.tabla_ia.forEach(r => {
     sheet.addRow([
-      "Momento",
-      "Actividades",
-      "PAEC",
-      "Tiempo (min)",
-      "Producto",
-      "Instrumento",
-      "Formativa",
-      "Sumativa"
+      r.tiempo_sesion,
+      r.actividades,
+      r.paec,
+      r.tiempo_min,
+      r.producto,
+      r.instrumento,
+      r.formativa,
+      r.sumativa
     ]);
+  });
 
-    const headerRow = sheet.lastRow;
-    headerRow.font = { bold: true };
-    headerRow.alignment = { horizontal: "center" };
+  sheet.columns.forEach(col => {
+    col.width = 25;
+    col.alignment = { wrapText: true, vertical: 'top' };
+  });
 
-    // 5. Filas IA
-    tabla_ia.forEach(row => {
-      sheet.addRow([
-        row.tiempo_sesion,
-        row.actividades,
-        row.paec,
-        row.tiempo_min,
-        row.producto,
-        row.instrumento,
-        row.formativa,
-        row.sumativa
-      ]);
-    });
+  res.setHeader(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename=Planeacion_${data.materia}.xlsx`
+  );
 
-    // 6. Ajustes visuales
-    sheet.columns.forEach(col => {
-      col.width = 25;
-      col.alignment = { vertical: "top", wrapText: true };
-    });
-
-    // 7. Enviar archivo
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="Planeacion_${materia}_${nivel}.xlsx"`
-    );
-
-    await workbook.xlsx.write(res);
-    res.end();
-
-  } catch (err) {
-    console.error("❌ Error exportando Excel:", err);
-    res.status(500).json({ error: "Error al exportar Excel" });
-  }
+  await workbook.xlsx.write(res);
+  res.end();
 });
-
 
 
 // --- Generar planeación con IA real (usando gpt-4o-mini) ---
@@ -593,22 +498,11 @@ Sesiones: ${sesiones}
   }
 });
 
-
-
-
-
-
-// Middleware de errores (incluye CORS)
+// Error handling
 app.use((err, _req, res, _next) => {
-  if (err?.message?.includes('CORS')) {
-    return res.status(403).json({ error: 'CORS: Origin no permitido' });
-  }
-  console.error('⚠️ Unhandled error:', err);
+  console.error(err);
   res.status(500).json({ error: 'Error interno del servidor' });
 });
-
-// 404 por defecto
-app.use((_req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
