@@ -5,6 +5,7 @@ import { supabase } from './supabaseClient.js';
 import OpenAI from "openai";
 import ExcelJS from "exceljs";
 
+
 dotenv.config();
 
 const app = express();
@@ -51,81 +52,76 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }));
 
 
-// Auth middleware 
-async function requireUser(req, res, next) {
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.replace('Bearer ', '');
+// Middleware: autenticar usuario Supabase
+async function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
 
-  if (!token) {
-    return res.status(401).json({ error: 'No autorizado' });
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Token requerido" });
   }
+
+  const token = authHeader.replace("Bearer ", "");
 
   const { data, error } = await supabase.auth.getUser(token);
 
   if (error || !data?.user) {
-    return res.status(401).json({ error: 'Sesión inválida' });
+    return res.status(401).json({ error: "Token inválido" });
   }
 
   req.user = data.user;
   next();
 }
 
+
 // Healthcheck
 app.get('/health', (_req, res) => {
   res.json({ ok: true, env: NODE_ENV });
 });
 
-// Listar planeaciones (paginación opcional)
-app.get('/api/planeaciones', requireUser, async (req, res) => {
-  const page = parseInt(req.query.page ?? '1', 10);
-  const pageSize = parseInt(req.query.pageSize ?? '50', 10);
-
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-
-  try {
-    const { data, error, count } = await supabase
-      .from('planeaciones')
-      .select('*', { count: 'exact' })
-      .eq('user_id', req.user.id)
-      .order('fecha_creacion', { ascending: false })
-      .range(from, to);
-
-    if (error) throw error;
-
-    res.json({ items: data, page, pageSize, total: count });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Error al obtener planeaciones' });
-  }
+// Ruta de prueba
+app.get('/', (_req, res) => {
+  res.send('Servidor educativo-ia funcionando 🚀');
 });
 
-// Obtener planeación por ID=
-app.get('/api/planeaciones/:id', requireUser, async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!isPositiveInt(id)) {
-    return res.status(400).json({ error: 'ID inválido' });
-  }
-
+// Listar planeaciones (paginación opcional)
+app.get('/api/planeaciones', requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('planeaciones')
       .select('*')
-      .eq('id', id)
       .eq('user_id', req.user.id)
-      .maybeSingle();
+      .order('fecha_creacion', { ascending: false });
 
     if (error) throw error;
-    if (!data) return res.status(404).json({ error: 'No encontrado' });
-
     res.json(data);
+
   } catch (err) {
-    res.status(500).json({ error: 'Error al obtener planeación' });
+    res.status(500).json({ error: 'Error al obtener planeaciones' });
   }
 });
 
+
+// Obtener planeación por ID=
+app.get('/api/planeaciones/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+
+  const { data, error } = await supabase
+    .from('planeaciones')
+    .select('*')
+    .eq('id', id)
+    .eq('user_id', req.user.id)
+    .maybeSingle();
+
+  if (error || !data) {
+    return res.status(404).json({ error: 'No encontrado' });
+  }
+
+  res.json(data);
+});
+
 // Actualizar planeación (PUT)
-app.put('/api/planeaciones/:id', requireUser, async (req, res) => {
+app.put('/api/planeaciones/:id', requireAuth, async (req, res) => {
+
   const id = parseInt(req.params.id, 10);
   if (!isPositiveInt(id)) {
     return res.status(400).json({ error: 'ID inválido' });
@@ -153,34 +149,28 @@ app.put('/api/planeaciones/:id', requireUser, async (req, res) => {
 
 
 // Eliminar planeación
-app.delete('/api/planeaciones/:id', requireUser, async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!isPositiveInt(id)) {
-    return res.status(400).json({ error: 'ID inválido' });
+app.delete('/api/planeaciones/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+
+  const { error } = await supabase
+    .from('planeaciones')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', req.user.id);
+
+  if (error) {
+    return res.status(500).json({ error: 'Error al eliminar' });
   }
 
-  try {
-    const { data, error } = await supabase
-      .from('planeaciones')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', req.user.id)
-      .select('id');
-
-    if (error) throw error;
-    if (!data || data.length === 0) {
-      return res.status(404).json({ error: 'No encontrado' });
-    }
-
-    res.json({ id: data[0].id, message: 'Planeación eliminada' });
-  } catch (err) {
-    res.status(500).json({ error: 'Error al eliminar planeación' });
-  }
+  res.json({ ok: true });
 });
 
 
+
 // Exportar planeación a Excel
-app.get('/api/planeaciones/:id/export/excel', requireUser, async (req, res) => {
+app.get('/api/planeaciones/:id/export/excel', requireAuth, async (req, res) => {
+
+
   const { id } = req.params;
 
   const { data, error } = await supabase
@@ -255,7 +245,7 @@ app.get('/api/planeaciones/:id/export/excel', requireUser, async (req, res) => {
 
 
 // --- Generar planeación con IA real (usando gpt-4o-mini) ---
-app.post('/api/planeaciones/generate', async (req, res) => {
+app.post('/api/planeaciones/generate', requireAuth, async (req, res) => {
   try {
     const { materia, nivel, tema, subtema, duracion, sesiones } = req.body;
 
@@ -446,22 +436,28 @@ Sesiones: ${sesiones}
       ];
     }
 
+
     // DB PLANEACIONES 
     const { data, error } = await supabase
-      .from("planeaciones")
-      .insert([
-        {
-          materia,
-          nivel,
-          tema,
-          subtema,
-          duracion,
-          sesiones,
-          tabla_ia: tablaIa
-        }
-      ])
-      .select()
-      .single();
+    .from("planeaciones")
+    .insert([
+      {
+        materia,
+        nivel,
+        tema,
+        subtema,
+        duracion,
+        sesiones,
+        tabla_ia: tablaIa,
+        user_id: req.user.id
+      }
+    ])
+    .select()
+    .single();
+
+if (error) throw error;
+
+
 
     if (error) throw error;
 
