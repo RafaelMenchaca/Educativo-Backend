@@ -266,7 +266,6 @@ Usa el formato JSON siguiente:
   {
     "tiempo_sesion": "Conocimientos previos | Desarrollo | Cierre",
     "actividades": "...",
-    "paec": "Previo | Aplicación | Reflexión",
     "tiempo_min": número (en minutos, ajustado al total de ${duracion}),
     "producto": "...",
     "instrumento": "...",
@@ -278,6 +277,7 @@ Usa el formato JSON siguiente:
 Debe mantener exactamente tres objetos en el arreglo (uno por momento).
 No incluyas texto fuera del JSON.
 `;
+
 
       // Adaptaciones según nivel educativo
       if (/primaria/i.test(nivel)) {
@@ -403,37 +403,35 @@ Sesiones: ${sesiones}
       errorTipo = "fallback_used";
 
       tablaIa = [
-        {
-          tiempo_sesion: "Conocimientos previos",
-          actividades: "Discusión guiada",
-          paec: "Previo",
-          tiempo_min: 10,
-          producto: "Mapa mental",
-          instrumento: "Lista de cotejo",
-          formativa: "Diagnóstica",
-          sumativa: "-"
-        },
-        {
-          tiempo_sesion: "Desarrollo",
-          actividades: "Trabajo colaborativo",
-          paec: "Aplicación",
-          tiempo_min: duracion - 20,
-          producto: "Ejercicios",
-          instrumento: "Rúbrica",
-          formativa: "Formativa",
-          sumativa: "-"
-        },
-        {
-          tiempo_sesion: "Cierre",
-          actividades: "Reflexión final",
-          paec: "Reflexión",
-          tiempo_min: 10,
-          producto: "Conclusión",
-          instrumento: "Lista de cotejo",
-          formativa: "-",
-          sumativa: "Sumativa"
-        }
-      ];
+      {
+        tiempo_sesion: "Conocimientos previos",
+        actividades: "Discusión guiada",
+        tiempo_min: 10,
+        producto: "Mapa mental",
+        instrumento: "Lista de cotejo",
+        formativa: "Diagnóstica",
+        sumativa: "-"
+      },
+      {
+        tiempo_sesion: "Desarrollo",
+        actividades: "Trabajo colaborativo",
+        tiempo_min: duracion - 20,
+        producto: "Ejercicios",
+        instrumento: "Rúbrica",
+        formativa: "Formativa",
+        sumativa: "-"
+      },
+      {
+        tiempo_sesion: "Cierre",
+        actividades: "Reflexión final",
+        tiempo_min: 10,
+        producto: "Conclusión",
+        instrumento: "Lista de cotejo",
+        formativa: "-",
+        sumativa: "Sumativa"
+      }
+    ];
+
     }
 
 
