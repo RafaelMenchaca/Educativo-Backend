@@ -270,12 +270,17 @@ Usa el formato JSON siguiente:
     "producto": "...",
     "instrumento": "...",
     "formativa": "...",
-    "sumativa": "..."
+    "sumativa": número entero (ponderación, los tres valores deben sumar exactamente 10)
   }
 ]
 
 Debe mantener exactamente tres objetos en el arreglo (uno por momento).
 No incluyas texto fuera del JSON.
+La columna "sumativa" debe ser un número entero entre 1 y 10.
+Distribuye los valores entre las tres actividades según su importancia pedagógica.
+La suma total de los tres valores debe ser exactamente 10.
+No devuelvas texto en "sumativa".
+Ajusta los tiempos para que sumen exactamente ${duracion} minutos.
 `;
 
 
@@ -366,7 +371,7 @@ Sesiones: ${sesiones}
         },
         { role: "user", content: prompt }
       ],
-      temperature: 0.5, // regular entre 0.2 a 0.6 más consistencia, menos variabilidad
+      temperature: 0.6, // regular entre 0.2 a 0.6 más consistencia, menos variabilidad
       max_tokens: 700
     });
 
@@ -410,7 +415,7 @@ Sesiones: ${sesiones}
         producto: "Mapa mental",
         instrumento: "Lista de cotejo",
         formativa: "Diagnóstica",
-        sumativa: "-"
+        sumativa: 3
       },
       {
         tiempo_sesion: "Desarrollo",
@@ -419,7 +424,7 @@ Sesiones: ${sesiones}
         producto: "Ejercicios",
         instrumento: "Rúbrica",
         formativa: "Formativa",
-        sumativa: "-"
+        sumativa: 5
       },
       {
         tiempo_sesion: "Cierre",
@@ -428,7 +433,7 @@ Sesiones: ${sesiones}
         producto: "Conclusión",
         instrumento: "Lista de cotejo",
         formativa: "-",
-        sumativa: "Sumativa"
+        sumativa: 2
       }
     ];
 
