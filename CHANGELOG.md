@@ -1,22 +1,29 @@
-## [v1.1-IA-Metrics-and-Export-Release] - 2026-01-10
+## [v1.1-Batch-Planeacion-Unidad] - 2026-01-18
 
 ### 🚀 Novedades
-- Nuevo sistema de métricas de IA mediante la tabla `ia_metrics` en Supabase.
-- Registro automático de consumo de tokens, consistencia del JSON y versión del prompt por planeación.
-- Prompt adaptativo optimizado por nivel educativo (Primaria, Secundaria, Preparatoria y Universidad).
-- Nuevo endpoint de exportación **Excel profesional (.xlsx)** para planeaciones didácticas.
-- Exportación disponible tanto al crear la planeación como desde la vista de detalle.
+- Generación de **múltiples planeaciones por múltiples temas** en un solo request.
+- Introducción del concepto **Batch (`batch_id`)** para agrupar planeaciones creadas juntas.
+- Nuevo endpoint `/api/planeaciones/batch/:batch_id` para listar planeaciones por unidad.
+- Soporte completo para el campo **Unidad** como dimensión principal de planeación.
+- Cada planeación conserva su ID individual y es editable de forma independiente.
 
 ### 🧰 Técnicos
-- Integración de `exceljs` para generación de archivos Excel desde backend.
-- Manejo seguro de métricas sin afectar el flujo principal de generación.
-- Arquitectura preparada para análisis posterior de costos y calidad de IA.
-- Compatibilidad total con Supabase y frontend existente.
+- Refactor del endpoint `/generate` para procesar arreglos de temas.
+- Inserción múltiple de planeaciones por submit.
+- Filtro seguro por usuario (`requireAuth` + `user_id`).
+- Ordenamiento consistente usando `fecha_creacion`.
+- Eliminación definitiva de lógica obsoleta (`subtema`, `sesiones`).
+
+### 🗄️ Base de datos
+- Nueva columna `batch_id` (UUID) en `planeaciones`.
+- Nueva columna `unidad` integrada al modelo.
+- Esquema alineado con el nuevo flujo batch-based.
+- Compatibilidad total con registros existentes.
 
 ### 🧩 Próximos pasos
-- Análisis de métricas IA para optimización de prompts y costos.
-- Añadir branding institucional (logo) a los archivos exportados.
-- Exportación a PDF con formato oficial.
+- Optimizar métricas de uso por batch.
+- Endpoint para exportar unidades completas.
+- Consolidar dashboard por unidad.
 
 
 ## [v1.0-IA-Integration-Release] - 2026-01-03
