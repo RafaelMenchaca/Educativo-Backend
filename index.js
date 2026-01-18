@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import { supabase } from './supabaseClient.js';
 import OpenAI from "openai";
 import ExcelJS from "exceljs";
+import { randomUUID } from "crypto";
+
 
 
 dotenv.config();
@@ -247,14 +249,26 @@ app.get('/api/planeaciones/:id/export/excel', requireAuth, async (req, res) => {
 // --- Generar planeación con IA real (usando gpt-4o-mini) ---
 app.post('/api/planeaciones/generate', requireAuth, async (req, res) => {
   try {
-    const { materia, nivel, tema, subtema, duracion, sesiones } = req.body;
+    const { materia, nivel, unidad, temas } = req.body;
 
-    if (!materia || !nivel || !tema) {
-      return res.status(400).json({ error: "Faltan campos obligatorios" });
+    if (
+      !materia ||
+      !nivel ||
+      !Number.isInteger(unidad) ||
+      unidad < 1 ||
+      !Array.isArray(temas) ||
+      temas.length === 0
+    ) {
+      return res.status(400).json({ error: "Datos inválidos" });
     }
 
+    // Se creara id por submit, cada id tendra N planeaciones por N temas
+    const batch_id = randomUUID();
+
+
+
     // Función para construir prompt adaptativo por nivel
-    function buildPromptByLevel({ materia, nivel, tema, subtema, duracion, sesiones }) {
+    function buildPromptByLevel({ materia, nivel, unidad, tema, duracion }) {
       const base = `
 Genera una planeación didáctica estructurada en tres momentos:
 1️⃣ Conocimientos previos
@@ -281,6 +295,7 @@ Distribuye los valores entre las tres actividades según su importancia pedagóg
 La suma total de los tres valores debe ser exactamente 10.
 No devuelvas texto en "sumativa".
 Ajusta los tiempos para que sumen exactamente ${duracion} minutos.
+La planeación debe estar pensada para una sola sesión completa.
 `;
 
 
@@ -292,10 +307,10 @@ ${base}
 Usa un lenguaje sencillo y alegre, con ejemplos concretos, visuales y actividades cortas (10–15 min).
 Evita tecnicismos. Usa productos como dibujos, esquemas, dramatizaciones o explicaciones breves.
 Materia: ${materia}
+Nivel: ${nivel}
+Unidad: ${unidad}
 Tema: ${tema}
-Subtema: ${subtema}
 Duración total: ${duracion} minutos
-Sesiones: ${sesiones}
 `;
       }
 
@@ -306,10 +321,10 @@ ${base}
 Usa un lenguaje intermedio, fomenta el trabajo colaborativo y la reflexión.
 Incluye actividades de exploración, análisis, debates o resolución de problemas aplicados.
 Materia: ${materia}
+Nivel: ${nivel}
+Unidad: ${unidad}
 Tema: ${tema}
-Subtema: ${subtema}
 Duración total: ${duracion} minutos
-Sesiones: ${sesiones}
 `;
       }
 
@@ -321,15 +336,15 @@ Usa un lenguaje formal y técnico.
 Promueve el pensamiento crítico, el trabajo autónomo y la aplicación de conocimientos.
 Las actividades deben incluir análisis, exposición oral o proyectos escritos.
 Materia: ${materia}
+Nivel: ${nivel}
+Unidad: ${unidad}
 Tema: ${tema}
-Subtema: ${subtema}
 Duración total: ${duracion} minutos
-Sesiones: ${sesiones}
 `;
       }
 
       if (/universidad|licenciatura|ingenier|posgrado/i.test(nivel)) {
-  return `
+        return `
 ${base}
 📘 Contexto: Nivel Universitario
 Usa un lenguaje académico, formal y técnico.
@@ -337,158 +352,180 @@ Fomenta la investigación, la argumentación y la aplicación práctica de conce
 Las actividades deben incluir análisis de casos, debates, proyectos integradores o exposiciones.
 Promueve la autonomía y la evaluación por competencias.
 Materia: ${materia}
+Nivel: ${nivel}
+Unidad: ${unidad}
 Tema: ${tema}
-Subtema: ${subtema}
 Duración total: ${duracion} minutos
-Sesiones: ${sesiones}
-`;
-}
+  `;
+      }
 
 
       // Por defecto
       return `
-${base}
-Nivel educativo: ${nivel}
-Materia: ${materia}
-Tema: ${tema}
-Subtema: ${subtema}
-Duración total: ${duracion} minutos
-Sesiones: ${sesiones}
-`;
-    }
+      ${base}
+      Materia: ${materia}
+      Nivel: ${nivel}
+      Unidad: ${unidad}
+      Tema: ${tema}
+      Duración total: ${duracion} minutos
+      `;
+}
 
     // Construir prompt adaptativo
-    const prompt = buildPromptByLevel({ materia, nivel, tema, subtema, duracion, sesiones });
-    console.log("Prompt generado:\n", prompt);
+    const planeacionesCreadas = [];
 
-    // --- Llamada a OpenAI ---
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: "Eres un experto diseñador instruccional en educación mexicana que genera planeaciones didácticas realistas y bien estructuradas."
-        },
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.6, // regular entre 0.2 a 0.6 más consistencia, menos variabilidad
-      max_tokens: 700
-    });
+    for (const t of temas) {
+      const { tema, duracion } = t;
 
-    const usage = completion.usage || {};
-    const tokens_prompt = usage.prompt_tokens || 0;
-    const tokens_completion = usage.completion_tokens || 0;
-    const tokens_total = usage.total_tokens || 0;
-
-    const rawText = completion.choices[0].message.content?.trim() || "";
-
-    // JSON 
-    let jsonOk = true;
-    let errorTipo = null;
-    let tablaIa = [];
-
-    try {
-      tablaIa = JSON.parse(rawText);
-    } catch {
-      jsonOk = false;
-      errorTipo = "invalid_json";
-
-      const match = rawText.match(/\[.*\]/s);
-      if (match) {
-        try {
-          tablaIa = JSON.parse(match[0]);
-          jsonOk = true;
-          errorTipo = "json_recovered";
-        } catch {}
+      if (!tema || !Number.isInteger(duracion) || duracion < 10) {
+        return res.status(400).json({ error: "Tema o duración inválida" });
       }
-    }
 
-    if (!Array.isArray(tablaIa) || tablaIa.length === 0) {
-      jsonOk = false;
-      errorTipo = "fallback_used";
-
-      tablaIa = [
-      {
-        tiempo_sesion: "Conocimientos previos",
-        actividades: "Discusión guiada",
-        tiempo_min: 10,
-        producto: "Mapa mental",
-        instrumento: "Lista de cotejo",
-        formativa: "Diagnóstica",
-        sumativa: 3
-      },
-      {
-        tiempo_sesion: "Desarrollo",
-        actividades: "Trabajo colaborativo",
-        tiempo_min: duracion - 20,
-        producto: "Ejercicios",
-        instrumento: "Rúbrica",
-        formativa: "Formativa",
-        sumativa: 5
-      },
-      {
-        tiempo_sesion: "Cierre",
-        actividades: "Reflexión final",
-        tiempo_min: 10,
-        producto: "Conclusión",
-        instrumento: "Lista de cotejo",
-        formativa: "-",
-        sumativa: 2
-      }
-    ];
-
-    }
-
-
-    // DB PLANEACIONES 
-    const { data, error } = await supabase
-    .from("planeaciones")
-    .insert([
-      {
+      const prompt = buildPromptByLevel({
         materia,
         nivel,
+        unidad,
         tema,
-        subtema,
-        duracion,
-        sesiones,
-        tabla_ia: tablaIa,
-        user_id: req.user.id
-      }
-    ])
-    .select()
-    .single();
+        duracion
+      });
 
-if (error) throw error;
+      console.log("Prompt generado:\n", prompt);
 
 
+      // --- Llamada a OpenAI ---
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Eres un experto diseñador instruccional en educación mexicana que genera planeaciones didácticas realistas y bien estructuradas."
+          },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.6, // regular entre 0.2 a 0.6 más consistencia, menos variabilidad
+        max_tokens: 700
+      });
 
-    if (error) throw error;
+      const usage = completion.usage || {};
+      const tokens_prompt = usage.prompt_tokens || 0;
+      const tokens_completion = usage.completion_tokens || 0;
+      const tokens_total = usage.total_tokens || 0;
 
-    // MÉTRICAS IA (NO BLOQUEANTE)
-    const { error: metricsError } = await supabase
-      .from("ia_metrics")
-      .insert([
-        {
-          nivel,
-          materia,
-          prompt_version: "v1_adaptativo_niveles",
-          tokens_prompt,
-          tokens_completion,
-          tokens_total,
-          json_ok: jsonOk,
-          error_tipo: errorTipo
+      const rawText = completion.choices[0].message.content?.trim() || "";
+
+      let jsonOk = true;
+      let errorTipo = null;
+      let tablaIa = [];
+
+      try {
+        tablaIa = JSON.parse(rawText);
+      } catch {
+        jsonOk = false;
+        errorTipo = "invalid_json";
+
+        const match = rawText.match(/\[.*\]/s);
+        if (match) {
+          try {
+            tablaIa = JSON.parse(match[0]);
+            jsonOk = true;
+            errorTipo = "json_recovered";
+          } catch {}
         }
-      ]);
+      }
 
-    if (metricsError) {
-      console.warn("⚠️ Error guardando métricas IA:", metricsError);
-    }
+      if (!Array.isArray(tablaIa) || tablaIa.length === 0) {
+        jsonOk = false;
+        errorTipo = "fallback_used";
+
+        tablaIa = [
+          {
+            tiempo_sesion: "Conocimientos previos",
+            actividades: "Discusión guiada",
+            tiempo_min: 10,
+            producto: "Mapa mental",
+            instrumento: "Lista de cotejo",
+            formativa: "Diagnóstica",
+            sumativa: 3
+          },
+          {
+            tiempo_sesion: "Desarrollo",
+            actividades: "Trabajo colaborativo",
+            tiempo_min: duracion - 20,
+            producto: "Ejercicios",
+            instrumento: "Rúbrica",
+            formativa: "Formativa",
+            sumativa: 5
+          },
+          {
+            tiempo_sesion: "Cierre",
+            actividades: "Reflexión final",
+            tiempo_min: 10,
+            producto: "Conclusión",
+            instrumento: "Lista de cotejo",
+            formativa: "-",
+            sumativa: 2
+          }
+        ];
+      }
 
 
 
-    res.json(data);
+      // --- Guardar planeación ---
+      const { data, error } = await supabase
+        .from("planeaciones")
+        .insert([
+          {
+            materia,
+            nivel,
+            unidad,
+            tema,
+            duracion,
+            tabla_ia: tablaIa,
+            user_id: req.user.id,
+            batch_id
+          }
+        ])
+        .select()
+        .single();
 
-  } catch (err) {
+      if (error) throw error;
+
+      planeacionesCreadas.push(data);
+
+
+      // --- Métricas IA (por planeación) ---
+      const { error: metricsError } = await supabase
+        .from("ia_metrics")
+        .insert([
+          {
+            nivel,
+            materia,
+            prompt_version: "v1_adaptativo_niveles",
+            tokens_prompt,
+            tokens_completion,
+            tokens_total,
+            json_ok: jsonOk,
+            error_tipo: errorTipo
+          }
+        ]);
+
+      if (metricsError) {
+        console.warn("⚠️ Error guardando métricas IA:", metricsError);
+      }
+    } // fin for temas
+
+
+
+    res.json({
+      batch_id,
+      total: planeacionesCreadas.length,
+      planeaciones: planeacionesCreadas
+    });
+
+
+  } // fin try del inicio del endpoint
+  catch (err) {
     console.error("❌ Error al generar planeación con IA:", err);
     res.status(500).json({
       error: "Error al generar planeación con IA",
@@ -496,6 +533,81 @@ if (error) throw error;
     });
   }
 });
+
+
+// Listar creaciones (batches)
+app.get('/api/planeaciones/batches', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('planeaciones')
+      .select('batch_id, materia, nivel, unidad, created_at')
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Agrupar por batch_id
+    const batchesMap = {};
+
+    for (const row of data) {
+      if (!batchesMap[row.batch_id]) {
+        batchesMap[row.batch_id] = {
+          batch_id: row.batch_id,
+          materia: row.materia,
+          nivel: row.nivel,
+          unidad: row.unidad,
+          total_planeaciones: 0,
+          created_at: row.created_at
+        };
+      }
+      batchesMap[row.batch_id].total_planeaciones += 1;
+    }
+
+    res.json(Object.values(batchesMap));
+  } catch (err) {
+    console.error('❌ Error listando batches:', err);
+    res.status(500).json({ error: 'Error al obtener creaciones' });
+  }
+});
+
+// Listar planeaciones por batch (VERSIÓN FINAL)
+app.get("/api/planeaciones/batch/:batch_id", requireAuth, async (req, res) => {
+  try {
+    const { batch_id } = req.params;
+
+    const { data, error } = await supabase
+      .from("planeaciones")
+      .select("*")
+      .eq("batch_id", batch_id)
+      .eq("user_id", req.user.id)
+      .order("fecha_creacion", { ascending: true });
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({
+        error: "No se encontraron planeaciones para este batch"
+      });
+    }
+
+    res.json({
+      batch_id,
+      total: data.length,
+      planeaciones: data
+    });
+
+  } catch (err) {
+    console.error("❌ Error en batch endpoint:", err);
+    res.status(500).json({
+      error: "Error al obtener planeaciones",
+      details: err.message
+    });
+  }
+});
+
+
+
+
 
 // Error handling
 app.use((err, _req, res, _next) => {
