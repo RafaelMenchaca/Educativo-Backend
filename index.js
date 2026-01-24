@@ -270,12 +270,15 @@ app.post('/api/planeaciones/generate', requireAuth, async (req, res) => {
     // Función para construir prompt adaptativo por nivel
     function buildPromptByLevel({ materia, nivel, unidad, tema, duracion }) {
       const base = `
+Actúa como un DOCENTE EXPERTO en diseño de planeaciones didácticas para educación media superior.
+No generes formatos genéricos. Diseña la clase como si fuera aplicada en un aula real.
+
 Genera una planeación didáctica estructurada en tres momentos:
 1️⃣ Conocimientos previos
 2️⃣ Desarrollo
 3️⃣ Cierre
 
-Usa el formato JSON siguiente:
+Usa EXCLUSIVAMENTE el siguiente formato JSON:
 [
   {
     "tiempo_sesion": "Conocimientos previos | Desarrollo | Cierre",
@@ -288,14 +291,79 @@ Usa el formato JSON siguiente:
   }
 ]
 
-Debe mantener exactamente tres objetos en el arreglo (uno por momento).
-No incluyas texto fuera del JSON.
-La columna "sumativa" debe ser un número entero entre 1 y 10.
-Distribuye los valores entre las tres actividades según su importancia pedagógica.
-La suma total de los tres valores debe ser exactamente 10.
-No devuelvas texto en "sumativa".
-Ajusta los tiempos para que sumen exactamente ${duracion} minutos.
-La planeación debe estar pensada para una sola sesión completa.
+⚠️ REGLAS ESTRICTAS:
+- Debe haber EXACTAMENTE tres objetos en el arreglo (uno por cada momento).
+- NO incluyas texto fuera del JSON.
+- La suma total de tiempo_min debe ser EXACTAMENTE ${duracion}.
+- La suma de los valores de "sumativa" debe ser EXACTAMENTE 10.
+- "sumativa" debe ser SOLO un número entero, sin texto.
+- La planeación corresponde a UNA SOLA SESIÓN completa.
+
+========================
+CONOCIMIENTOS PREVIOS
+========================
+Presenta el tema de forma atractiva, contextualizada y significativa.
+NO utilices siempre lluvia de ideas.
+NO repitas actividades mecánicas o genéricas.
+
+Selecciona la estrategia según el tipo de contenido:
+- Situaciones problematizadoras reales o simuladas
+- Análisis de imágenes, gráficas, tablas, mapas o casos
+- Preguntas detonadoras bien estructuradas
+- Historias breves, ejemplos cotidianos o escenarios hipotéticos
+- Retos rápidos de activación cognitiva
+
+Este momento debe conducir naturalmente al contenido del desarrollo.
+
+========================
+DESARROLLO
+========================
+En el campo "actividades" incluye OBLIGATORIAMENTE:
+
+1) Procedimiento del docente:
+Describe con claridad pedagógica:
+- Qué hace el docente paso a paso
+- Cómo explica el contenido
+- Cómo guía, ejemplifica y acompaña a los estudiantes
+- Qué estrategias didácticas utiliza (expositivo guiado, resolución de problemas, trabajo colaborativo, práctica supervisada, etc.)
+
+2) Recursos didácticos y contenido:
+Incluye contenido COMPLETO que realmente enseñe:
+- Explicaciones desarrolladas (no solo definiciones)
+- Conceptos clave explicados con lenguaje claro
+- Ejemplos resueltos paso a paso (cuando aplique)
+- Casos, contextos reales, historias o aplicaciones del tema
+- Explicaciones que faciliten la comprensión profunda
+
+❌ Evita listas superficiales.
+✔️ El contenido debe permitir que el alumno COMPRENDA y APRENDA el tema.
+
+========================
+CIERRE
+========================
+Diseña una actividad de comprobación del aprendizaje.
+Debe permitir evidenciar que el estudiante:
+- Comprendió
+- Aplicó
+- Reflexionó
+
+Varía las estrategias:
+- Resolución de problemas o casos contextualizados
+- Elaboración de productos (esquemas, mapas conceptuales, cuadros comparativos, infografías, etc.)
+- Explicaciones escritas u orales
+- Ejercicios prácticos o simulaciones
+
+NO repitas siempre el mismo tipo de cierre.
+Ajusta la actividad al tema y al nivel educativo.
+
+========================
+CRITERIOS GENERALES
+========================
+- Redacción clara, profesional y didáctica
+- Lenguaje propio de nivel preparatoria
+- Enfoque pedagógico real (no genérico)
+- Coherencia entre conocimientos previos, desarrollo y cierre
+- Distribuye la ponderación de "sumativa" según la importancia pedagógica de cada momento
 `;
 
 
@@ -399,7 +467,7 @@ Duración total: ${duracion} minutos
           {
             role: "system",
             content:
-              "Eres un experto diseñador instruccional en educación mexicana que genera planeaciones didácticas realistas y bien estructuradas."
+              "Actúa como un docente experto en diseño de planeaciones didácticas, con experiencia en todos los niveles educativos (primaria, secundaria, bachillerato y nivel superior). Tus planeaciones deben reflejar criterio pedagógico, variedad metodológica y dominio del tema."
           },
           { role: "user", content: prompt }
         ],
