@@ -1,7 +1,8 @@
 import { Router } from 'express';
+import planeacionesRoutes from './planeaciones.routes.js';
 
 const router = Router();
 
-// aquí luego moveremos /api/planeaciones y demás
+router.use('/planeaciones', planeacionesRoutes);
 
 export default router;

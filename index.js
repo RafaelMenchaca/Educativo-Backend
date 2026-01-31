@@ -1,26 +1,26 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
+// import express from 'express';
+// import cors from 'cors';
+// import dotenv from 'dotenv';
 import { supabase } from './supabaseClient.js';
-import OpenAI from "openai";
+// import OpenAI from "openai";
 import ExcelJS from "exceljs";
 import { randomUUID } from "crypto";
 
 
 
-dotenv.config();
+// dotenv.config();
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-const NODE_ENV = process.env.NODE_ENV || 'development';
+// const app = express();
+// const PORT = process.env.PORT || 3000;
+// const NODE_ENV = process.env.NODE_ENV || 'development';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// const openai = new OpenAI({
+//   apiKey: process.env.OPENAI_API_KEY
+// });
 
 // Helper de logs para errores de Supabase
 
-const isPositiveInt = (v) => Number.isInteger(v) && v > 0;
+// const isPositiveInt = (v) => Number.isInteger(v) && v > 0;
 
 const logSbError = (label, error) => {
   console.error(label, {
@@ -32,47 +32,47 @@ const logSbError = (label, error) => {
 };
 
 // --- CORS: en dev permite todo, en prod solo orígenes listados ---
-const allowedOrigins = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+// const allowedOrigins = (process.env.CORS_ORIGIN || '')
+//   .split(',')
+//   .map(s => s.trim())
+//   .filter(Boolean);
 
-app.use(cors({
-  origin: NODE_ENV === 'development'
-    ? true
-    : (origin, cb) => {
-        if (!origin) return cb(null, true);
-        if (allowedOrigins.includes(origin)) return cb(null, true);
-        // permite dev locales aunque NODE_ENV sea production (útil para debug)
-        if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
-        // opcional: permitir *.github.io (si usas GitHub Pages)
-        if (/^https?:\/\/([a-z0-9-]+\.)?github\.io$/.test(origin)) return cb(null, true);
-        cb(new Error('CORS: Origin no permitido'));
-      }
-}));
+// app.use(cors({
+//   origin: NODE_ENV === 'development'
+//     ? true
+//     : (origin, cb) => {
+//         if (!origin) return cb(null, true);
+//         if (allowedOrigins.includes(origin)) return cb(null, true);
+//         // permite dev locales aunque NODE_ENV sea production (útil para debug)
+//         if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
+//         // opcional: permitir *.github.io (si usas GitHub Pages)
+//         if (/^https?:\/\/([a-z0-9-]+\.)?github\.io$/.test(origin)) return cb(null, true);
+//         cb(new Error('CORS: Origin no permitido'));
+//       }
+// }));
 
-app.use(express.json({ limit: '1mb' }));
+// app.use(express.json({ limit: '1mb' }));
 
 
 // Middleware: autenticar usuario Supabase
-async function requireAuth(req, res, next) {
-  const authHeader = req.headers.authorization;
+// async function requireAuth(req, res, next) {
+//   const authHeader = req.headers.authorization;
 
-  if (!authHeader?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Token requerido" });
-  }
+//   if (!authHeader?.startsWith("Bearer ")) {
+//     return res.status(401).json({ error: "Token requerido" });
+//   }
 
-  const token = authHeader.replace("Bearer ", "");
+//   const token = authHeader.replace("Bearer ", "");
 
-  const { data, error } = await supabase.auth.getUser(token);
+//   const { data, error } = await supabase.auth.getUser(token);
 
-  if (error || !data?.user) {
-    return res.status(401).json({ error: "Token inválido" });
-  }
+//   if (error || !data?.user) {
+//     return res.status(401).json({ error: "Token inválido" });
+//   }
 
-  req.user = data.user;
-  next();
-}
+//   req.user = data.user;
+//   next();
+// }
 
 
 // Healthcheck
@@ -86,86 +86,86 @@ app.get('/', (_req, res) => {
 });
 
 // Listar planeaciones (paginación opcional)
-app.get('/api/planeaciones', requireAuth, async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('planeaciones')
-      .select('*')
-      .eq('user_id', req.user.id)
-      .order('fecha_creacion', { ascending: false });
+// app.get('/api/planeaciones', requireAuth, async (req, res) => {
+//   try {
+//     const { data, error } = await supabase
+//       .from('planeaciones')
+//       .select('*')
+//       .eq('user_id', req.user.id)
+//       .order('fecha_creacion', { ascending: false });
 
-    if (error) throw error;
-    res.json(data);
+//     if (error) throw error;
+//     res.json(data);
 
-  } catch (err) {
-    res.status(500).json({ error: 'Error al obtener planeaciones' });
-  }
-});
+//   } catch (err) {
+//     res.status(500).json({ error: 'Error al obtener planeaciones' });
+//   }
+// });
 
 
 // Obtener planeación por ID=
-app.get('/api/planeaciones/:id', requireAuth, async (req, res) => {
-  const id = Number(req.params.id);
+// app.get('/api/planeaciones/:id', requireAuth, async (req, res) => {
+//   const id = Number(req.params.id);
 
-  const { data, error } = await supabase
-    .from('planeaciones')
-    .select('*')
-    .eq('id', id)
-    .eq('user_id', req.user.id)
-    .maybeSingle();
+//   const { data, error } = await supabase
+//     .from('planeaciones')
+//     .select('*')
+//     .eq('id', id)
+//     .eq('user_id', req.user.id)
+//     .maybeSingle();
 
-  if (error || !data) {
-    return res.status(404).json({ error: 'No encontrado' });
-  }
+//   if (error || !data) {
+//     return res.status(404).json({ error: 'No encontrado' });
+//   }
 
-  res.json(data);
-});
+//   res.json(data);
+// });
 
-// Actualizar planeación (PUT)
-app.put('/api/planeaciones/:id', requireAuth, async (req, res) => {
+// // Actualizar planeación (PUT)
+// app.put('/api/planeaciones/:id', requireAuth, async (req, res) => {
 
-  const id = parseInt(req.params.id, 10);
-  if (!isPositiveInt(id)) {
-    return res.status(400).json({ error: 'ID inválido' });
-  }
+//   const id = parseInt(req.params.id, 10);
+//   if (!isPositiveInt(id)) {
+//     return res.status(400).json({ error: 'ID inválido' });
+//   }
 
-  const update = req.body || {};
+//   const update = req.body || {};
 
-  try {
-    const { data, error } = await supabase
-      .from('planeaciones')
-      .update(update)
-      .eq('id', id)
-      .eq('user_id', req.user.id)
-      .select()
-      .maybeSingle();
+//   try {
+//     const { data, error } = await supabase
+//       .from('planeaciones')
+//       .update(update)
+//       .eq('id', id)
+//       .eq('user_id', req.user.id)
+//       .select()
+//       .maybeSingle();
 
-    if (error) throw error;
-    if (!data) return res.status(404).json({ error: 'No encontrado' });
+//     if (error) throw error;
+//     if (!data) return res.status(404).json({ error: 'No encontrado' });
 
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: 'Error al actualizar planeación' });
-  }
-});
+//     res.json(data);
+//   } catch (err) {
+//     res.status(500).json({ error: 'Error al actualizar planeación' });
+//   }
+// });
 
 
-// Eliminar planeación
-app.delete('/api/planeaciones/:id', requireAuth, async (req, res) => {
-  const id = Number(req.params.id);
+// // Eliminar planeación
+// app.delete('/api/planeaciones/:id', requireAuth, async (req, res) => {
+//   const id = Number(req.params.id);
 
-  const { error } = await supabase
-    .from('planeaciones')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', req.user.id);
+//   const { error } = await supabase
+//     .from('planeaciones')
+//     .delete()
+//     .eq('id', id)
+//     .eq('user_id', req.user.id);
 
-  if (error) {
-    return res.status(500).json({ error: 'Error al eliminar' });
-  }
+//   if (error) {
+//     return res.status(500).json({ error: 'Error al eliminar' });
+//   }
 
-  res.json({ ok: true });
-});
+//   res.json({ ok: true });
+// });
 
 
 
