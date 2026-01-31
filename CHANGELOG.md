@@ -1,3 +1,51 @@
+## [v1.2-Backend-Refactor-Architecture] - 2026-02-01
+
+### 🚀 Novedades
+- Backend refactorizado completamente a una **arquitectura por capas profesional**.
+- Separación clara de responsabilidades: **routes, controllers, services, middleware y utils**.
+- Flujo de generación IA por batch totalmente estable y escalable.
+- Eliminación definitiva del entrypoint legacy (`index.js`).
+
+### 🧰 Técnicos
+- Nuevo entrypoint único: `src/server.js`.
+- Configuración de Express centralizada en `src/app.js`.
+- Rutas desacopladas de la lógica de negocio.
+- Controllers delgados enfocados solo en HTTP (`req / res`).
+- Services aislando lógica de dominio, Supabase y OpenAI.
+- Middleware de autenticación (`requireAuth`) reutilizable y desacoplado.
+- Utilidad `buildPromptByLevel` extraída a `utils/` sin modificar el prompt original.
+
+### 🤖 Inteligencia Artificial
+- Prompt adaptativo por nivel educativo movido a `utils`.
+- Control de flujo corregido para soportar **batch real (N temas → N planeaciones)**.
+- Recuperación segura de JSON parcial desde respuestas de IA.
+- Fallback automático cuando la IA devuelve contenido inválido.
+- Registro de métricas IA por planeación:
+  - `tokens_prompt`
+  - `tokens_completion`
+  - `tokens_total`
+  - `json_ok`
+  - `error_tipo`
+- Versionado explícito de prompt (`prompt_version`).
+
+### 🗄️ Base de datos
+- Persistencia estable de planeaciones por batch (`batch_id`).
+- Métricas IA almacenadas en tabla `ia_metrics`.
+- Flujo alineado con políticas RLS existentes.
+- Sin cambios destructivos al esquema previo.
+
+### 🧱 Infraestructura
+- Actualización del Start Command en Render para usar `node src/server.js`.
+- Eliminación de conflictos por entrypoint incorrecto.
+- Deploy limpio y estable tras refactor completo.
+
+### 🧩 Próximos pasos
+- Hacer el batch **resiliente** (errores parciales por tema).
+- Extraer métricas IA a `iaMetrics.service.js`.
+- Documentar API (OpenAPI / Swagger).
+- Volver al frontend para consumir el backend refactorizado.
+
+
 ## [v1.1-Batch-Planeacion-Unidad] - 2026-01-18
 
 ### 🚀 Novedades
