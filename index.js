@@ -1,9 +1,9 @@
 // import express from 'express';
 // import cors from 'cors';
 // import dotenv from 'dotenv';
-import { supabase } from './supabaseClient.js';
+// import { supabase } from './supabaseClient.js';
 // import OpenAI from "openai";
-import ExcelJS from "exceljs";
+
 import { randomUUID } from "crypto";
 
 
@@ -76,14 +76,14 @@ const logSbError = (label, error) => {
 
 
 // Healthcheck
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, env: NODE_ENV });
-});
+// app.get('/health', (_req, res) => {
+//   res.json({ ok: true, env: NODE_ENV });
+// });
 
 // Ruta de prueba
-app.get('/', (_req, res) => {
-  res.send('Servidor educativo-ia funcionando 🚀');
-});
+// app.get('/', (_req, res) => {
+//   res.send('Servidor educativo-ia funcionando 🚀');
+// });
 
 // Listar planeaciones (paginación opcional)
 // app.get('/api/planeaciones', requireAuth, async (req, res) => {
@@ -167,9 +167,6 @@ app.get('/', (_req, res) => {
 //   res.json({ ok: true });
 // });
 
-
-
-// Exportar planeación a Excel
 
 
 // --- Generar planeación con IA real (usando gpt-4o-mini) ---
