@@ -1,4 +1,4 @@
-import { supabase } from '../../supabaseClient.js';
+import { supabaseAdmin } from '../../supabaseClient.js';
 
 export async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -7,13 +7,14 @@ export async function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Token requerido' });
   }
 
-  const token = authHeader.replace('Bearer ', '');
-  const { data, error } = await supabase.auth.getUser(token);
+  const token = authHeader.replace('Bearer ', '').trim();
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
 
   if (error || !data?.user) {
-    return res.status(401).json({ error: 'Token inválido' });
+    return res.status(401).json({ error: 'Token invalido' });
   }
 
+  req.accessToken = token;
   req.user = data.user;
   next();
 }

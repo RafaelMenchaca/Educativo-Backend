@@ -1,3 +1,18 @@
+## [v1.3-backend-hierarchy-tree] - 2026-02-28
+
+### 🚀 Novedades
+- Endpoints jerárquicos para Planteles → Grados → Materias → Unidades → Temas.
+- Endpoint de generación contextual por unidad: crea N temas y genera N planeaciones (1 tema = 1 planeación) con `tema_id`.
+- Soporte de consulta de planeación por `tema_id` para navegación desde UI.
+
+### 🔒 Seguridad / Datos
+- Integración con nuevo esquema Supabase (tablas jerárquicas con RLS + ownership triggers).
+- `user_id` se maneja desde Supabase (no se envía desde frontend).
+
+### 🧩 Compatibilidad
+- Se conservan campos legacy en `planeaciones` (batch/strings) para transición; nueva lógica usa `tema_id`.
+
+
 ## [v1.2-Backend-Refactor-Architecture] - 2026-02-01
 
 ### 🚀 Novedades

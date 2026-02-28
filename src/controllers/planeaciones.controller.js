@@ -1,3 +1,4 @@
+import { createUserClient } from '../../supabaseClient.js';
 import {
   listarPlaneaciones,
   obtenerPlaneacionPorId,
@@ -8,6 +9,10 @@ import {
   listarBatches,
   listarPlaneacionesPorBatch
 } from '../services/planeaciones.service.js';
+
+function userClientFromReq(req) {
+  return createUserClient(req.accessToken);
+}
 
 function validarPayloadGeneracion(body) {
   const { materia, nivel, unidad, temas } = body || {};
@@ -38,7 +43,10 @@ function writeSse(res, payload) {
 
 export async function getPlaneaciones(req, res) {
   try {
-    const data = await listarPlaneaciones(req.user.id);
+    const data = await listarPlaneaciones({
+      supabaseClient: userClientFromReq(req),
+      userId: req.user.id
+    });
     res.json(data);
   } catch {
     res.status(500).json({ error: 'Error al obtener planeaciones' });
@@ -48,19 +56,34 @@ export async function getPlaneaciones(req, res) {
 export async function getPlaneacionById(req, res) {
   const id = Number(req.params.id);
 
-  const data = await obtenerPlaneacionPorId(id, req.user.id);
-  if (!data) {
-    return res.status(404).json({ error: 'No encontrado' });
-  }
+  try {
+    const data = await obtenerPlaneacionPorId({
+      supabaseClient: userClientFromReq(req),
+      id,
+      userId: req.user.id
+    });
 
-  res.json(data);
+    if (!data) {
+      return res.status(404).json({ error: 'No encontrado' });
+    }
+
+    res.json(data);
+  } catch {
+    res.status(500).json({ error: 'Error al obtener planeacion' });
+  }
 }
 
 export async function updatePlaneacion(req, res) {
   const id = Number(req.params.id);
 
   try {
-    const data = await actualizarPlaneacion(id, req.body || {}, req.user.id);
+    const data = await actualizarPlaneacion({
+      supabaseClient: userClientFromReq(req),
+      id,
+      update: req.body || {},
+      userId: req.user.id
+    });
+
     if (!data) return res.status(404).json({ error: 'No encontrado' });
     res.json(data);
   } catch {
@@ -70,7 +93,11 @@ export async function updatePlaneacion(req, res) {
 
 export async function deletePlaneacion(req, res) {
   try {
-    await eliminarPlaneacion(Number(req.params.id), req.user.id);
+    await eliminarPlaneacion({
+      supabaseClient: userClientFromReq(req),
+      id: Number(req.params.id),
+      userId: req.user.id
+    });
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: 'Error al eliminar' });
@@ -87,7 +114,8 @@ export async function generarPlaneaciones(req, res) {
     try {
       const result = await generarPlaneacionesIA({
         ...payload,
-        userId: req.user.id
+        userId: req.user.id,
+        supabaseClient: userClientFromReq(req)
       });
 
       return res.json(result);
@@ -115,7 +143,8 @@ export async function generarPlaneaciones(req, res) {
     const result = await generarPlaneacionesIAConProgreso(
       {
         ...payload,
-        userId: req.user.id
+        userId: req.user.id,
+        supabaseClient: userClientFromReq(req)
       },
       (event) => {
         if (!closed) {
@@ -144,7 +173,10 @@ export async function generarPlaneaciones(req, res) {
 
 export async function getBatches(req, res) {
   try {
-    const data = await listarBatches(req.user.id);
+    const data = await listarBatches({
+      supabaseClient: userClientFromReq(req),
+      userId: req.user.id
+    });
     res.json(data);
   } catch {
     res.status(500).json({ error: 'Error al obtener batches' });
@@ -153,10 +185,11 @@ export async function getBatches(req, res) {
 
 export async function getPlaneacionesByBatch(req, res) {
   try {
-    const data = await listarPlaneacionesPorBatch(
-      req.params.batch_id,
-      req.user.id
-    );
+    const data = await listarPlaneacionesPorBatch({
+      supabaseClient: userClientFromReq(req),
+      batchId: req.params.batch_id,
+      userId: req.user.id
+    });
 
     if (!data || data.length === 0) {
       return res.status(404).json({ error: 'Batch no encontrado' });
