@@ -2,14 +2,19 @@ import { createUserClient } from '../../supabaseClient.js';
 import {
   listarPlanteles,
   crearPlantel,
+  eliminarPlantel,
   listarGradosPorPlantel,
   crearGrado,
+  eliminarGrado,
   listarMateriasPorGrado,
   crearMateria,
+  eliminarMateria,
   listarUnidadesPorMateria,
   crearUnidad,
+  eliminarUnidad,
   listarTemasPorUnidad,
   crearTemas,
+  eliminarTema,
   obtenerPlaneacionPorTema
 } from '../services/jerarquia.service.js';
 import { generarPlaneacionesIAPorUnidad } from '../services/planeaciones.service.js';
@@ -25,6 +30,16 @@ function sendError(res, error, fallbackMessage) {
 
   console.error(error);
   return res.status(500).json({ error: fallbackMessage });
+}
+
+function sendDeleteSuccess(res, type, id) {
+  return res.json({
+    ok: true,
+    deleted: {
+      type,
+      id
+    }
+  });
 }
 
 function wantsStream(req) {
@@ -77,6 +92,15 @@ export async function postPlantel(req, res) {
   }
 }
 
+export async function deletePlantel(req, res) {
+  try {
+    await eliminarPlantel(userClientFromReq(req), req.params.plantelId);
+    sendDeleteSuccess(res, 'plantel', req.params.plantelId);
+  } catch (error) {
+    sendError(res, error, 'Error al eliminar plantel');
+  }
+}
+
 export async function getGradosByPlantel(req, res) {
   try {
     const data = await listarGradosPorPlantel(
@@ -101,6 +125,15 @@ export async function postGrado(req, res) {
     res.status(201).json(data);
   } catch (error) {
     sendError(res, error, 'Error al crear grado');
+  }
+}
+
+export async function deleteGrado(req, res) {
+  try {
+    await eliminarGrado(userClientFromReq(req), req.params.gradoId);
+    sendDeleteSuccess(res, 'grado', req.params.gradoId);
+  } catch (error) {
+    sendError(res, error, 'Error al eliminar grado');
   }
 }
 
@@ -130,6 +163,15 @@ export async function postMateria(req, res) {
   }
 }
 
+export async function deleteMateria(req, res) {
+  try {
+    await eliminarMateria(userClientFromReq(req), req.params.materiaId);
+    sendDeleteSuccess(res, 'materia', req.params.materiaId);
+  } catch (error) {
+    sendError(res, error, 'Error al eliminar materia');
+  }
+}
+
 export async function getUnidadesByMateria(req, res) {
   try {
     const data = await listarUnidadesPorMateria(
@@ -154,6 +196,15 @@ export async function postUnidad(req, res) {
     res.status(201).json(data);
   } catch (error) {
     sendError(res, error, 'Error al crear unidad');
+  }
+}
+
+export async function deleteUnidad(req, res) {
+  try {
+    await eliminarUnidad(userClientFromReq(req), req.params.unidadId);
+    sendDeleteSuccess(res, 'unidad', req.params.unidadId);
+  } catch (error) {
+    sendError(res, error, 'Error al eliminar unidad');
   }
 }
 
@@ -190,6 +241,15 @@ export async function postTemas(req, res) {
     res.status(201).json(data);
   } catch (error) {
     sendError(res, error, 'Error al crear temas');
+  }
+}
+
+export async function deleteTema(req, res) {
+  try {
+    await eliminarTema(userClientFromReq(req), req.params.temaId);
+    sendDeleteSuccess(res, 'tema', req.params.temaId);
+  } catch (error) {
+    sendError(res, error, 'Error al eliminar tema');
   }
 }
 

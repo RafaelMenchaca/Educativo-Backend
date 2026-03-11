@@ -37,6 +37,49 @@ async function nextOrderFor(client, table, parentColumn, parentId) {
   return maxOrder + 1;
 }
 
+async function listIdsByRelation(client, table, relationColumn, relationValue) {
+  if (!relationValue || (Array.isArray(relationValue) && relationValue.length === 0)) {
+    return [];
+  }
+
+  let query = client.from(table).select('id');
+
+  if (Array.isArray(relationValue)) {
+    query = query.in(relationColumn, relationValue);
+  } else {
+    query = query.eq(relationColumn, relationValue);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return (data || [])
+    .map((item) => item?.id)
+    .filter(Boolean);
+}
+
+async function deleteRowsByIds(client, table, ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return;
+
+  const { error } = await client
+    .from(table)
+    .delete()
+    .in('id', ids);
+
+  if (error) throw error;
+}
+
+async function deletePlaneacionesByTemaIds(client, temaIds) {
+  if (!Array.isArray(temaIds) || temaIds.length === 0) return;
+
+  const { error } = await client
+    .from('planeaciones')
+    .delete()
+    .in('tema_id', temaIds);
+
+  if (error) throw error;
+}
+
 export async function listarPlanteles(client) {
   const { data, error } = await client
     .from('planteles')
@@ -61,6 +104,28 @@ export async function crearPlantel(client, { nombre }) {
 
   if (error) throw error;
   return data;
+}
+
+export async function eliminarPlantel(client, plantelId) {
+  await ensureRecordExists(client, 'planteles', plantelId, 'Plantel no encontrado');
+
+  const gradoIds = await listIdsByRelation(client, 'grados', 'plantel_id', plantelId);
+  const materiaIds = await listIdsByRelation(client, 'materias', 'grado_id', gradoIds);
+  const unidadIds = await listIdsByRelation(client, 'unidades', 'materia_id', materiaIds);
+  const temaIds = await listIdsByRelation(client, 'temas', 'unidad_id', unidadIds);
+
+  await deletePlaneacionesByTemaIds(client, temaIds);
+  await deleteRowsByIds(client, 'temas', temaIds);
+  await deleteRowsByIds(client, 'unidades', unidadIds);
+  await deleteRowsByIds(client, 'materias', materiaIds);
+  await deleteRowsByIds(client, 'grados', gradoIds);
+
+  const { error } = await client
+    .from('planteles')
+    .delete()
+    .eq('id', plantelId);
+
+  if (error) throw error;
 }
 
 export async function listarGradosPorPlantel(client, plantelId) {
@@ -104,6 +169,26 @@ export async function crearGrado(client, { plantelId, nombre, orden }) {
   return data;
 }
 
+export async function eliminarGrado(client, gradoId) {
+  await ensureRecordExists(client, 'grados', gradoId, 'Grado no encontrado');
+
+  const materiaIds = await listIdsByRelation(client, 'materias', 'grado_id', gradoId);
+  const unidadIds = await listIdsByRelation(client, 'unidades', 'materia_id', materiaIds);
+  const temaIds = await listIdsByRelation(client, 'temas', 'unidad_id', unidadIds);
+
+  await deletePlaneacionesByTemaIds(client, temaIds);
+  await deleteRowsByIds(client, 'temas', temaIds);
+  await deleteRowsByIds(client, 'unidades', unidadIds);
+  await deleteRowsByIds(client, 'materias', materiaIds);
+
+  const { error } = await client
+    .from('grados')
+    .delete()
+    .eq('id', gradoId);
+
+  if (error) throw error;
+}
+
 export async function listarMateriasPorGrado(client, gradoId) {
   await ensureRecordExists(client, 'grados', gradoId, 'Grado no encontrado');
 
@@ -138,6 +223,24 @@ export async function crearMateria(client, { gradoId, nombre }) {
 
   if (error) throw error;
   return data;
+}
+
+export async function eliminarMateria(client, materiaId) {
+  await ensureRecordExists(client, 'materias', materiaId, 'Materia no encontrada');
+
+  const unidadIds = await listIdsByRelation(client, 'unidades', 'materia_id', materiaId);
+  const temaIds = await listIdsByRelation(client, 'temas', 'unidad_id', unidadIds);
+
+  await deletePlaneacionesByTemaIds(client, temaIds);
+  await deleteRowsByIds(client, 'temas', temaIds);
+  await deleteRowsByIds(client, 'unidades', unidadIds);
+
+  const { error } = await client
+    .from('materias')
+    .delete()
+    .eq('id', materiaId);
+
+  if (error) throw error;
 }
 
 export async function listarUnidadesPorMateria(client, materiaId) {
@@ -179,6 +282,22 @@ export async function crearUnidad(client, { materiaId, nombre, orden }) {
 
   if (error) throw error;
   return data;
+}
+
+export async function eliminarUnidad(client, unidadId) {
+  await ensureRecordExists(client, 'unidades', unidadId, 'Unidad no encontrada');
+
+  const temaIds = await listIdsByRelation(client, 'temas', 'unidad_id', unidadId);
+
+  await deletePlaneacionesByTemaIds(client, temaIds);
+  await deleteRowsByIds(client, 'temas', temaIds);
+
+  const { error } = await client
+    .from('unidades')
+    .delete()
+    .eq('id', unidadId);
+
+  if (error) throw error;
 }
 
 function normalizeTemaInput(item) {
@@ -234,6 +353,19 @@ export async function crearTemas(client, { unidadId, temas }) {
     total: data.length,
     temas: data
   };
+}
+
+export async function eliminarTema(client, temaId) {
+  await ensureRecordExists(client, 'temas', temaId, 'Tema no encontrado');
+
+  await deletePlaneacionesByTemaIds(client, [temaId]);
+
+  const { error } = await client
+    .from('temas')
+    .delete()
+    .eq('id', temaId);
+
+  if (error) throw error;
 }
 
 export async function listarTemasPorUnidad(client, unidadId) {
