@@ -1,119 +1,203 @@
-# 🧠 Educativo Backend - API para Planeaciones Docentes
+# Educativo Backend
 
-Este proyecto representa el backend de **Educativo IA**, una plataforma que permite a docentes generar planeaciones pedagógicas usando inteligencia artificial.
+Backend de Educativo IA. Este repositorio expone una API en Node.js y Express para autenticacion con Supabase, administracion de jerarquia academica y generacion de planeaciones didacticas con IA.
 
-## 📦 Tecnologías usadas
+## Alcance del repositorio
 
-- **Node.js + Express**
-- **Supabase** como base de datos (PostgreSQL)
-- **dotenv** para gestionar variables de entorno
-- **CORS** para acceso desde frontend desplegado
-- **ES Modules** (`type: module` en package.json)
+Este proyecto concentra la capa backend del producto y cubre estas responsabilidades:
 
----
+- API REST para planeaciones y jerarquia academica.
+- Validacion de tokens Bearer emitidos por Supabase.
+- Clientes Supabase para operaciones administrativas y consultas con contexto de usuario.
+- Generacion de planeaciones con OpenAI.
+- Respuestas JSON y streaming SSE para mostrar progreso de generacion.
+- Persistencia de planeaciones, temas y metricas de IA en Supabase.
 
-## 🚀 Rutas disponibles
+## Stack tecnico
 
-| Método | Ruta                        | Descripción                          |
-|--------|-----------------------------|--------------------------------------|
-| GET    | `/`                         | Verifica que el servidor esté activo |
-| GET    | `/api/planeaciones`         | Devuelve todas las planeaciones      |
-| GET    | `/api/planeaciones/:id`     | Devuelve una planeación por ID       |
-| POST   | `/api/planeaciones`         | Inserta una nueva planeación         |
-| DELETE | `/api/planeaciones/:id`     | Elimina una planeación por ID        |
+- Node.js
+- Express 4
+- Supabase JavaScript SDK
+- OpenAI SDK
+- dotenv
+- cors
+- nodemon
 
----
+## Arquitectura general
 
-📁 Estructura
+- `src/server.js`: arranque del servidor HTTP.
+- `src/app.js`: configuracion de Express, CORS, JSON body parser, healthcheck y montaje de rutas.
+- `src/routes/`: definicion de endpoints de planeaciones y jerarquia.
+- `src/middleware/auth.middleware.js`: validacion de `Authorization: Bearer <token>`.
+- `src/controllers/`: parsing de requests, validaciones y armado de respuestas JSON o SSE.
+- `src/services/`: acceso a Supabase, generacion con OpenAI y reglas de negocio.
+- `src/utils/buildPromptByLevel.js`: construccion del prompt segun materia, nivel, unidad, tema y duracion.
+- `supabaseClient.js`: cliente admin y cliente por usuario para consultas con token de acceso.
+
+## Flujo principal
+
+1. El frontend envia un token Bearer de Supabase.
+2. `requireAuth` valida el token y adjunta `req.user` y `req.accessToken`.
+3. El controlador crea un cliente Supabase ligado al usuario.
+4. El servicio consulta o persiste datos en tablas como `planteles`, `grados`, `materias`, `unidades`, `temas` y `planeaciones`.
+5. Cuando aplica, el servicio llama a OpenAI para generar `tabla_ia` y registra metricas en `ia_metrics`.
+6. La API responde en JSON o por SSE cuando se solicita progreso en tiempo real.
+
+## Autenticacion
+
+- Todas las rutas bajo `/api` requieren encabezado `Authorization: Bearer <supabase_access_token>`.
+- La validacion se hace con `supabaseAdmin.auth.getUser(token)`.
+- Despues de validar el token, el backend crea un cliente con `SUPABASE_KEY` para operar con contexto de usuario.
+
+## Endpoints
+
+Rutas publicas:
+
+| Metodo | Ruta | Descripcion |
+| --- | --- | --- |
+| GET | `/` | Respuesta simple para confirmar que el servidor esta arriba |
+| GET | `/health` | Healthcheck JSON |
+
+Rutas de planeaciones:
+
+| Metodo | Ruta | Descripcion |
+| --- | --- | --- |
+| GET | `/api/planeaciones` | Lista planeaciones del usuario autenticado |
+| GET | `/api/planeaciones/batches` | Lista batches disponibles |
+| GET | `/api/planeaciones/batch/:batch_id` | Obtiene planeaciones agrupadas por batch |
+| POST | `/api/planeaciones/generate` | Genera una o varias planeaciones con IA |
+| GET | `/api/planeaciones/:id` | Obtiene una planeacion por ID |
+| PUT | `/api/planeaciones/:id` | Actualiza una planeacion existente |
+| DELETE | `/api/planeaciones/:id` | Elimina una planeacion |
+
+Rutas de jerarquia academica:
+
+| Metodo | Ruta | Descripcion |
+| --- | --- | --- |
+| GET | `/api/planteles` | Lista planteles |
+| POST | `/api/planteles` | Crea un plantel |
+| DELETE | `/api/planteles/:plantelId` | Elimina un plantel y su cascada relacionada |
+| GET | `/api/planteles/:plantelId/grados` | Lista grados de un plantel |
+| POST | `/api/grados` | Crea un grado |
+| DELETE | `/api/grados/:gradoId` | Elimina un grado |
+| GET | `/api/grados/:gradoId/materias` | Lista materias de un grado |
+| POST | `/api/materias` | Crea una materia |
+| DELETE | `/api/materias/:materiaId` | Elimina una materia |
+| GET | `/api/materias/:materiaId/unidades` | Lista unidades de una materia |
+| POST | `/api/unidades` | Crea una unidad |
+| DELETE | `/api/unidades/:unidadId` | Elimina una unidad |
+| GET | `/api/unidades/:unidadId/temas` | Lista temas de una unidad |
+| POST | `/api/temas` | Crea uno o varios temas |
+| DELETE | `/api/temas/:temaId` | Elimina un tema |
+| POST | `/api/unidades/:unidadId/generar` | Genera planeaciones por unidad |
+| GET | `/api/temas/:temaId/planeacion` | Obtiene la ultima planeacion asociada a un tema |
+
+## Streaming SSE
+
+Los endpoints de generacion soportan streaming con Server-Sent Events:
+
+- `POST /api/planeaciones/generate?stream=1`
+- `POST /api/unidades/:unidadId/generar?stream=1`
+
+Tambien pueden activarse enviando `Accept: text/event-stream`.
+
+Eventos esperados:
+
+- `item_started`
+- `item_completed`
+- `item_error`
+- `done`
+
+## Variables de entorno
+
+Este backend depende de un archivo `.env` con al menos estas variables:
 
 ```bash
-/Educativo-Backend
-├── index.js               # Archivo principal del servidor Express
-├── supabaseClient.js     # Cliente Supabase exportado como módulo
-├── .env                  # Variables de entorno 
-├── package.json
-└── README.md             # ← Este archivo
-```
-
----
-
-🧑‍💻 Autores
-Desarrollado por Rafael Menchaca, Juan Zuniga, Iram Zapata como parte del proyecto Educativo IA.
-
-
-
-
-
-# 🧠 Educativo Backend – API para Planeaciones Didácticas con IA
-
-**Educativo Backend** es la API que impulsa [Educativo IA](https://rafaelmenchaca.com), una plataforma que permite generar planeaciones pedagógicas completas mediante **inteligencia artificial**.  
-El servidor gestiona la conexión entre el frontend, la base de datos Supabase y el modelo de IA GPT-4o-mini.
-
----
-
-## ⚙️ Tecnologías principales
-
-- 🟩 **Node.js + Express**
-- 🗄️ **Supabase (PostgreSQL)** como base de datos principal  
-- 🔐 **dotenv** para variables de entorno seguras  
-- 🌍 **CORS** configurado para entornos local y producción  
-- 📡 **OpenAI GPT-4o-mini** como motor de generación IA  
-- 📦 **ES Modules** (`"type": "module"` en package.json)
-
----
-
-## 🚀 Endpoints principales
-
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| **GET** | `/` | Verifica que el servidor está activo |
-| **GET** | `/health` | Healthcheck general |
-| **GET** | `/api/planeaciones` | Lista todas las planeaciones |
-| **GET** | `/api/planeaciones/:id` | Devuelve una planeación específica |
-| **POST** | `/api/planeaciones` | Crea una nueva planeación |
-| **PUT** | `/api/planeaciones/:id` | Actualiza datos de una planeación existente |
-| **DELETE** | `/api/planeaciones/:id` | Elimina una planeación por ID |
-| **POST** | `/api/planeaciones/generate` | Genera una planeación automáticamente usando IA 🤖 |
-
-> ⚠️ Nota: `/api/planeaciones/generate` usa el modelo **GPT-4o-mini** con prompt optimizado para PAEC, productos e instrumentos de evaluación.
-
----
-
-## 🔐 Variables de entorno requeridas (.env)
-
-```bash
-SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_KEY=your-supabase-service-key
-OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxx
-CORS_ORIGIN=https://rafaelmenchaca.github.io,https://rafaelmenchaca.com
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_KEY=your-anon-public-key
+OPENAI_API_KEY=your-openai-api-key
+CORS_ORIGIN=http://127.0.0.1:5500,http://localhost:5500
 PORT=3000
-NODE_ENV=production
+NODE_ENV=development
 ```
-💡 En Render, estas variables deben configurarse desde el panel de Environment → Environment Variables.
 
-## ☁️ Despliegue
-Hosting: Render.com
+Descripcion rapida:
 
-Build command: npm install
+- `SUPABASE_URL`: URL del proyecto Supabase.
+- `SUPABASE_SERVICE_ROLE_KEY`: clave admin para validar usuarios y operaciones privilegiadas.
+- `SUPABASE_KEY`: clave publica usada para crear clientes por usuario autenticado.
+- `OPENAI_API_KEY`: clave para generacion de planeaciones.
+- `CORS_ORIGIN`: lista separada por comas de origenes permitidos en produccion.
+- `PORT`: puerto del servidor Express.
+- `NODE_ENV`: controla comportamiento de CORS y entorno.
 
-Start command: node index.js
+## Instalacion
 
-Node version: 22.x
+```bash
+npm install
+```
 
-El backend se ejecuta automáticamente en cada push al branch main.
+## Scripts disponibles
 
-## 🧠 Estado actual (v1.0 – AI Integration)
-✅ IA funcional con generación automática de planeaciones
+```bash
+npm start
+npm run dev
+npm test
+```
 
-✅ Conexión estable con Supabase
+Estado de los scripts:
 
-✅ CORS configurado para producción
+- `npm start`: inicia el servidor con `node src/server.js`.
+- `npm run dev`: inicia el servidor con `nodemon`.
+- `npm test`: hoy es un placeholder y devuelve error porque no hay suite configurada.
 
-✅ Logs de error detallados para depuración
+## Ejecucion local
 
-⚙️ Preparado para futuras mejoras (IA adaptativa, autenticación Supabase)
+1. Crea y completa el archivo `.env`.
+2. Instala dependencias con `npm install`.
+3. Ejecuta `npm run dev` para desarrollo o `npm start` para una corrida normal.
+4. Verifica el servicio en `http://localhost:3000/health`.
 
-## 📄 Licencia
-© 2026 Rafael Menchaca.
-Proyecto en desarrollo por **Rafael Menchaca, Juan Zuñiga**
-Todos los derechos reservados.
+## Estructura del proyecto
+
+Se muestra la estructura actual del repositorio. Se omiten `.git/` y `node_modules/` por brevedad:
+
+```text
+Educativo-Backend/
+|-- .env
+|-- .gitignore
+|-- CHANGELOG.md
+|-- package-lock.json
+|-- package.json
+|-- README.md
+|-- src/
+|   |-- app.js
+|   |-- controllers/
+|   |   |-- jerarquia.controller.js
+|   |   `-- planeaciones.controller.js
+|   |-- middleware/
+|   |   `-- auth.middleware.js
+|   |-- routes/
+|   |   |-- index.js
+|   |   |-- jerarquia.routes.js
+|   |   `-- planeaciones.routes.js
+|   |-- server.js
+|   |-- services/
+|   |   |-- jerarquia.service.js
+|   |   `-- planeaciones.service.js
+|   `-- utils/
+|       `-- buildPromptByLevel.js
+`-- supabaseClient.js
+```
+
+## Notas de mantenimiento
+
+- El `README` anterior mezclaba dos versiones del proyecto; este archivo se rehizo contra el codigo actual.
+- La generacion por unidad crea temas nuevos, registra estados `pending`, `generating`, `ready` o `error` y devuelve un `batch_id`.
+- El backend registra metricas de uso de IA en la tabla `ia_metrics`.
+- Si este repo va a publicarse, conviene retirar `.env` del workspace versionado y mantener solo un ejemplo como `.env.example`.
+
+## Licencia
+
+El `package.json` declara licencia `ISC`. Si el proyecto requiere otra politica de distribucion, conviene actualizarla de forma explicita.
