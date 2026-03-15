@@ -12,6 +12,7 @@ const TABLA_IA_PRIMARY_MAX_TOKENS = 1200;
 const TABLA_IA_RETRY_MAX_TOKENS = 1600;
 const OPENAI_TABLA_SYSTEM_PROMPT =
   'Actua como un docente experto en diseno de planeaciones didacticas, con experiencia en primaria, secundaria, bachillerato y nivel superior. Responde solo con JSON valido, sin markdown, sin backticks y sin texto adicional.';
+const TEMA_DUPLICATE_CONSTRAINT = 'temas_unidad_id_titulo_key';
 
 function buildHttpError(status, message) {
   const err = new Error(message);
@@ -21,6 +22,24 @@ function buildHttpError(status, message) {
 
 function getClient(supabaseClient) {
   return supabaseClient || supabaseAdmin;
+}
+
+function isTemaDuplicateError(error) {
+  const code = String(error?.code || '').toLowerCase();
+  const constraint = String(error?.constraint || '').toLowerCase();
+  const message = String(error?.message || '').toLowerCase();
+  const details = String(error?.details || '').toLowerCase();
+
+  return (
+    code === '23505' ||
+    constraint === TEMA_DUPLICATE_CONSTRAINT ||
+    message.includes(TEMA_DUPLICATE_CONSTRAINT) ||
+    details.includes(TEMA_DUPLICATE_CONSTRAINT)
+  );
+}
+
+function buildDuplicateTemaMessage() {
+  return 'Este tema ya existe en la unidad. Intenta con otro tema.';
 }
 
 async function enriquecerPlaneacionConJerarquia(client, planeacion) {
@@ -568,19 +587,55 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
 
   const batch_id = randomUUID();
 
-  const temasCreados = await crearTemas(client, {
-    unidadId,
-    temas: normalizedTemas
-  });
-
   const results = [];
   const planeacionIds = [];
 
-  for (let i = 0; i < temasCreados.temas.length; i += 1) {
-    const tema = temasCreados.temas[i];
+  for (let i = 0; i < normalizedTemas.length; i += 1) {
+    const temaInput = normalizedTemas[i];
     const index = i + 1;
-
+    let tema = null;
     let planeacion = null;
+
+    try {
+      const temasCreados = await crearTemas(client, {
+        unidadId,
+        temas: [temaInput]
+      });
+
+      tema = temasCreados.temas[0] || null;
+      if (!tema) {
+        throw buildHttpError(500, 'No se pudo registrar el tema');
+      }
+    } catch (error) {
+      const isDuplicate = isTemaDuplicateError(error);
+      const status = isDuplicate ? 'skipped' : 'error';
+      const message = isDuplicate
+        ? buildDuplicateTemaMessage()
+        : error?.message || 'No se pudo registrar el tema';
+
+      results.push({
+        index,
+        tema_id: null,
+        planeacion_id: null,
+        titulo: temaInput.titulo,
+        status,
+        message
+      });
+
+      if (typeof onEvent === 'function') {
+        onEvent({
+          type: isDuplicate ? 'item_skipped' : 'item_error',
+          index,
+          tema: temaInput.titulo,
+          tema_id: null,
+          planeacion_id: null,
+          status,
+          message
+        });
+      }
+
+      continue;
+    }
 
     try {
       planeacion = await createPendingPlaneacion({
@@ -650,6 +705,7 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
         index,
         tema_id: tema.id,
         planeacion_id: planeacionId,
+        titulo: tema.titulo,
         status: 'ready'
       });
 
@@ -678,8 +734,9 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
         index,
         tema_id: tema.id,
         planeacion_id: planeacion?.id || null,
+        titulo: tema.titulo,
         status: 'error',
-        error: error?.message || 'Error generando planeacion'
+        message: error?.message || 'No se pudo generar la planeacion'
       });
 
       if (typeof onEvent === 'function') {
@@ -690,7 +747,7 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
           tema_id: tema.id,
           planeacion_id: planeacion?.id || null,
           status: 'error',
-          error: error?.message || 'Error generando planeacion'
+          message: error?.message || 'No se pudo generar la planeacion'
         });
       }
     }
@@ -711,13 +768,16 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
 
   const success_count = results.filter((result) => result.status === 'ready').length;
   const error_count = results.filter((result) => result.status === 'error').length;
+  const skipped_count = results.filter((result) => result.status === 'skipped').length;
 
   return {
     batch_id,
     unidad_id: unidadId,
-    total: temasCreados.total,
+    total: normalizedTemas.length,
     success_count,
     error_count,
+    skipped_count,
+    resultados: results,
     results,
     planeaciones
   };
