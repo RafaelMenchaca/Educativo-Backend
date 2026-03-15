@@ -10,6 +10,8 @@ const openai = new OpenAI({
 
 const TABLA_IA_PRIMARY_MAX_TOKENS = 1200;
 const TABLA_IA_RETRY_MAX_TOKENS = 1600;
+const OPENAI_TABLA_SYSTEM_PROMPT =
+  'Actua como un docente experto en diseno de planeaciones didacticas, con experiencia en primaria, secundaria, bachillerato y nivel superior. Responde solo con JSON valido, sin markdown, sin backticks y sin texto adicional.';
 
 function buildHttpError(status, message) {
   const err = new Error(message);
@@ -157,8 +159,7 @@ async function solicitarTablaIaCompletion({ prompt, maxTokens, temperature }) {
     messages: [
       {
         role: 'system',
-        content:
-          'Actua como un docente experto en diseno de planeaciones didacticas, con experiencia en primaria, secundaria, bachillerato y nivel superior. Responde solo con JSON valido, sin markdown, sin backticks y sin texto adicional.'
+        content: OPENAI_TABLA_SYSTEM_PROMPT
       },
       { role: 'user', content: prompt }
     ],
@@ -205,6 +206,36 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
 
   for (let index = 0; index < attempts.length; index += 1) {
     const attempt = attempts[index];
+    console.log(
+      '[planeacion-debug] openai prompt / tabla_ia',
+      JSON.stringify(
+        {
+          intento: index + 1,
+          model: 'gpt-4o-mini',
+          materia,
+          nivel,
+          unidad,
+          tema,
+          duracion,
+          response_format: { type: 'json_object' },
+          temperature: attempt.temperature,
+          max_tokens: attempt.maxTokens,
+          messages: [
+            {
+              role: 'system',
+              content: OPENAI_TABLA_SYSTEM_PROMPT
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ]
+        },
+        null,
+        2
+      )
+    );
+
     const completion = await solicitarTablaIaCompletion({
       prompt,
       maxTokens: attempt.maxTokens,
@@ -529,7 +560,7 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
   const nivel =
     typeof payload?.nivel === 'string' && payload.nivel.trim()
       ? payload.nivel.trim()
-      : contexto.grado.nombre;
+      : contexto.grado?.nivel_base || contexto.grado?.nombre;
 
   const unidadLegacy = Number.isInteger(contexto.unidad?.orden)
     ? contexto.unidad.orden

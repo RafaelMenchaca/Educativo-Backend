@@ -53,6 +53,10 @@ function writeSse(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function logPlaneacionDebug(label, payload) {
+  console.log(`[planeacion-debug] ${label}`, JSON.stringify(payload, null, 2));
+}
+
 function parseTemasBody(body) {
   if (Array.isArray(body?.temas)) {
     return body.temas;
@@ -119,7 +123,8 @@ export async function postGrado(req, res) {
     const data = await crearGrado(userClientFromReq(req), {
       plantelId: req.body?.plantel_id,
       nombre: req.body?.nombre,
-      orden: Number.parseInt(req.body?.orden, 10)
+      orden: Number.parseInt(req.body?.orden, 10),
+      nivelBase: req.body?.nivel_base
     });
 
     res.status(201).json(data);
@@ -267,12 +272,16 @@ export async function generarPlaneacionesPorUnidad(req, res) {
     nivel: typeof req.body?.nivel === 'string' ? req.body.nivel : null
   };
 
+  logPlaneacionDebug('backend request /api/unidades/:unidadId/generar', payload);
+
   if (!wantsStream(req)) {
     try {
       const result = await generarPlaneacionesIAPorUnidad({
         supabaseClient: userClientFromReq(req),
         ...payload
       });
+
+      logPlaneacionDebug('backend response /api/unidades/:unidadId/generar', result);
 
       return res.json(result);
     } catch (error) {
@@ -308,6 +317,7 @@ export async function generarPlaneacionesPorUnidad(req, res) {
     );
 
     if (!closed) {
+      logPlaneacionDebug('backend response /api/unidades/:unidadId/generar?stream=1', result);
       writeSse(res, { type: 'done', data: result });
       res.write('data: [DONE]\n\n');
       res.end();

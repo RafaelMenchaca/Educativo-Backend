@@ -12,6 +12,95 @@ function asPositiveInteger(value) {
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
+const GRADO_NIVEL_LABELS = {
+  primaria: 'Primaria',
+  secundaria: 'Secundaria',
+  preparatoria: 'Preparatoria',
+  universidad: 'Universidad'
+};
+
+const GRADO_NIVEL_ALIASES = {
+  primaria: ['primaria'],
+  secundaria: ['secundaria'],
+  preparatoria: ['preparatoria', 'prepa', 'bachillerato', 'bachiller'],
+  universidad: ['universidad', 'universitario', 'licenciatura', 'ingenieria', 'ingeniería', 'posgrado']
+};
+
+function normalizeNivelBase(value) {
+  const safeValue = normalizeText(value).toLowerCase();
+  if (!safeValue) return '';
+
+  for (const [nivelBase, aliases] of Object.entries(GRADO_NIVEL_ALIASES)) {
+    if (aliases.some((alias) => safeValue === alias || safeValue.startsWith(`${alias} `))) {
+      return nivelBase;
+    }
+  }
+
+  return '';
+}
+
+function formatNivelBaseLabel(nivelBase) {
+  return GRADO_NIVEL_LABELS[nivelBase] || '';
+}
+
+function stripNivelBaseFromNombre(nombre, nivelBase) {
+  const safeNombre = normalizeText(nombre);
+  const nivelLabel = formatNivelBaseLabel(nivelBase);
+
+  if (!safeNombre || !nivelLabel) {
+    return safeNombre;
+  }
+
+  const normalizedName = safeNombre.toLowerCase();
+  const normalizedLabel = nivelLabel.toLowerCase();
+
+  if (normalizedName === normalizedLabel) {
+    return '';
+  }
+
+  if (normalizedName.startsWith(`${normalizedLabel} `)) {
+    return safeNombre.slice(nivelLabel.length).trim();
+  }
+
+  return safeNombre;
+}
+
+function buildStoredGradoNombre({ nivelBase, nombre }) {
+  const safeNivelBase = normalizeNivelBase(nivelBase || nombre);
+  const safeNombre = normalizeText(nombre);
+
+  if (!safeNivelBase) {
+    throw buildHttpError(400, 'Nivel base de grado invalido');
+  }
+
+  if (!safeNombre) {
+    throw buildHttpError(400, 'Nombre de grado invalido');
+  }
+
+  const nivelLabel = formatNivelBaseLabel(safeNivelBase);
+  const gradoNombre = stripNivelBaseFromNombre(safeNombre, safeNivelBase);
+
+  return {
+    nivelBase: safeNivelBase,
+    nombreCompleto: gradoNombre ? `${nivelLabel} ${gradoNombre}` : nivelLabel
+  };
+}
+
+function enrichGradoRecord(grado) {
+  if (!grado || typeof grado !== 'object') {
+    return grado;
+  }
+
+  const nivelBase = normalizeNivelBase(grado.nivel_base || grado.nombre);
+  const safeNombre = normalizeText(grado.nombre);
+
+  return {
+    ...grado,
+    nivel_base: nivelBase || null,
+    grado_nombre: stripNivelBaseFromNombre(safeNombre, nivelBase) || safeNombre
+  };
+}
+
 async function ensureRecordExists(client, table, id, notFoundMessage) {
   const { data, error } = await client
     .from(table)
@@ -139,17 +228,13 @@ export async function listarGradosPorPlantel(client, plantelId) {
     .order('created_at', { ascending: true });
 
   if (error) throw error;
-  return data;
+  return (data || []).map(enrichGradoRecord);
 }
 
-export async function crearGrado(client, { plantelId, nombre, orden }) {
+export async function crearGrado(client, { plantelId, nombre, orden, nivelBase }) {
   await ensureRecordExists(client, 'planteles', plantelId, 'Plantel no encontrado');
 
-  const safeNombre = normalizeText(nombre);
-  if (!safeNombre) {
-    throw buildHttpError(400, 'Nombre de grado invalido');
-  }
-
+  const gradoData = buildStoredGradoNombre({ nivelBase, nombre });
   const providedOrder = asPositiveInteger(orden);
   const resolvedOrder = providedOrder || (await nextOrderFor(client, 'grados', 'plantel_id', plantelId));
 
@@ -158,7 +243,7 @@ export async function crearGrado(client, { plantelId, nombre, orden }) {
     .insert([
       {
         plantel_id: plantelId,
-        nombre: safeNombre,
+        nombre: gradoData.nombreCompleto,
         orden: resolvedOrder
       }
     ])
@@ -166,7 +251,7 @@ export async function crearGrado(client, { plantelId, nombre, orden }) {
     .single();
 
   if (error) throw error;
-  return data;
+  return enrichGradoRecord(data);
 }
 
 export async function eliminarGrado(client, gradoId) {
@@ -450,7 +535,7 @@ export async function obtenerContextoUnidad(client, unidadId) {
     plantel,
     unidad,
     materia,
-    grado
+    grado: enrichGradoRecord(grado)
   };
 }
 

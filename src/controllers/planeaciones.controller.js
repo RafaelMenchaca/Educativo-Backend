@@ -41,6 +41,10 @@ function writeSse(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function logPlaneacionDebug(label, payload) {
+  console.log(`[planeacion-debug] ${label}`, JSON.stringify(payload, null, 2));
+}
+
 export async function getPlaneaciones(req, res) {
   try {
     const data = await listarPlaneaciones({
@@ -110,6 +114,8 @@ export async function generarPlaneaciones(req, res) {
     return res.status(400).json({ error: 'Datos invalidos' });
   }
 
+  logPlaneacionDebug('backend request /api/planeaciones/generate', payload);
+
   if (!wantsStream(req)) {
     try {
       const result = await generarPlaneacionesIA({
@@ -117,6 +123,8 @@ export async function generarPlaneaciones(req, res) {
         userId: req.user.id,
         supabaseClient: userClientFromReq(req)
       });
+
+      logPlaneacionDebug('backend response /api/planeaciones/generate', result);
 
       return res.json(result);
     } catch (err) {
@@ -154,6 +162,7 @@ export async function generarPlaneaciones(req, res) {
     );
 
     if (!closed) {
+      logPlaneacionDebug('backend response /api/planeaciones/generate?stream=1', result);
       writeSse(res, { type: 'done', data: result });
       res.write('data: [DONE]\n\n');
       res.end();
