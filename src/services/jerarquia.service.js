@@ -430,17 +430,45 @@ export async function obtenerContextoUnidad(client, unidadId) {
 
   const { data: grado, error: gradoError } = await client
     .from('grados')
-    .select('id, nombre')
+    .select('id, plantel_id, nombre')
     .eq('id', materia.grado_id)
     .maybeSingle();
 
   if (gradoError) throw gradoError;
   if (!grado) throw buildHttpError(404, 'Grado no encontrado');
 
+  const { data: plantel, error: plantelError } = await client
+    .from('planteles')
+    .select('id, nombre')
+    .eq('id', grado.plantel_id)
+    .maybeSingle();
+
+  if (plantelError) throw plantelError;
+  if (!plantel) throw buildHttpError(404, 'Plantel no encontrado');
+
   return {
+    plantel,
     unidad,
     materia,
     grado
+  };
+}
+
+export async function obtenerContextoTema(client, temaId) {
+  const { data: tema, error: temaError } = await client
+    .from('temas')
+    .select('id, unidad_id, titulo, duracion, orden')
+    .eq('id', temaId)
+    .maybeSingle();
+
+  if (temaError) throw temaError;
+  if (!tema) throw buildHttpError(404, 'Tema no encontrado');
+
+  const contextoUnidad = await obtenerContextoUnidad(client, tema.unidad_id);
+
+  return {
+    ...contextoUnidad,
+    tema
   };
 }
 

@@ -2,11 +2,14 @@ import { supabaseAdmin } from '../../supabaseClient.js';
 import OpenAI from 'openai';
 import { randomUUID } from 'crypto';
 import { buildPromptByLevel } from '../utils/buildPromptByLevel.js';
-import { crearTemas, obtenerContextoUnidad } from './jerarquia.service.js';
+import { crearTemas, obtenerContextoTema, obtenerContextoUnidad } from './jerarquia.service.js';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
+
+const TABLA_IA_PRIMARY_MAX_TOKENS = 1200;
+const TABLA_IA_RETRY_MAX_TOKENS = 1600;
 
 function buildHttpError(status, message) {
   const err = new Error(message);
@@ -16,6 +19,38 @@ function buildHttpError(status, message) {
 
 function getClient(supabaseClient) {
   return supabaseClient || supabaseAdmin;
+}
+
+async function enriquecerPlaneacionConJerarquia(client, planeacion) {
+  if (!planeacion?.tema_id) {
+    return planeacion;
+  }
+
+  try {
+    const contexto = await obtenerContextoTema(client, planeacion.tema_id);
+    const ruta = [
+      { nivel: 'plantel', id: contexto.plantel?.id || null, nombre: contexto.plantel?.nombre || '' },
+      { nivel: 'grado', id: contexto.grado?.id || null, nombre: contexto.grado?.nombre || '' },
+      { nivel: 'materia', id: contexto.materia?.id || null, nombre: contexto.materia?.nombre || '' },
+      { nivel: 'unidad', id: contexto.unidad?.id || null, nombre: contexto.unidad?.nombre || '' },
+      { nivel: 'tema', id: contexto.tema?.id || null, nombre: contexto.tema?.titulo || '' }
+    ].filter((item) => item.nombre);
+
+    return {
+      ...planeacion,
+      jerarquia: {
+        plantel: contexto.plantel || null,
+        grado: contexto.grado || null,
+        materia: contexto.materia || null,
+        unidad: contexto.unidad || null,
+        tema: contexto.tema || null,
+        ruta,
+        ruta_label: ruta.map((item) => item.nombre).join(' / ')
+      }
+    };
+  } catch {
+    return planeacion;
+  }
 }
 
 function buildFallbackTablaIa(duracion) {
@@ -50,44 +85,91 @@ function buildFallbackTablaIa(duracion) {
   ];
 }
 
-function parseTablaIa(rawText, duracion) {
-  let jsonOk = true;
-  let errorTipo = null;
-  let tablaIa = [];
+function normalizeTablaIaPayload(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
 
-  try {
-    tablaIa = JSON.parse(rawText);
-  } catch {
-    jsonOk = false;
-    errorTipo = 'invalid_json';
+  if (payload && typeof payload === 'object') {
+    if (Array.isArray(payload.tabla)) {
+      return payload.tabla;
+    }
 
-    const match = rawText.match(/\[.*\]/s);
-    if (match) {
-      try {
-        tablaIa = JSON.parse(match[0]);
-        jsonOk = true;
-        errorTipo = 'json_recovered';
-      } catch {
-        // noop
-      }
+    if (Array.isArray(payload.tabla_ia)) {
+      return payload.tabla_ia;
     }
   }
 
-  if (!Array.isArray(tablaIa) || tablaIa.length === 0) {
-    jsonOk = false;
-    errorTipo = 'fallback_used';
-    tablaIa = buildFallbackTablaIa(duracion);
+  return [];
+}
+
+function extractJsonCandidates(rawText) {
+  const candidates = [];
+
+  function pushCandidate(value) {
+    const candidate = typeof value === 'string' ? value.trim() : '';
+    if (!candidate || candidates.includes(candidate)) {
+      return;
+    }
+    candidates.push(candidate);
+  }
+
+  pushCandidate(rawText);
+  pushCandidate(rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1] || '');
+  pushCandidate(rawText.match(/\{[\s\S]*\}/)?.[0] || '');
+  pushCandidate(rawText.match(/\[[\s\S]*\]/)?.[0] || '');
+
+  return candidates;
+}
+
+function parseTablaIa(rawText, duracion) {
+  const candidates = extractJsonCandidates(rawText);
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+
+    try {
+      const parsed = JSON.parse(candidate);
+      const tablaIa = normalizeTablaIaPayload(parsed);
+
+      if (Array.isArray(tablaIa) && tablaIa.length > 0) {
+        return {
+          tablaIa,
+          jsonOk: true,
+          errorTipo: index === 0 ? null : 'json_recovered'
+        };
+      }
+    } catch {
+      // Continue trying with other JSON-like candidates.
+    }
   }
 
   return {
-    tablaIa,
-    jsonOk,
-    errorTipo
+    tablaIa: buildFallbackTablaIa(duracion),
+    jsonOk: false,
+    errorTipo: 'fallback_used'
   };
 }
 
+async function solicitarTablaIaCompletion({ prompt, maxTokens, temperature }) {
+  return openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      {
+        role: 'system',
+        content:
+          'Actua como un docente experto en diseno de planeaciones didacticas, con experiencia en primaria, secundaria, bachillerato y nivel superior. Responde solo con JSON valido, sin markdown, sin backticks y sin texto adicional.'
+      },
+      { role: 'user', content: prompt }
+    ],
+    response_format: { type: 'json_object' },
+    temperature,
+    max_tokens: maxTokens
+  });
+}
+
 async function generarTablaIa({ materia, nivel, unidad, tema, duracion }) {
-  const prompt = buildPromptByLevel({
+  const basePrompt = buildPromptByLevel({
     materia,
     nivel,
     unidad,
@@ -95,36 +177,99 @@ async function generarTablaIa({ materia, nivel, unidad, tema, duracion }) {
     duracion
   });
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      {
-        role: 'system',
-        content:
-          'Actua como un docente experto en diseno de planeaciones didacticas, con experiencia en primaria, secundaria, bachillerato y nivel superior. Tus planeaciones deben reflejar criterio pedagogico, variedad metodologica y dominio del tema.'
-      },
-      { role: 'user', content: prompt }
-    ],
-    temperature: 0.6,
-    max_tokens: 700
+  const prompt = `${basePrompt}
+
+Devuelve un objeto JSON valido con esta forma exacta:
+{
+  "tabla": [
+    {
+      "tiempo_sesion": "Conocimientos previos | Desarrollo | Cierre",
+      "actividades": "texto",
+      "tiempo_min": numero,
+      "producto": "texto",
+      "instrumento": "texto",
+      "formativa": "texto",
+      "sumativa": numero
+    }
+  ]
+}
+
+La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
+
+  const attempts = [
+    { maxTokens: TABLA_IA_PRIMARY_MAX_TOKENS, temperature: 0.4 },
+    { maxTokens: TABLA_IA_RETRY_MAX_TOKENS, temperature: 0.2 }
+  ];
+
+  let lastAttempt = null;
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index];
+    const completion = await solicitarTablaIaCompletion({
+      prompt,
+      maxTokens: attempt.maxTokens,
+      temperature: attempt.temperature
+    });
+
+    const usage = completion.usage || {};
+    const rawText = completion.choices?.[0]?.message?.content?.trim() || '';
+    const finishReason = completion.choices?.[0]?.finish_reason || null;
+    const parsed = parseTablaIa(rawText, duracion);
+
+    lastAttempt = {
+      parsed,
+      finishReason,
+      usage
+    };
+
+    if (parsed.jsonOk) {
+      return {
+        tablaIa: parsed.tablaIa,
+        metrics: {
+          tokens_prompt: usage.prompt_tokens || 0,
+          tokens_completion: usage.completion_tokens || 0,
+          tokens_total: usage.total_tokens || 0,
+          json_ok: parsed.jsonOk,
+          error_tipo: parsed.errorTipo,
+          nivel,
+          materia,
+          prompt_version: 'v2_json_object_retry'
+        }
+      };
+    }
+
+    const hasMoreAttempts = index < attempts.length - 1;
+    console.warn('Respuesta IA invalida para tabla_ia; reintentando.', {
+      tema,
+      materia,
+      nivel,
+      intento: index + 1,
+      finish_reason: finishReason,
+      tokens_completion: usage.completion_tokens || 0,
+      error_tipo: parsed.errorTipo,
+      reintentara: hasMoreAttempts
+    });
+  }
+
+  console.warn('Se uso fallback para tabla_ia tras agotar reintentos.', {
+    tema,
+    materia,
+    nivel,
+    finish_reason: lastAttempt?.finishReason || null,
+    tokens_completion: lastAttempt?.usage?.completion_tokens || 0
   });
 
-  const usage = completion.usage || {};
-  const rawText = completion.choices?.[0]?.message?.content?.trim() || '';
-
-  const parsed = parseTablaIa(rawText, duracion);
-
   return {
-    tablaIa: parsed.tablaIa,
+    tablaIa: lastAttempt?.parsed?.tablaIa || buildFallbackTablaIa(duracion),
     metrics: {
-      tokens_prompt: usage.prompt_tokens || 0,
-      tokens_completion: usage.completion_tokens || 0,
-      tokens_total: usage.total_tokens || 0,
-      json_ok: parsed.jsonOk,
-      error_tipo: parsed.errorTipo,
+      tokens_prompt: lastAttempt?.usage?.prompt_tokens || 0,
+      tokens_completion: lastAttempt?.usage?.completion_tokens || 0,
+      tokens_total: lastAttempt?.usage?.total_tokens || 0,
+      json_ok: lastAttempt?.parsed?.jsonOk || false,
+      error_tipo: lastAttempt?.parsed?.errorTipo || 'fallback_used',
       nivel,
       materia,
-      prompt_version: 'v1_adaptativo_niveles'
+      prompt_version: 'v2_json_object_retry'
     }
   };
 }
@@ -165,7 +310,7 @@ export async function obtenerPlaneacionPorId({ supabaseClient, id, userId }) {
   const { data, error } = await query.maybeSingle();
 
   if (error || !data) return null;
-  return data;
+  return enriquecerPlaneacionConJerarquia(client, data);
 }
 
 export async function actualizarPlaneacion({
@@ -186,7 +331,7 @@ export async function actualizarPlaneacion({
   const { data, error } = await query.select().maybeSingle();
 
   if (error) throw error;
-  return data;
+  return enriquecerPlaneacionConJerarquia(client, data);
 }
 
 export async function eliminarPlaneacion({ supabaseClient, id, userId }) {
