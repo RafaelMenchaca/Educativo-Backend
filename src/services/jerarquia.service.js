@@ -4,6 +4,10 @@ function buildHttpError(status, message) {
   return err;
 }
 
+function isUniqueViolation(error) {
+  return String(error?.code || '').trim() === '23505';
+}
+
 function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -82,6 +86,7 @@ function buildStoredGradoNombre({ nivelBase, nombre }) {
 
   return {
     nivelBase: safeNivelBase,
+    nivelBaseDb: nivelLabel,
     nombreCompleto: gradoNombre ? `${nivelLabel} ${gradoNombre}` : nivelLabel
   };
 }
@@ -110,6 +115,18 @@ async function ensureRecordExists(client, table, id, notFoundMessage) {
 
   if (error) throw error;
   if (!data) throw buildHttpError(404, notFoundMessage);
+}
+
+async function findExistingSingle(client, table, selectFields, filters = []) {
+  let query = client.from(table).select(selectFields);
+
+  for (const [column, value] of filters) {
+    query = query.eq(column, value);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  return data || null;
 }
 
 async function nextOrderFor(client, table, parentColumn, parentId) {
@@ -169,6 +186,95 @@ async function deletePlaneacionesByTemaIds(client, temaIds) {
   if (error) throw error;
 }
 
+async function listActivePlaneacionesByTemaIds(client, temaIds, userId) {
+  if (!Array.isArray(temaIds) || temaIds.length === 0) {
+    return [];
+  }
+
+  const query = client
+    .from('planeaciones')
+    .select('id, batch_id, tema_id')
+    .in('tema_id', temaIds)
+    .or('is_archived.is.null,is_archived.eq.false');
+
+  if (userId) {
+    query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return data || [];
+}
+
+async function archivePlaneacionesByTemaIds(client, temaIds, { userId, scopeType, scopeId }) {
+  const activePlaneaciones = await listActivePlaneacionesByTemaIds(
+    client,
+    temaIds,
+    userId
+  );
+
+  if (activePlaneaciones.length === 0) {
+    return {
+      ok: true,
+      archived: {
+        type: scopeType,
+        id: scopeId,
+        total_planeaciones: 0,
+        planeacion_ids: [],
+        batch_ids: []
+      }
+    };
+  }
+
+  const planeacionIds = activePlaneaciones.map((item) => item.id);
+  const query = client
+    .from('planeaciones')
+    .update({
+      is_archived: true,
+      archived_at: new Date().toISOString()
+    })
+    .in('id', planeacionIds);
+
+  if (userId) {
+    query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query.select('id, batch_id, tema_id');
+  if (error) throw error;
+
+  const archivedRows = data || [];
+
+  return {
+    ok: true,
+    archived: {
+      type: scopeType,
+      id: scopeId,
+      total_planeaciones: archivedRows.length,
+      planeacion_ids: archivedRows.map((item) => item.id),
+      batch_ids: [...new Set(archivedRows.map((item) => item.batch_id).filter(Boolean))]
+    }
+  };
+}
+
+async function collectTemaIdsForPlantel(client, plantelId) {
+  const gradoIds = await listIdsByRelation(client, 'grados', 'plantel_id', plantelId);
+  const materiaIds = await listIdsByRelation(client, 'materias', 'grado_id', gradoIds);
+  const unidadIds = await listIdsByRelation(client, 'unidades', 'materia_id', materiaIds);
+  return listIdsByRelation(client, 'temas', 'unidad_id', unidadIds);
+}
+
+async function collectTemaIdsForGrado(client, gradoId) {
+  const materiaIds = await listIdsByRelation(client, 'materias', 'grado_id', gradoId);
+  const unidadIds = await listIdsByRelation(client, 'unidades', 'materia_id', materiaIds);
+  return listIdsByRelation(client, 'temas', 'unidad_id', unidadIds);
+}
+
+async function collectTemaIdsForMateria(client, materiaId) {
+  const unidadIds = await listIdsByRelation(client, 'unidades', 'materia_id', materiaId);
+  return listIdsByRelation(client, 'temas', 'unidad_id', unidadIds);
+}
+
 export async function listarPlanteles(client) {
   const { data, error } = await client
     .from('planteles')
@@ -185,13 +291,52 @@ export async function crearPlantel(client, { nombre }) {
     throw buildHttpError(400, 'Nombre de plantel invalido');
   }
 
+  const selectFields = 'id, nombre, created_at, updated_at';
+  const existing = await findExistingSingle(client, 'planteles', selectFields, [
+    ['nombre', safeNombre]
+  ]);
+
+  if (existing) {
+    return existing;
+  }
+
   const { data, error } = await client
     .from('planteles')
     .insert([{ nombre: safeNombre }])
-    .select('id, nombre, created_at, updated_at')
+    .select(selectFields)
     .single();
 
+  if (error && isUniqueViolation(error)) {
+    const duplicate = await findExistingSingle(client, 'planteles', selectFields, [
+      ['nombre', safeNombre]
+    ]);
+
+    if (duplicate) {
+      return duplicate;
+    }
+  }
+
   if (error) throw error;
+  return data;
+}
+
+export async function actualizarPlantel(client, plantelId, { nombre }) {
+  await ensureRecordExists(client, 'planteles', plantelId, 'Plantel no encontrado');
+
+  const safeNombre = normalizeText(nombre);
+  if (!safeNombre) {
+    throw buildHttpError(400, 'Nombre de plantel invalido');
+  }
+
+  const { data, error } = await client
+    .from('planteles')
+    .update({ nombre: safeNombre })
+    .eq('id', plantelId)
+    .select('id, nombre, created_at, updated_at')
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Plantel no encontrado');
   return data;
 }
 
@@ -217,12 +362,22 @@ export async function eliminarPlantel(client, plantelId) {
   if (error) throw error;
 }
 
+export async function archivarPlaneacionesDePlantel(client, plantelId, userId) {
+  await ensureRecordExists(client, 'planteles', plantelId, 'Plantel no encontrado');
+  const temaIds = await collectTemaIdsForPlantel(client, plantelId);
+  return archivePlaneacionesByTemaIds(client, temaIds, {
+    userId,
+    scopeType: 'plantel',
+    scopeId: plantelId
+  });
+}
+
 export async function listarGradosPorPlantel(client, plantelId) {
   await ensureRecordExists(client, 'planteles', plantelId, 'Plantel no encontrado');
 
   const { data, error } = await client
     .from('grados')
-    .select('id, plantel_id, nombre, orden, created_at, updated_at')
+    .select('id, plantel_id, nombre, nivel_base, orden, created_at, updated_at')
     .eq('plantel_id', plantelId)
     .order('orden', { ascending: true })
     .order('created_at', { ascending: true });
@@ -237,6 +392,15 @@ export async function crearGrado(client, { plantelId, nombre, orden, nivelBase }
   const gradoData = buildStoredGradoNombre({ nivelBase, nombre });
   const providedOrder = asPositiveInteger(orden);
   const resolvedOrder = providedOrder || (await nextOrderFor(client, 'grados', 'plantel_id', plantelId));
+  const selectFields = 'id, plantel_id, nombre, nivel_base, orden, created_at, updated_at';
+  const existing = await findExistingSingle(client, 'grados', selectFields, [
+    ['plantel_id', plantelId],
+    ['nombre', gradoData.nombreCompleto]
+  ]);
+
+  if (existing) {
+    return enrichGradoRecord(existing);
+  }
 
   const { data, error } = await client
     .from('grados')
@@ -244,13 +408,52 @@ export async function crearGrado(client, { plantelId, nombre, orden, nivelBase }
       {
         plantel_id: plantelId,
         nombre: gradoData.nombreCompleto,
+        nivel_base: gradoData.nivelBaseDb,
         orden: resolvedOrder
       }
     ])
-    .select('id, plantel_id, nombre, orden, created_at, updated_at')
+    .select(selectFields)
     .single();
 
+  if (error && isUniqueViolation(error)) {
+    const duplicate = await findExistingSingle(client, 'grados', selectFields, [
+      ['plantel_id', plantelId],
+      ['nombre', gradoData.nombreCompleto]
+    ]);
+
+    if (duplicate) {
+      return enrichGradoRecord(duplicate);
+    }
+  }
+
   if (error) throw error;
+  return enrichGradoRecord(data);
+}
+
+export async function actualizarGrado(client, gradoId, { nombre }) {
+  const { data: existing, error: existingError } = await client
+    .from('grados')
+    .select('id, plantel_id, nombre, nivel_base, orden, created_at, updated_at')
+    .eq('id', gradoId)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+  if (!existing) throw buildHttpError(404, 'Grado no encontrado');
+
+  const gradoData = buildStoredGradoNombre({
+    nivelBase: existing.nivel_base || existing.nombre,
+    nombre
+  });
+
+  const { data, error } = await client
+    .from('grados')
+    .update({ nombre: gradoData.nombreCompleto })
+    .eq('id', gradoId)
+    .select('id, plantel_id, nombre, nivel_base, orden, created_at, updated_at')
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Grado no encontrado');
   return enrichGradoRecord(data);
 }
 
@@ -274,6 +477,16 @@ export async function eliminarGrado(client, gradoId) {
   if (error) throw error;
 }
 
+export async function archivarPlaneacionesDeGrado(client, gradoId, userId) {
+  await ensureRecordExists(client, 'grados', gradoId, 'Grado no encontrado');
+  const temaIds = await collectTemaIdsForGrado(client, gradoId);
+  return archivePlaneacionesByTemaIds(client, temaIds, {
+    userId,
+    scopeType: 'grado',
+    scopeId: gradoId
+  });
+}
+
 export async function listarMateriasPorGrado(client, gradoId) {
   await ensureRecordExists(client, 'grados', gradoId, 'Grado no encontrado');
 
@@ -295,6 +508,16 @@ export async function crearMateria(client, { gradoId, nombre }) {
     throw buildHttpError(400, 'Nombre de materia invalido');
   }
 
+  const selectFields = 'id, grado_id, nombre, created_at, updated_at';
+  const existing = await findExistingSingle(client, 'materias', selectFields, [
+    ['grado_id', gradoId],
+    ['nombre', safeNombre]
+  ]);
+
+  if (existing) {
+    return existing;
+  }
+
   const { data, error } = await client
     .from('materias')
     .insert([
@@ -303,8 +526,19 @@ export async function crearMateria(client, { gradoId, nombre }) {
         nombre: safeNombre
       }
     ])
-    .select('id, grado_id, nombre, created_at, updated_at')
+    .select(selectFields)
     .single();
+
+  if (error && isUniqueViolation(error)) {
+    const duplicate = await findExistingSingle(client, 'materias', selectFields, [
+      ['grado_id', gradoId],
+      ['nombre', safeNombre]
+    ]);
+
+    if (duplicate) {
+      return duplicate;
+    }
+  }
 
   if (error) throw error;
   return data;
@@ -326,6 +560,16 @@ export async function eliminarMateria(client, materiaId) {
     .eq('id', materiaId);
 
   if (error) throw error;
+}
+
+export async function archivarPlaneacionesDeMateria(client, materiaId, userId) {
+  await ensureRecordExists(client, 'materias', materiaId, 'Materia no encontrada');
+  const temaIds = await collectTemaIdsForMateria(client, materiaId);
+  return archivePlaneacionesByTemaIds(client, temaIds, {
+    userId,
+    scopeType: 'materia',
+    scopeId: materiaId
+  });
 }
 
 export async function listarUnidadesPorMateria(client, materiaId) {
@@ -352,6 +596,15 @@ export async function crearUnidad(client, { materiaId, nombre, orden }) {
 
   const providedOrder = asPositiveInteger(orden);
   const resolvedOrder = providedOrder || (await nextOrderFor(client, 'unidades', 'materia_id', materiaId));
+  const selectFields = 'id, materia_id, nombre, orden, created_at, updated_at';
+  const existing = await findExistingSingle(client, 'unidades', selectFields, [
+    ['materia_id', materiaId],
+    ['nombre', safeNombre]
+  ]);
+
+  if (existing) {
+    return existing;
+  }
 
   const { data, error } = await client
     .from('unidades')
@@ -362,10 +615,41 @@ export async function crearUnidad(client, { materiaId, nombre, orden }) {
         orden: resolvedOrder
       }
     ])
-    .select('id, materia_id, nombre, orden, created_at, updated_at')
+    .select(selectFields)
     .single();
 
+  if (error && isUniqueViolation(error)) {
+    const duplicate = await findExistingSingle(client, 'unidades', selectFields, [
+      ['materia_id', materiaId],
+      ['nombre', safeNombre]
+    ]);
+
+    if (duplicate) {
+      return duplicate;
+    }
+  }
+
   if (error) throw error;
+  return data;
+}
+
+export async function actualizarUnidad(client, unidadId, { nombre }) {
+  await ensureRecordExists(client, 'unidades', unidadId, 'Unidad no encontrada');
+
+  const safeNombre = normalizeText(nombre);
+  if (!safeNombre) {
+    throw buildHttpError(400, 'Nombre de unidad invalido');
+  }
+
+  const { data, error } = await client
+    .from('unidades')
+    .update({ nombre: safeNombre })
+    .eq('id', unidadId)
+    .select('id, materia_id, nombre, orden, created_at, updated_at')
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Unidad no encontrada');
   return data;
 }
 
@@ -383,6 +667,16 @@ export async function eliminarUnidad(client, unidadId) {
     .eq('id', unidadId);
 
   if (error) throw error;
+}
+
+export async function archivarPlaneacionesDeUnidad(client, unidadId, userId) {
+  await ensureRecordExists(client, 'unidades', unidadId, 'Unidad no encontrada');
+  const temaIds = await listIdsByRelation(client, 'temas', 'unidad_id', unidadId);
+  return archivePlaneacionesByTemaIds(client, temaIds, {
+    userId,
+    scopeType: 'unidad',
+    scopeId: unidadId
+  });
 }
 
 function normalizeTemaInput(item) {
@@ -470,16 +764,23 @@ export async function listarTemasPorUnidad(client, unidadId) {
 
   const { data: planeaciones, error: planeacionesError } = await client
     .from('planeaciones')
-    .select('id, tema_id, status, updated_at')
+    .select('id, tema_id, status, updated_at, is_archived')
     .in('tema_id', temaIds)
     .order('updated_at', { ascending: false })
     .order('id', { ascending: false });
 
   if (planeacionesError) throw planeacionesError;
 
+  const planeacionesByTemaId = new Map();
   const planeacionByTemaId = new Map();
   for (const planeacion of planeaciones || []) {
-    if (!planeacionByTemaId.has(planeacion.tema_id)) {
+    if (!planeacionesByTemaId.has(planeacion.tema_id)) {
+      planeacionesByTemaId.set(planeacion.tema_id, []);
+    }
+
+    planeacionesByTemaId.get(planeacion.tema_id).push(planeacion);
+
+    if (planeacion.is_archived !== true && !planeacionByTemaId.has(planeacion.tema_id)) {
       planeacionByTemaId.set(planeacion.tema_id, {
         id: planeacion.id,
         status: planeacion.status,
@@ -488,10 +789,15 @@ export async function listarTemasPorUnidad(client, unidadId) {
     }
   }
 
-  return temas.map((tema) => ({
-    ...tema,
-    planeacion: planeacionByTemaId.get(tema.id) || null
-  }));
+  return temas
+    .filter((tema) => {
+      const planeacionesTema = planeacionesByTemaId.get(tema.id) || [];
+      return planeacionesTema.some((planeacion) => planeacion.is_archived !== true);
+    })
+    .map((tema) => ({
+      ...tema,
+      planeacion: planeacionByTemaId.get(tema.id) || null
+    }));
 }
 
 export async function obtenerContextoUnidad(client, unidadId) {
@@ -515,7 +821,7 @@ export async function obtenerContextoUnidad(client, unidadId) {
 
   const { data: grado, error: gradoError } = await client
     .from('grados')
-    .select('id, plantel_id, nombre')
+    .select('id, plantel_id, nombre, nivel_base')
     .eq('id', materia.grado_id)
     .maybeSingle();
 
@@ -571,6 +877,7 @@ export async function obtenerPlaneacionPorTema(client, temaId) {
     .from('planeaciones')
     .select('*')
     .eq('tema_id', temaId)
+    .or('is_archived.is.null,is_archived.eq.false')
     .order('updated_at', { ascending: false })
     .order('id', { ascending: false })
     .limit(1);

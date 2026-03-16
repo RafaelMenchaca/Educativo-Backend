@@ -74,6 +74,186 @@ async function enriquecerPlaneacionConJerarquia(client, planeacion) {
   }
 }
 
+function applyActivePlaneacionesFilter(query) {
+  return query.or('is_archived.is.null,is_archived.eq.false');
+}
+
+function buildArchiveUpdatePayload(isArchived) {
+  return {
+    is_archived: Boolean(isArchived),
+    archived_at: isArchived ? new Date().toISOString() : null
+  };
+}
+
+function buildJerarquiaResumen(planeacion) {
+  const jerarquia = planeacion?.jerarquia || {};
+
+  return {
+    plantel_id: jerarquia.plantel?.id || null,
+    plantel_nombre: jerarquia.plantel?.nombre || null,
+    grado_id: jerarquia.grado?.id || null,
+    grado_nombre:
+      jerarquia.grado?.grado_nombre || jerarquia.grado?.nombre || null,
+    grado_nivel_base: jerarquia.grado?.nivel_base || null,
+    materia_id: jerarquia.materia?.id || null,
+    materia_nombre: jerarquia.materia?.nombre || planeacion?.materia || null,
+    unidad_id: jerarquia.unidad?.id || null,
+    unidad_nombre: jerarquia.unidad?.nombre || null,
+    tema_id: jerarquia.tema?.id || planeacion?.tema_id || null,
+    tema_nombre: jerarquia.tema?.titulo || planeacion?.tema || null
+  };
+}
+
+function buildJerarquiaLabel(parts) {
+  return [
+    parts?.plantel_nombre,
+    parts?.grado_nombre,
+    parts?.materia_nombre,
+    parts?.unidad_nombre
+  ]
+    .filter(Boolean)
+    .join(' > ');
+}
+
+function formatArchivedPlaneacionItem(planeacion) {
+  const jerarquiaResumen = buildJerarquiaResumen(planeacion);
+
+  return {
+    id: planeacion.id,
+    custom_title: planeacion.custom_title || null,
+    tema: planeacion.tema || null,
+    archived_at: planeacion.archived_at || null,
+    batch_id: planeacion.batch_id || null,
+    tema_id: planeacion.tema_id || null,
+    status: planeacion.status || null,
+    ...jerarquiaResumen,
+    ruta_label:
+      buildJerarquiaLabel(jerarquiaResumen) ||
+      planeacion?.jerarquia?.ruta_label ||
+      ''
+  };
+}
+
+function pickSharedArchivedValue(items, key) {
+  const values = [
+    ...new Set(
+      (items || [])
+        .map((item) =>
+          typeof item?.[key] === 'string' ? item[key].trim() : item?.[key]
+        )
+        .filter(Boolean)
+    )
+  ];
+
+  return values.length === 1 ? values[0] : null;
+}
+
+function getLatestArchivedAt(items) {
+  return [...(items || [])]
+    .map((item) => item?.archived_at)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || null;
+}
+
+function formatArchivedBatchGroup(batchId, items) {
+  const resumen = {
+    plantel_nombre: pickSharedArchivedValue(items, 'plantel_nombre'),
+    grado_nombre: pickSharedArchivedValue(items, 'grado_nombre'),
+    grado_nivel_base: pickSharedArchivedValue(items, 'grado_nivel_base'),
+    materia_nombre: pickSharedArchivedValue(items, 'materia_nombre'),
+    unidad_nombre: pickSharedArchivedValue(items, 'unidad_nombre'),
+    tema_nombre: pickSharedArchivedValue(items, 'tema_nombre')
+  };
+
+  const rutaLabel = buildJerarquiaLabel(resumen);
+
+  return {
+    batch_id: batchId,
+    total_planeaciones: items.length,
+    archived_at: getLatestArchivedAt(items),
+    ...resumen,
+    ruta_label: rutaLabel || 'Ruta con multiples ubicaciones',
+    planeaciones: items
+  };
+}
+
+async function getOwnedPlaneacion(client, id, userId) {
+  const query = client
+    .from('planeaciones')
+    .select('id, batch_id, is_archived')
+    .eq('id', id);
+
+  if (userId) {
+    query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Planeacion no encontrada');
+  return data;
+}
+
+async function updatePlaneacionArchiveState({
+  supabaseClient,
+  id,
+  userId,
+  isArchived
+}) {
+  const client = getClient(supabaseClient);
+
+  const query = client
+    .from('planeaciones')
+    .update(buildArchiveUpdatePayload(isArchived))
+    .eq('id', id);
+
+  if (userId) {
+    query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query.select('*').maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Planeacion no encontrada');
+  return enriquecerPlaneacionConJerarquia(client, data);
+}
+
+async function updateBatchArchiveState({
+  supabaseClient,
+  batchId,
+  userId,
+  isArchived
+}) {
+  const client = getClient(supabaseClient);
+
+  if (!batchId) {
+    throw buildHttpError(400, 'batchId es requerido');
+  }
+
+  const query = client
+    .from('planeaciones')
+    .update(buildArchiveUpdatePayload(isArchived))
+    .eq('batch_id', batchId);
+
+  if (userId) {
+    query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query
+    .select('id, batch_id, is_archived, archived_at');
+
+  if (error) throw error;
+  if (!data || data.length === 0) {
+    throw buildHttpError(404, 'No se encontraron planeaciones para el batch');
+  }
+
+  return {
+    batch_id: batchId,
+    total_updated: data.length,
+    planeaciones: data
+  };
+}
+
 function buildFallbackTablaIa(duracion) {
   return [
     {
@@ -334,10 +514,12 @@ async function guardarMetricasIa(client, metrics) {
 export async function listarPlaneaciones({ supabaseClient, userId }) {
   const client = getClient(supabaseClient);
 
-  const query = client
+  const query = applyActivePlaneacionesFilter(
+    client
     .from('planeaciones')
     .select('*')
-    .order('fecha_creacion', { ascending: false });
+    .order('fecha_creacion', { ascending: false })
+  );
 
   if (userId) {
     query.eq('user_id', userId);
@@ -395,6 +577,241 @@ export async function eliminarPlaneacion({ supabaseClient, id, userId }) {
   const { error } = await query;
 
   if (error) throw error;
+}
+
+export async function archivarPlaneacion({ supabaseClient, id, userId }) {
+  return updatePlaneacionArchiveState({
+    supabaseClient,
+    id,
+    userId,
+    isArchived: true
+  });
+}
+
+export async function restaurarPlaneacion({ supabaseClient, id, userId }) {
+  return updatePlaneacionArchiveState({
+    supabaseClient,
+    id,
+    userId,
+    isArchived: false
+  });
+}
+
+export async function archivarBatchPlaneaciones({
+  supabaseClient,
+  batchId,
+  userId
+}) {
+  return updateBatchArchiveState({
+    supabaseClient,
+    batchId,
+    userId,
+    isArchived: true
+  });
+}
+
+export async function restaurarBatchPlaneaciones({
+  supabaseClient,
+  batchId,
+  userId
+}) {
+  return updateBatchArchiveState({
+    supabaseClient,
+    batchId,
+    userId,
+    isArchived: false
+  });
+}
+
+export async function listarPlaneacionesArchivadas({
+  supabaseClient,
+  userId
+}) {
+  const client = getClient(supabaseClient);
+
+  const archivedQuery = client
+    .from('planeaciones')
+    .select('*')
+    .eq('is_archived', true)
+    .order('archived_at', { ascending: false })
+    .order('id', { ascending: false });
+
+  if (userId) {
+    archivedQuery.eq('user_id', userId);
+  }
+
+  const { data, error } = await archivedQuery;
+
+  if (error) throw error;
+  if (!data || data.length === 0) {
+    return {
+      total: 0,
+      total_routes: 0,
+      total_planeaciones: 0,
+      routes: [],
+      planeaciones: []
+    };
+  }
+
+  const enrichedPlaneaciones = await Promise.all(
+    data.map((planeacion) => enriquecerPlaneacionConJerarquia(client, planeacion))
+  );
+
+  const archivedItems = enrichedPlaneaciones.map(formatArchivedPlaneacionItem);
+  const batchIds = [
+    ...new Set(archivedItems.map((item) => item.batch_id).filter(Boolean))
+  ];
+
+  const fullyArchivedBatchIds = new Set();
+
+  if (batchIds.length > 0) {
+    const batchQuery = client
+      .from('planeaciones')
+      .select('id, batch_id, is_archived')
+      .in('batch_id', batchIds);
+
+    if (userId) {
+      batchQuery.eq('user_id', userId);
+    }
+
+    const { data: batchRows, error: batchError } = await batchQuery;
+
+    if (batchError) throw batchError;
+
+    const rowsByBatch = new Map();
+    for (const row of batchRows || []) {
+      if (!row?.batch_id) continue;
+      if (!rowsByBatch.has(row.batch_id)) {
+        rowsByBatch.set(row.batch_id, []);
+      }
+      rowsByBatch.get(row.batch_id).push(row);
+    }
+
+    for (const [batchId, rows] of rowsByBatch.entries()) {
+      if (rows.length > 0 && rows.every((row) => row.is_archived === true)) {
+        fullyArchivedBatchIds.add(batchId);
+      }
+    }
+  }
+
+  const planeaciones = [];
+  const groupedByBatch = new Map();
+
+  for (const item of archivedItems) {
+    if (item.batch_id && fullyArchivedBatchIds.has(item.batch_id)) {
+      if (!groupedByBatch.has(item.batch_id)) {
+        groupedByBatch.set(item.batch_id, []);
+      }
+      groupedByBatch.get(item.batch_id).push(item);
+      continue;
+    }
+
+    planeaciones.push(item);
+  }
+
+  const routes = [...groupedByBatch.entries()]
+    .map(([batchId, items]) => formatArchivedBatchGroup(batchId, items))
+    .sort(
+      (a, b) =>
+        new Date(b.archived_at || 0).getTime() -
+        new Date(a.archived_at || 0).getTime()
+    );
+
+  planeaciones.sort(
+    (a, b) =>
+      new Date(b.archived_at || 0).getTime() -
+      new Date(a.archived_at || 0).getTime()
+  );
+
+  return {
+    total: archivedItems.length,
+    total_routes: routes.length,
+    total_planeaciones: planeaciones.length,
+    routes,
+    planeaciones
+  };
+}
+
+export async function eliminarPlaneacionPermanentemente({
+  supabaseClient,
+  id,
+  userId
+}) {
+  const client = getClient(supabaseClient);
+  const planeacion = await getOwnedPlaneacion(client, id, userId);
+
+  if (planeacion.is_archived !== true) {
+    throw buildHttpError(
+      400,
+      'Solo se puede eliminar permanentemente una planeacion archivada'
+    );
+  }
+
+  const query = client
+    .from('planeaciones')
+    .delete()
+    .eq('id', id)
+    .eq('is_archived', true);
+
+  if (userId) {
+    query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query.select('id, batch_id').maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Planeacion no encontrada');
+
+  return {
+    ok: true,
+    deleted: {
+      type: 'planeacion',
+      id: data.id,
+      batch_id: data.batch_id || null
+    }
+  };
+}
+
+export async function eliminarBatchPermanentemente({
+  supabaseClient,
+  batchId,
+  userId
+}) {
+  const client = getClient(supabaseClient);
+
+  if (!batchId) {
+    throw buildHttpError(400, 'batchId es requerido');
+  }
+
+  const query = client
+    .from('planeaciones')
+    .delete()
+    .eq('batch_id', batchId)
+    .eq('is_archived', true);
+
+  if (userId) {
+    query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query.select('id, batch_id');
+
+  if (error) throw error;
+  if (!data || data.length === 0) {
+    throw buildHttpError(
+      400,
+      'No hay planeaciones archivadas para eliminar definitivamente en este batch'
+    );
+  }
+
+  return {
+    ok: true,
+    deleted: {
+      type: 'batch',
+      batch_id: batchId,
+      total_planeaciones: data.length,
+      planeacion_ids: data.map((item) => item.id)
+    }
+  };
 }
 
 async function generarPlaneacionesIAInternal({
@@ -786,10 +1203,12 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
 export async function listarBatches({ supabaseClient, userId }) {
   const client = getClient(supabaseClient);
 
-  const query = client
+  const query = applyActivePlaneacionesFilter(
+    client
     .from('planeaciones')
     .select('batch_id, materia, nivel, unidad, created_at')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+  );
 
   if (userId) {
     query.eq('user_id', userId);
@@ -824,11 +1243,13 @@ export async function listarPlaneacionesPorBatch({
 }) {
   const client = getClient(supabaseClient);
 
-  const query = client
+  const query = applyActivePlaneacionesFilter(
+    client
     .from('planeaciones')
     .select('*')
     .eq('batch_id', batchId)
-    .order('fecha_creacion', { ascending: true });
+    .order('fecha_creacion', { ascending: true })
+  );
 
   if (userId) {
     query.eq('user_id', userId);

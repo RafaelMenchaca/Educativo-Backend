@@ -4,6 +4,13 @@ import {
   obtenerPlaneacionPorId,
   actualizarPlaneacion,
   eliminarPlaneacion,
+  archivarPlaneacion,
+  restaurarPlaneacion,
+  archivarBatchPlaneaciones,
+  restaurarBatchPlaneaciones,
+  listarPlaneacionesArchivadas,
+  eliminarPlaneacionPermanentemente,
+  eliminarBatchPermanentemente,
   generarPlaneacionesIA,
   generarPlaneacionesIAConProgreso,
   listarBatches,
@@ -45,6 +52,15 @@ function logPlaneacionDebug(label, payload) {
   console.log(`[planeacion-debug] ${label}`, JSON.stringify(payload, null, 2));
 }
 
+function sendPlaneacionesError(res, error, fallbackMessage) {
+  if (error?.status) {
+    return res.status(error.status).json({ error: error.message });
+  }
+
+  console.error(error);
+  return res.status(500).json({ error: fallbackMessage });
+}
+
 export async function getPlaneaciones(req, res) {
   try {
     const data = await listarPlaneaciones({
@@ -54,6 +70,19 @@ export async function getPlaneaciones(req, res) {
     res.json(data);
   } catch {
     res.status(500).json({ error: 'Error al obtener planeaciones' });
+  }
+}
+
+export async function getPlaneacionesArchivadas(req, res) {
+  try {
+    const data = await listarPlaneacionesArchivadas({
+      supabaseClient: userClientFromReq(req),
+      userId: req.user.id
+    });
+
+    res.json(data);
+  } catch (error) {
+    sendPlaneacionesError(res, error, 'Error al obtener planeaciones archivadas');
   }
 }
 
@@ -105,6 +134,116 @@ export async function deletePlaneacion(req, res) {
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: 'Error al eliminar' });
+  }
+}
+
+export async function archivePlaneacion(req, res) {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'ID invalido' });
+  }
+
+  try {
+    const data = await archivarPlaneacion({
+      supabaseClient: userClientFromReq(req),
+      id,
+      userId: req.user.id
+    });
+
+    res.json(data);
+  } catch (error) {
+    sendPlaneacionesError(res, error, 'Error al archivar planeacion');
+  }
+}
+
+export async function restorePlaneacion(req, res) {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'ID invalido' });
+  }
+
+  try {
+    const data = await restaurarPlaneacion({
+      supabaseClient: userClientFromReq(req),
+      id,
+      userId: req.user.id
+    });
+
+    res.json(data);
+  } catch (error) {
+    sendPlaneacionesError(res, error, 'Error al restaurar planeacion');
+  }
+}
+
+export async function archiveBatch(req, res) {
+  try {
+    const data = await archivarBatchPlaneaciones({
+      supabaseClient: userClientFromReq(req),
+      batchId: req.params.batchId,
+      userId: req.user.id
+    });
+
+    res.json(data);
+  } catch (error) {
+    sendPlaneacionesError(res, error, 'Error al archivar batch');
+  }
+}
+
+export async function restoreBatch(req, res) {
+  try {
+    const data = await restaurarBatchPlaneaciones({
+      supabaseClient: userClientFromReq(req),
+      batchId: req.params.batchId,
+      userId: req.user.id
+    });
+
+    res.json(data);
+  } catch (error) {
+    sendPlaneacionesError(res, error, 'Error al restaurar batch');
+  }
+}
+
+export async function deletePlaneacionPermanent(req, res) {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'ID invalido' });
+  }
+
+  try {
+    const data = await eliminarPlaneacionPermanentemente({
+      supabaseClient: userClientFromReq(req),
+      id,
+      userId: req.user.id
+    });
+
+    res.json(data);
+  } catch (error) {
+    sendPlaneacionesError(
+      res,
+      error,
+      'Error al eliminar permanentemente la planeacion'
+    );
+  }
+}
+
+export async function deleteBatchPermanent(req, res) {
+  try {
+    const data = await eliminarBatchPermanentemente({
+      supabaseClient: userClientFromReq(req),
+      batchId: req.params.batchId,
+      userId: req.user.id
+    });
+
+    res.json(data);
+  } catch (error) {
+    sendPlaneacionesError(
+      res,
+      error,
+      'Error al eliminar permanentemente el batch'
+    );
   }
 }
 
