@@ -2,16 +2,23 @@ import { createUserClient } from '../../supabaseClient.js';
 import {
   listarPlanteles,
   crearPlantel,
+  actualizarPlantel,
   eliminarPlantel,
+  archivarPlaneacionesDePlantel,
   listarGradosPorPlantel,
   crearGrado,
+  actualizarGrado,
   eliminarGrado,
+  archivarPlaneacionesDeGrado,
   listarMateriasPorGrado,
   crearMateria,
   eliminarMateria,
+  archivarPlaneacionesDeMateria,
   listarUnidadesPorMateria,
   crearUnidad,
+  actualizarUnidad,
   eliminarUnidad,
+  archivarPlaneacionesDeUnidad,
   listarTemasPorUnidad,
   crearTemas,
   eliminarTema,
@@ -96,12 +103,38 @@ export async function postPlantel(req, res) {
   }
 }
 
+export async function patchPlantel(req, res) {
+  try {
+    const data = await actualizarPlantel(userClientFromReq(req), req.params.plantelId, {
+      nombre: req.body?.nombre
+    });
+
+    res.json(data);
+  } catch (error) {
+    sendError(res, error, 'Error al actualizar plantel');
+  }
+}
+
 export async function deletePlantel(req, res) {
   try {
     await eliminarPlantel(userClientFromReq(req), req.params.plantelId);
     sendDeleteSuccess(res, 'plantel', req.params.plantelId);
   } catch (error) {
     sendError(res, error, 'Error al eliminar plantel');
+  }
+}
+
+export async function archivePlantel(req, res) {
+  try {
+    const data = await archivarPlaneacionesDePlantel(
+      userClientFromReq(req),
+      req.params.plantelId,
+      req.user.id
+    );
+
+    res.json(data);
+  } catch (error) {
+    sendError(res, error, 'Error al archivar las planeaciones del plantel');
   }
 }
 
@@ -133,12 +166,38 @@ export async function postGrado(req, res) {
   }
 }
 
+export async function patchGrado(req, res) {
+  try {
+    const data = await actualizarGrado(userClientFromReq(req), req.params.gradoId, {
+      nombre: req.body?.nombre
+    });
+
+    res.json(data);
+  } catch (error) {
+    sendError(res, error, 'Error al actualizar grado');
+  }
+}
+
 export async function deleteGrado(req, res) {
   try {
     await eliminarGrado(userClientFromReq(req), req.params.gradoId);
     sendDeleteSuccess(res, 'grado', req.params.gradoId);
   } catch (error) {
     sendError(res, error, 'Error al eliminar grado');
+  }
+}
+
+export async function archiveGrado(req, res) {
+  try {
+    const data = await archivarPlaneacionesDeGrado(
+      userClientFromReq(req),
+      req.params.gradoId,
+      req.user.id
+    );
+
+    res.json(data);
+  } catch (error) {
+    sendError(res, error, 'Error al archivar las planeaciones del grado');
   }
 }
 
@@ -177,6 +236,20 @@ export async function deleteMateria(req, res) {
   }
 }
 
+export async function archiveMateria(req, res) {
+  try {
+    const data = await archivarPlaneacionesDeMateria(
+      userClientFromReq(req),
+      req.params.materiaId,
+      req.user.id
+    );
+
+    res.json(data);
+  } catch (error) {
+    sendError(res, error, 'Error al archivar las planeaciones de la materia');
+  }
+}
+
 export async function getUnidadesByMateria(req, res) {
   try {
     const data = await listarUnidadesPorMateria(
@@ -204,12 +277,38 @@ export async function postUnidad(req, res) {
   }
 }
 
+export async function patchUnidad(req, res) {
+  try {
+    const data = await actualizarUnidad(userClientFromReq(req), req.params.unidadId, {
+      nombre: req.body?.nombre
+    });
+
+    res.json(data);
+  } catch (error) {
+    sendError(res, error, 'Error al actualizar unidad');
+  }
+}
+
 export async function deleteUnidad(req, res) {
   try {
     await eliminarUnidad(userClientFromReq(req), req.params.unidadId);
     sendDeleteSuccess(res, 'unidad', req.params.unidadId);
   } catch (error) {
     sendError(res, error, 'Error al eliminar unidad');
+  }
+}
+
+export async function archiveUnidad(req, res) {
+  try {
+    const data = await archivarPlaneacionesDeUnidad(
+      userClientFromReq(req),
+      req.params.unidadId,
+      req.user.id
+    );
+
+    res.json(data);
+  } catch (error) {
+    sendError(res, error, 'Error al archivar las planeaciones de la unidad');
   }
 }
 
