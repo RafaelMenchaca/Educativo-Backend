@@ -574,9 +574,10 @@ export async function eliminarPlaneacion({ supabaseClient, id, userId }) {
     query.eq('user_id', userId);
   }
 
-  const { error } = await query;
+  const { data, error } = await query.select('id').maybeSingle();
 
   if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Planeacion no encontrada');
 }
 
 export async function archivarPlaneacion({ supabaseClient, id, userId }) {

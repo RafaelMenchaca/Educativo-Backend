@@ -354,12 +354,15 @@ export async function eliminarPlantel(client, plantelId) {
   await deleteRowsByIds(client, 'materias', materiaIds);
   await deleteRowsByIds(client, 'grados', gradoIds);
 
-  const { error } = await client
+  const { data, error } = await client
     .from('planteles')
     .delete()
-    .eq('id', plantelId);
+    .eq('id', plantelId)
+    .select('id')
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Plantel no encontrado');
 }
 
 export async function archivarPlaneacionesDePlantel(client, plantelId, userId) {
@@ -469,12 +472,15 @@ export async function eliminarGrado(client, gradoId) {
   await deleteRowsByIds(client, 'unidades', unidadIds);
   await deleteRowsByIds(client, 'materias', materiaIds);
 
-  const { error } = await client
+  const { data, error } = await client
     .from('grados')
     .delete()
-    .eq('id', gradoId);
+    .eq('id', gradoId)
+    .select('id')
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Grado no encontrado');
 }
 
 export async function archivarPlaneacionesDeGrado(client, gradoId, userId) {
@@ -554,12 +560,15 @@ export async function eliminarMateria(client, materiaId) {
   await deleteRowsByIds(client, 'temas', temaIds);
   await deleteRowsByIds(client, 'unidades', unidadIds);
 
-  const { error } = await client
+  const { data, error } = await client
     .from('materias')
     .delete()
-    .eq('id', materiaId);
+    .eq('id', materiaId)
+    .select('id')
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Materia no encontrada');
 }
 
 export async function archivarPlaneacionesDeMateria(client, materiaId, userId) {
@@ -661,12 +670,15 @@ export async function eliminarUnidad(client, unidadId) {
   await deletePlaneacionesByTemaIds(client, temaIds);
   await deleteRowsByIds(client, 'temas', temaIds);
 
-  const { error } = await client
+  const { data, error } = await client
     .from('unidades')
     .delete()
-    .eq('id', unidadId);
+    .eq('id', unidadId)
+    .select('id')
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Unidad no encontrada');
 }
 
 export async function archivarPlaneacionesDeUnidad(client, unidadId, userId) {
@@ -739,12 +751,15 @@ export async function eliminarTema(client, temaId) {
 
   await deletePlaneacionesByTemaIds(client, [temaId]);
 
-  const { error } = await client
+  const { data, error } = await client
     .from('temas')
     .delete()
-    .eq('id', temaId);
+    .eq('id', temaId)
+    .select('id')
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Tema no encontrado');
 }
 
 export async function listarTemasPorUnidad(client, unidadId) {
