@@ -3,7 +3,8 @@ export function buildPromptByLevel({
   nivel,
   unidad,
   tema,
-  duracion
+  duracion,
+  actividad_cierre
 }) {
   const base = `
 Actúa como un DOCENTE EXPERTO en diseño de planeaciones didácticas para educación media superior.
@@ -91,6 +92,10 @@ Varía las estrategias:
 
 NO repitas siempre el mismo tipo de cierre.
 Ajusta la actividad al tema y al nivel educativo.
+La actividad del momento Cierre debe basarse obligatoriamente en esta actividad seleccionada por el usuario: ${actividad_cierre}
+En el objeto donde "tiempo_sesion": "Cierre", el campo "actividades" debe describir una actividad coherente con ${actividad_cierre}
+No sustituyas esa actividad por otra distinta.
+Puede adaptarse pedagogicamente al tema y al nivel, pero debe conservar claramente el tipo de actividad seleccionado.
 
 ========================
 CRITERIOS GENERALES

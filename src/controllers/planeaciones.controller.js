@@ -267,8 +267,7 @@ export async function generarPlaneaciones(req, res) {
 
       return res.json(result);
     } catch (err) {
-      console.error('Error generando planeacion:', err);
-      return res.status(500).json({ error: err.message || 'Error interno' });
+      return sendPlaneacionesError(res, err, 'Error interno');
     }
   }
 
