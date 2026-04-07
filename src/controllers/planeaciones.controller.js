@@ -109,6 +109,10 @@ export async function getPlaneacionById(req, res) {
 export async function updatePlaneacion(req, res) {
   const id = Number(req.params.id);
 
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'ID invalido' });
+  }
+
   try {
     const data = await actualizarPlaneacion({
       supabaseClient: userClientFromReq(req),
@@ -119,8 +123,8 @@ export async function updatePlaneacion(req, res) {
 
     if (!data) return res.status(404).json({ error: 'No encontrado' });
     res.json(data);
-  } catch {
-    res.status(500).json({ error: 'Error al actualizar planeacion' });
+  } catch (error) {
+    sendPlaneacionesError(res, error, 'Error al actualizar planeacion');
   }
 }
 

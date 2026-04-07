@@ -35,6 +35,11 @@ const ACTIVIDADES_CIERRE_VALIDAS = new Set([
   'Podcasts educativos',
   'Tareas interdisciplinarias'
 ]);
+const TABLA_IA_TIEMPOS_ESPERADOS = new Set([
+  'conocimientos previos',
+  'desarrollo',
+  'cierre'
+]);
 
 function buildHttpError(status, message) {
   const err = new Error(message);
@@ -609,6 +614,91 @@ export async function obtenerPlaneacionPorId({ supabaseClient, id, userId }) {
   return enriquecerPlaneacionConJerarquia(client, data);
 }
 
+function normalizeTablaIaTiempoSesion(value) {
+  return typeof value === 'string'
+    ? value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    : '';
+}
+
+function validateActividadImagenMetadata(item, rowIndex, imageIndex) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    throw buildHttpError(400, `tabla_ia[${rowIndex}].actividades_imagenes[${imageIndex}] debe ser un objeto.`);
+  }
+
+  const id = typeof item.id === 'string' ? item.id.trim() : '';
+  const name = typeof item.name === 'string' ? item.name.trim() : '';
+  const path = typeof item.path === 'string' ? item.path.trim() : '';
+  const mime_type = typeof item.mime_type === 'string' ? item.mime_type.trim() : '';
+  const uploaded_at = typeof item.uploaded_at === 'string' ? item.uploaded_at.trim() : '';
+  const size = item.size === undefined || item.size === null || item.size === ''
+    ? 0
+    : Number(item.size);
+
+  if (!id || !name || !path || !uploaded_at) {
+    throw buildHttpError(
+      400,
+      `tabla_ia[${rowIndex}].actividades_imagenes[${imageIndex}] requiere id, name, path y uploaded_at.`
+    );
+  }
+
+  if (Number.isNaN(Date.parse(uploaded_at))) {
+    throw buildHttpError(
+      400,
+      `tabla_ia[${rowIndex}].actividades_imagenes[${imageIndex}].uploaded_at no es valido.`
+    );
+  }
+
+  if (!Number.isFinite(size) || size < 0) {
+    throw buildHttpError(
+      400,
+      `tabla_ia[${rowIndex}].actividades_imagenes[${imageIndex}].size debe ser un numero valido.`
+    );
+  }
+
+  return {
+    id,
+    name,
+    path,
+    mime_type,
+    size,
+    uploaded_at
+  };
+}
+
+function validateTablaIaUpdate(tablaIa) {
+  if (!Array.isArray(tablaIa)) {
+    throw buildHttpError(400, 'tabla_ia debe ser un arreglo.');
+  }
+
+  if (tablaIa.length !== 3) {
+    throw buildHttpError(400, 'tabla_ia debe contener exactamente 3 filas.');
+  }
+
+  const normalizedRows = tablaIa.map((row, rowIndex) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      throw buildHttpError(400, `tabla_ia[${rowIndex}] debe ser un objeto.`);
+    }
+
+    const actividades_imagenes = Array.isArray(row.actividades_imagenes)
+      ? row.actividades_imagenes.map((item, imageIndex) => validateActividadImagenMetadata(item, rowIndex, imageIndex))
+      : [];
+
+    return {
+      ...row,
+      actividades_imagenes
+    };
+  });
+
+  const tiempos = normalizedRows.map((row) => normalizeTablaIaTiempoSesion(row.tiempo_sesion));
+  const tiempoSet = new Set(tiempos);
+
+  if (tiempos.some((tiempo) => !TABLA_IA_TIEMPOS_ESPERADOS.has(tiempo)) || tiempoSet.size !== 3) {
+    throw buildHttpError(400, 'tabla_ia debe incluir Conocimientos previos, Desarrollo y Cierre.');
+  }
+
+  return normalizedRows;
+}
+
 export async function actualizarPlaneacion({
   supabaseClient,
   id,
@@ -618,6 +708,10 @@ export async function actualizarPlaneacion({
   const client = getClient(supabaseClient);
   const safeUpdate = { ...(update || {}) };
   delete safeUpdate.user_id;
+
+  if (safeUpdate.tabla_ia !== undefined) {
+    safeUpdate.tabla_ia = validateTablaIaUpdate(safeUpdate.tabla_ia);
+  }
 
   const query = client.from('planeaciones').update(safeUpdate).eq('id', id);
   if (userId) {
