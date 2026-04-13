@@ -71,7 +71,9 @@ export function buildExamPromptByUnit({
   temasContexto,
   totalPreguntasSugerido,
   questionPlan,
-  tiempoMin
+  tiempoMin,
+  enforceExactPlan = false,
+  enforceExactDistribution = false
 }) {
   const tiposBlock = buildQuestionTypesBlock(tiposPregunta);
   const planBlock = buildQuestionPlanBlock(questionPlan);
@@ -114,11 +116,16 @@ Devuelve EXCLUSIVAMENTE un objeto JSON valido con esta estructura base:
 REGLAS ESTRICTAS:
 - No escribas texto fuera del JSON.
 - Usa SOLO los temas de esta unidad. No inventes temas externos.
-- Genera aproximadamente ${totalPreguntasSugerido} reactivos, ajustando solo lo necesario para cubrir todos los tipos seleccionados con coherencia.
+- ${enforceExactPlan
+    ? `Genera EXACTAMENTE ${totalPreguntasSugerido} reactivos en total.`
+    : `Genera aproximadamente ${totalPreguntasSugerido} reactivos, ajustando solo lo necesario para cubrir todos los tipos seleccionados con coherencia.`}
 - Debe aparecer al menos UNA pregunta de cada tipo seleccionado por el usuario.
 - Distribuye las preguntas entre los temas disponibles de la unidad.
 - Si existe planeacion, usala como apoyo para el contenido y nivel de profundidad.
 - En el campo "tipo" usa EXACTAMENTE una de estas claves internas, no uses labels amigables: opcion_multiple, verdadero_falso, respuesta_corta, emparejamiento, pregunta_abierta, calculo_numerico, ordenacion_jerarquizacion.
+- ${enforceExactDistribution
+    ? 'Respeta EXACTAMENTE el plan de reactivos por tipo indicado abajo. No agregues ni elimines preguntas por tipo.'
+    : 'Usa el plan de reactivos por tipo como guia principal de distribucion, pero prioriza cumplir el total solicitado.'}
 - Cada item debe incluir obligatoriamente el campo "pregunta" como string breve y claro.
 - Manten consistencia entre el tipo de pregunta y sus campos.
 - La redaccion de cada reactivo debe ser breve y directa para no extender innecesariamente el examen.
