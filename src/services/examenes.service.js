@@ -9,7 +9,7 @@ const openai = new OpenAI({
 
 const OPENAI_EXAM_SYSTEM_PROMPT =
   'Actua como un docente experto en evaluacion por competencias. Responde solo con JSON valido, sin markdown, sin backticks y sin texto adicional.';
-const EXAM_PROMPT_VERSION = 'v5_1_unit_exam_simple_stable_higher_tokens';
+const EXAM_PROMPT_VERSION = 'v6_unit_exam_no_total_rules';
 const EXAM_MIN_OUTPUT_TOKENS = 2600;
 const EXAM_MAX_OUTPUT_TOKENS = 5200;
 const EXAM_GENERATION_ATTEMPTS = 2;
@@ -104,7 +104,6 @@ const QUESTION_TYPE_PLAN = {
     weight: 8
   }
 };
-const DEFAULT_EXAM_TOTAL_PREGUNTAS = 18;
 const DEFAULT_EXAM_TIEMPO_MIN = 50;
 const QUESTION_TYPE_OUTPUT_WEIGHT = {
   opcion_multiple: 90,
@@ -114,15 +113,6 @@ const QUESTION_TYPE_OUTPUT_WEIGHT = {
   pregunta_abierta: 80,
   calculo_numerico: 65,
   ordenacion_jerarquizacion: 70
-};
-const STABLE_AUTOMATIC_TYPE_COUNTS = {
-  opcion_multiple: 10,
-  verdadero_falso: 5,
-  respuesta_corta: 3,
-  emparejamiento: 1,
-  pregunta_abierta: 1,
-  calculo_numerico: 2,
-  ordenacion_jerarquizacion: 1
 };
 
 function buildHttpError(status, message) {
@@ -180,42 +170,6 @@ function normalizeQuestionTypes(tiposPregunta) {
   }
 
   return normalized;
-}
-
-function hasManualExamPlanConfig(totalPreguntas, distribucionTipos) {
-  const parsedTotal = Number.parseInt(totalPreguntas, 10);
-  const hasExplicitTotal = Number.isInteger(parsedTotal) && parsedTotal > 0;
-  const hasExplicitDistribution = Boolean(
-    distribucionTipos &&
-    typeof distribucionTipos === 'object' &&
-    !Array.isArray(distribucionTipos) &&
-    Object.keys(distribucionTipos).length > 0
-  );
-
-  return hasExplicitTotal || hasExplicitDistribution;
-}
-
-function hasExplicitDistributionConfig(distribucionTipos) {
-  return Boolean(
-    distribucionTipos &&
-    typeof distribucionTipos === 'object' &&
-    !Array.isArray(distribucionTipos) &&
-    Object.keys(distribucionTipos).length > 0
-  );
-}
-
-function buildStableAutomaticDistribution(tiposPregunta) {
-  const selected = Array.isArray(tiposPregunta) ? tiposPregunta : [];
-  return selected.reduce((distribution, tipo) => {
-    distribution[tipo] = Number(STABLE_AUTOMATIC_TYPE_COUNTS[tipo] || 1);
-    return distribution;
-  }, {});
-}
-
-function getAutomaticQuestionTarget(tiposPregunta) {
-  const distribution = buildStableAutomaticDistribution(tiposPregunta);
-  const total = Object.values(distribution).reduce((sum, value) => sum + Number(value || 0), 0);
-  return total > 0 ? total : DEFAULT_EXAM_TOTAL_PREGUNTAS;
 }
 
 async function fetchUnitTopics(client, unidadId, userId) {
@@ -288,25 +242,6 @@ function buildPromptTopicsContext(temas) {
   }));
 }
 
-function getSuggestedQuestionCount(topicCount, typeCount) {
-  const byTopics = Math.max(Number(topicCount) * 2, 6);
-  const byTypes = Math.max(Number(typeCount), 1);
-  return Math.min(Math.max(byTopics, byTypes), 12);
-}
-
-function validateTotalPreguntas(totalPreguntas, tiposPregunta, { manualPlan = false } = {}) {
-  const parsed = Number.parseInt(totalPreguntas, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    return manualPlan ? DEFAULT_EXAM_TOTAL_PREGUNTAS : getAutomaticQuestionTarget(tiposPregunta);
-  }
-
-  if (parsed < tiposPregunta.length) {
-    throw buildHttpError(400, 'El total de preguntas debe cubrir al menos un reactivo por cada tipo seleccionado.');
-  }
-
-  return parsed;
-}
-
 function validateTiempoMin(tiempoMin) {
   const parsed = Number.parseInt(tiempoMin, 10);
   if (!Number.isInteger(parsed) || parsed < 10) {
@@ -316,82 +251,8 @@ function validateTiempoMin(tiempoMin) {
   return parsed;
 }
 
-function computeAutomaticDistribution(tiposPregunta, totalPreguntas) {
+function buildQuestionPlan(tiposPregunta) {
   const selected = Array.isArray(tiposPregunta) ? tiposPregunta : [];
-  if (selected.length === 0) return {};
-
-  const weights = selected.map((tipo) => Number(QUESTION_TYPE_PLAN[tipo]?.weight || 1));
-  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1;
-  const raw = selected.map((tipo, index) => ({
-    tipo,
-    exact: (weights[index] / totalWeight) * totalPreguntas
-  }));
-
-  const distribution = {};
-  let assigned = 0;
-  raw.forEach((item) => {
-    const base = Math.floor(item.exact);
-    distribution[item.tipo] = base;
-    assigned += base;
-  });
-
-  let remainder = totalPreguntas - assigned;
-  raw
-    .map((item) => ({
-      tipo: item.tipo,
-      fraction: item.exact - Math.floor(item.exact)
-    }))
-    .sort((a, b) => b.fraction - a.fraction)
-    .forEach((item) => {
-      if (remainder <= 0) return;
-      distribution[item.tipo] += 1;
-      remainder -= 1;
-    });
-
-  const zeroTypes = selected.filter((tipo) => Number(distribution[tipo] || 0) <= 0);
-  zeroTypes.forEach((tipo) => {
-    const donor = selected
-      .filter((candidate) => candidate !== tipo)
-      .sort((a, b) => Number(distribution[b] || 0) - Number(distribution[a] || 0))
-      .find((candidate) => Number(distribution[candidate] || 0) > 1);
-
-    if (donor) {
-      distribution[donor] -= 1;
-      distribution[tipo] = 1;
-    }
-  });
-
-  return distribution;
-}
-
-function normalizeDistribucionTipos(distribucionTipos, tiposPregunta, totalPreguntas, { manualPlan = false } = {}) {
-  if (!distribucionTipos || typeof distribucionTipos !== 'object' || Array.isArray(distribucionTipos)) {
-    if (!manualPlan) {
-      return buildStableAutomaticDistribution(tiposPregunta);
-    }
-    return computeAutomaticDistribution(tiposPregunta, totalPreguntas);
-  }
-
-  const normalized = {};
-  for (const tipo of tiposPregunta) {
-    const value = Number.parseInt(distribucionTipos[tipo], 10);
-    if (!Number.isInteger(value) || value < 1) {
-      throw buildHttpError(400, 'Cada tipo seleccionado debe tener al menos un reactivo.');
-    }
-    normalized[tipo] = value;
-  }
-
-  const totalDistribucion = Object.values(normalized).reduce((sum, value) => sum + value, 0);
-  if (totalDistribucion !== totalPreguntas) {
-    throw buildHttpError(400, 'La suma de la distribucion por tipo debe coincidir exactamente con el total de preguntas.');
-  }
-
-  return normalized;
-}
-
-function buildQuestionPlan(tiposPregunta, totalPreguntas, distribucionTipos, { manualPlan = false } = {}) {
-  const selected = Array.isArray(tiposPregunta) ? tiposPregunta : [];
-  const distribution = normalizeDistribucionTipos(distribucionTipos, selected, totalPreguntas, { manualPlan });
 
   const items = selected.map((tipo) => {
     const config = QUESTION_TYPE_PLAN[tipo];
@@ -399,17 +260,11 @@ function buildQuestionPlan(tiposPregunta, totalPreguntas, distribucionTipos, { m
       tipo,
       label: config?.label || tipo,
       countRange: config?.countRange || 'Cantidad variable',
-      timeGuide: config?.timeGuide || 'Tiempo variable',
-      count: Number(distribution[tipo] || 0)
+      timeGuide: config?.timeGuide || 'Tiempo variable'
     };
   });
 
-  const totalReactivos = items.reduce((sum, item) => sum + Number(item.count || 0), 0);
-
   return {
-    distribution,
-    singleTypeMode: selected.length === 1,
-    totalReactivos,
     items
   };
 }
@@ -418,13 +273,13 @@ function estimateExamOutputTokens(questionPlan) {
   const items = Array.isArray(questionPlan?.items) ? questionPlan.items : [];
   const estimate = items.reduce((sum, item) => {
     const weight = Number(QUESTION_TYPE_OUTPUT_WEIGHT[item?.tipo] || 60);
-    return sum + (Number(item?.count || 0) * weight);
+    return sum + weight;
   }, 450);
 
   return Math.max(EXAM_MIN_OUTPUT_TOKENS, Math.min(Math.ceil(estimate), EXAM_MAX_OUTPUT_TOKENS));
 }
 
-function buildExamRetryPrompt(basePrompt, questionPlan, feedback, { enforceExactPlan = false, enforceExactDistribution = false } = {}) {
+function buildExamRetryPrompt(basePrompt, feedback) {
   const details = normalizeString(feedback) || 'El intento anterior devolvio JSON incompleto o invalido.';
 
   return `${basePrompt}
@@ -432,18 +287,8 @@ function buildExamRetryPrompt(basePrompt, questionPlan, feedback, { enforceExact
 CORRECCION OBLIGATORIA DEL NUEVO INTENTO:
 - El intento anterior fallo por: ${details}
 - Regenera TODO el examen desde cero.
-- ${enforceExactPlan
-    ? `Debes devolver EXACTAMENTE ${Number(questionPlan?.totalReactivos || 0)} pregunta(s) en total.`
-    : `Genera un examen breve y equilibrado, cercano a ${Number(questionPlan?.totalReactivos || 0)} pregunta(s) sin excederte innecesariamente.`}
-- ${enforceExactDistribution
-    ? 'Respeta EXACTAMENTE la distribucion solicitada por tipo.'
-    : 'Debes incluir al menos una pregunta por cada tipo seleccionado.'}
-- ${enforceExactPlan
-    ? 'Si antes devolviste menos preguntas, completa hasta alcanzar el total exacto.'
-    : 'Si antes devolviste demasiadas preguntas, reduce el examen y mantenlo conciso.'}
-- ${enforceExactPlan
-    ? 'Si antes devolviste mas preguntas, reduce hasta alcanzar el total exacto.'
-    : 'Si antes faltaron tipos, agregalos sin inflar demasiado el total.'}
+- Debes incluir al menos una pregunta por cada tipo seleccionado.
+- Mantén el examen breve y equilibrado.
 - No omitas campos requeridos.
 - Manten cada reactivo breve para que el JSON no se corte.
 - En opcion_multiple usa opciones cortas.
@@ -707,7 +552,7 @@ function validateQuestion(question, index, selectedTypesSet) {
   throw buildHttpError(502, `La pregunta ${index + 1} contiene un tipo no soportado.`);
 }
 
-function validateExamPayload(examen, selectedTypes, questionPlan, { enforceExactPlan = false, enforceExactDistribution = false } = {}) {
+function validateExamPayload(examen, selectedTypes) {
   if (!examen || typeof examen !== 'object' || Array.isArray(examen)) {
     throw buildHttpError(502, 'La IA no devolvio un examen valido.');
   }
@@ -729,47 +574,12 @@ function validateExamPayload(examen, selectedTypes, questionPlan, { enforceExact
   }
 
   const selectedTypesSet = new Set(selectedTypes);
-  let normalizedQuestions = preguntas.map((question, index) => validateQuestion(question, index, selectedTypesSet));
-
-  if (enforceExactPlan && Number.isInteger(questionPlan?.totalReactivos) && normalizedQuestions.length > questionPlan.totalReactivos) {
-    const target = Number(questionPlan.totalReactivos);
-    const counts = new Map();
-    normalizedQuestions.forEach((question) => {
-      counts.set(question.tipo, Number(counts.get(question.tipo) || 0) + 1);
-    });
-
-    const trimmed = [];
-    normalizedQuestions.forEach((question) => {
-      const current = Number(counts.get(question.tipo) || 0);
-      const remainingSlots = target - trimmed.length;
-      const mustKeepAtLeastOne = selectedTypesSet.has(question.tipo) && current <= 1;
-      if (trimmed.length >= target) return;
-      if (!mustKeepAtLeastOne && current > 1 && normalizedQuestions.length - trimmed.length > remainingSlots) {
-        counts.set(question.tipo, current - 1);
-        return;
-      }
-      trimmed.push(question);
-    });
-    normalizedQuestions = trimmed.slice(0, target);
-  }
-
-  if (enforceExactPlan && Number.isInteger(questionPlan?.totalReactivos) && normalizedQuestions.length !== questionPlan.totalReactivos) {
-    throw buildHttpError(502, `El examen generado debe contener exactamente ${questionPlan.totalReactivos} preguntas.`);
-  }
+  const normalizedQuestions = preguntas.map((question, index) => validateQuestion(question, index, selectedTypesSet));
   const usedTypes = new Set(normalizedQuestions.map((question) => question.tipo));
-  const countsByType = new Map();
-  normalizedQuestions.forEach((question) => {
-    countsByType.set(question.tipo, Number(countsByType.get(question.tipo) || 0) + 1);
-  });
 
   selectedTypes.forEach((tipo) => {
     if (!usedTypes.has(tipo)) {
       throw buildHttpError(502, `El examen generado no incluyo una pregunta del tipo ${tipo}.`);
-    }
-
-    const expectedCount = Number(questionPlan?.distribution?.[tipo] || 0);
-    if (enforceExactDistribution && expectedCount > 0 && Number(countsByType.get(tipo) || 0) !== expectedCount) {
-      throw buildHttpError(502, `El examen generado no respeto la distribucion configurada para ${tipo}.`);
     }
   });
 
@@ -793,24 +603,12 @@ function summarizeQuestionTypeCounts(preguntas) {
     .join(', ');
 }
 
-function buildExamValidationFeedback(examen, questionPlan, error) {
+function buildExamValidationFeedback(examen, error) {
   const baseMessage = normalizeString(error?.message) || 'El examen generado no cumplio la estructura requerida.';
-  const expectedTotal = Number(questionPlan?.totalReactivos || 0);
   const actualQuestions = Array.isArray(examen?.preguntas) ? examen.preguntas : [];
-  const actualTotal = actualQuestions.length;
-  const expectedDistribution = Object.entries(questionPlan?.distribution || {})
-    .map(([tipo, count]) => `${tipo}: ${count}`)
-    .join(', ');
   const actualDistribution = summarizeQuestionTypeCounts(actualQuestions);
 
-  const totalDetail = expectedTotal > 0
-    ? `Total esperado: ${expectedTotal}. Total actual: ${actualTotal}.`
-    : '';
-  const distributionDetail = expectedDistribution
-    ? `Distribucion esperada: ${expectedDistribution}.${actualDistribution ? ` Distribucion actual: ${actualDistribution}.` : ''}`
-    : '';
-
-  return [baseMessage, totalDetail, distributionDetail]
+  return [baseMessage, actualDistribution ? `Distribucion actual: ${actualDistribution}.` : '']
     .filter(Boolean)
     .join(' ');
 }
@@ -839,13 +637,9 @@ async function generateExamWithIa({
   contexto,
   tiposPregunta,
   temasContexto,
-  totalPreguntas,
   tiempoMin,
-  distribucionTipos,
-  enforceExactPlan,
-  enforceExactDistribution
+  questionPlan
 }) {
-  const questionPlan = buildQuestionPlan(tiposPregunta, totalPreguntas, distribucionTipos, { manualPlan: enforceExactPlan });
   const prompt = buildExamPromptByUnit({
     plantel: contexto.plantel?.nombre || '',
     grado: contexto.grado?.grado_nombre || contexto.grado?.nombre || contexto.grado?.nivel_base || '',
@@ -853,11 +647,8 @@ async function generateExamWithIa({
     unidad: contexto.unidad?.nombre || '',
     tiposPregunta,
     temasContexto,
-    totalPreguntasSugerido: questionPlan.totalReactivos,
     questionPlan,
-    tiempoMin,
-    enforceExactPlan,
-    enforceExactDistribution
+    tiempoMin
   });
   const estimatedTokens = estimateExamOutputTokens(questionPlan);
   const attempts = Array.from({ length: EXAM_GENERATION_ATTEMPTS }, (_, index) => ({
@@ -872,7 +663,7 @@ async function generateExamWithIa({
     const attempt = attempts[index];
     const promptForAttempt = index === 0
       ? prompt
-      : buildExamRetryPrompt(prompt, questionPlan, lastValidationMessage, { enforceExactPlan, enforceExactDistribution });
+      : buildExamRetryPrompt(prompt, lastValidationMessage);
     const completion = await requestExamCompletion({
       prompt: promptForAttempt,
       maxTokens: attempt.maxTokens,
@@ -892,9 +683,9 @@ async function generateExamWithIa({
     }
 
     try {
-      return validateExamPayload(parsed, tiposPregunta, questionPlan, { enforceExactPlan, enforceExactDistribution });
+      return validateExamPayload(parsed, tiposPregunta);
     } catch (error) {
-      lastValidationMessage = buildExamValidationFeedback(parsed, questionPlan, error);
+      lastValidationMessage = buildExamValidationFeedback(parsed, error);
       if (index === attempts.length - 1) {
         throw error;
       }
@@ -910,9 +701,7 @@ export async function generarExamenUnidad({
   userId,
   unidadId,
   tiposPregunta,
-  totalPreguntas,
-  tiempoMin,
-  distribucionTipos
+  tiempoMin
 }) {
   const client = getClient(supabaseClient);
   const normalizedUnidadId = normalizeString(unidadId);
@@ -922,33 +711,25 @@ export async function generarExamenUnidad({
   }
 
   const normalizedTypes = normalizeQuestionTypes(tiposPregunta);
-  const enforceExactPlan = hasManualExamPlanConfig(totalPreguntas, distribucionTipos);
-  const enforceExactDistribution = hasExplicitDistributionConfig(distribucionTipos);
-  const normalizedTotalPreguntas = validateTotalPreguntas(totalPreguntas, normalizedTypes, { manualPlan: enforceExactPlan });
   const normalizedTiempoMin = validateTiempoMin(tiempoMin);
   const contexto = await obtenerContextoUnidad(client, normalizedUnidadId);
   const temas = await fetchUnitTopics(client, normalizedUnidadId, userId);
   const contextoTemas = buildContextoTemasSnapshot(temas);
   const promptTemasContext = buildPromptTopicsContext(temas);
-  const questionPlan = buildQuestionPlan(normalizedTypes, normalizedTotalPreguntas, distribucionTipos, { manualPlan: enforceExactPlan });
+  const questionPlan = buildQuestionPlan(normalizedTypes);
   const examenIa = await generateExamWithIa({
     contexto,
     tiposPregunta: normalizedTypes,
     temasContexto: promptTemasContext,
-    totalPreguntas: normalizedTotalPreguntas,
     tiempoMin: normalizedTiempoMin,
-    distribucionTipos: questionPlan.distribution,
-    enforceExactPlan,
-    enforceExactDistribution
+    questionPlan
   });
-  const actualQuestionCount = Array.isArray(examenIa?.preguntas) ? examenIa.preguntas.length : normalizedTotalPreguntas;
+  const actualQuestionCount = Array.isArray(examenIa?.preguntas) ? examenIa.preguntas.length : 0;
   const examenIaPersisted = {
     ...examenIa,
     configuracion: {
       tiempo_min: normalizedTiempoMin,
       total_preguntas: actualQuestionCount,
-      distribucion_tipos: questionPlan.distribution,
-      distribucion_exacta: enforceExactDistribution,
       tema_ids: temas.map((tema) => tema.id)
     }
   };
