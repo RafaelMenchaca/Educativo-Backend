@@ -104,7 +104,6 @@ const QUESTION_TYPE_PLAN = {
     weight: 8
   }
 };
-const DEFAULT_EXAM_TIEMPO_MIN = 50;
 const QUESTION_TYPE_OUTPUT_WEIGHT = {
   opcion_multiple: 90,
   verdadero_falso: 42,
@@ -349,15 +348,6 @@ function addUsage(accumulator, usage) {
   base.total_tokens += next.total_tokens;
 
   return base;
-}
-
-function validateTiempoMin(tiempoMin) {
-  const parsed = Number.parseInt(tiempoMin, 10);
-  if (!Number.isInteger(parsed) || parsed < 10) {
-    return DEFAULT_EXAM_TIEMPO_MIN;
-  }
-
-  return parsed;
 }
 
 function buildQuestionPlan(tiposPregunta, questionCounts = null) {
@@ -1007,7 +997,6 @@ async function generateExamWithIa({
   contexto,
   tiposPregunta,
   temasContexto,
-  tiempoMin,
   questionPlan,
   questionCounts
 }) {
@@ -1018,8 +1007,7 @@ async function generateExamWithIa({
     unidad: contexto.unidad?.nombre || '',
     tiposPregunta,
     temasContexto,
-    questionPlan,
-    tiempoMin
+    questionPlan
   });
   const estimatedTokens = estimateExamOutputTokens(questionPlan);
   const attempts = Array.from({ length: EXAM_GENERATION_ATTEMPTS }, (_, index) => ({
@@ -1211,7 +1199,6 @@ export async function generarExamenUnidad({
   userId,
   unidadId,
   tiposPregunta,
-  tiempoMin,
   cantidadesPregunta
 }) {
   const client = getClient(supabaseClient);
@@ -1224,7 +1211,6 @@ export async function generarExamenUnidad({
 
     const normalizedTypes = normalizeQuestionTypes(tiposPregunta);
     const normalizedQuestionCounts = normalizeQuestionCounts(cantidadesPregunta, normalizedTypes);
-    const normalizedTiempoMin = validateTiempoMin(tiempoMin);
     const contexto = await obtenerContextoUnidad(client, normalizedUnidadId);
     const temas = await fetchUnitTopics(client, normalizedUnidadId, userId);
     console.info('[exam-debug] generarExamenUnidad.input', {
@@ -1232,7 +1218,6 @@ export async function generarExamenUnidad({
       tiposPregunta: normalizedTypes,
       cantidadesPregunta: normalizedQuestionCounts,
       totalRequested: getRequestedQuestionCountTotal(normalizedQuestionCounts),
-      tiempoMin: normalizedTiempoMin,
       temasContexto: Array.isArray(temas) ? temas.map((tema) => ({
         id: tema.id,
         titulo: tema.titulo,
@@ -1246,7 +1231,6 @@ export async function generarExamenUnidad({
       contexto,
       tiposPregunta: normalizedTypes,
       temasContexto: promptTemasContext,
-      tiempoMin: normalizedTiempoMin,
       questionPlan,
       questionCounts: normalizedQuestionCounts
     });
@@ -1256,7 +1240,6 @@ export async function generarExamenUnidad({
     const examenIaPersisted = {
       ...examenIa,
       configuracion: {
-        tiempo_min: normalizedTiempoMin,
         total_preguntas: actualQuestionCount,
         cantidades_pregunta: normalizedQuestionCounts,
         tema_ids: temas.map((tema) => tema.id)
