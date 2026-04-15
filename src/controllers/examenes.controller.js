@@ -10,6 +10,11 @@ function userClientFromReq(req) {
 }
 
 function sendError(res, error, fallbackMessage) {
+  console.error('[exam-debug] controller.fallo', {
+    motivo: error?.message || fallbackMessage || 'Error no controlado',
+    status: error?.status || 500
+  });
+
   if (error?.status) {
     return res.status(error.status).json({ error: error.message });
   }
@@ -22,6 +27,9 @@ function parseGeneratePayload(body) {
   const unidadId = typeof body?.unidad_id === 'string' ? body.unidad_id.trim() : '';
   const tiposPregunta = Array.isArray(body?.tipos_pregunta) ? body.tipos_pregunta : [];
   const tiempoMin = Number.parseInt(body?.tiempo_min, 10);
+  const cantidadesPregunta = body?.cantidades_pregunta && typeof body.cantidades_pregunta === 'object' && !Array.isArray(body.cantidades_pregunta)
+    ? body.cantidades_pregunta
+    : null;
 
   if (!unidadId || tiposPregunta.length === 0) {
     return null;
@@ -30,7 +38,8 @@ function parseGeneratePayload(body) {
   return {
     unidadId,
     tiposPregunta,
-    tiempoMin
+    tiempoMin,
+    cantidadesPregunta
   };
 }
 
@@ -49,7 +58,8 @@ export async function postGenerateExamen(req, res) {
       userId: req.user.id,
       unidadId: payload.unidadId,
       tiposPregunta: payload.tiposPregunta,
-      tiempoMin: payload.tiempoMin
+      tiempoMin: payload.tiempoMin,
+      cantidadesPregunta: payload.cantidadesPregunta
     });
 
     res.status(201).json({ examen });
