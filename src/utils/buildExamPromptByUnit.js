@@ -75,8 +75,7 @@ export function buildExamPromptByUnit({
   unidad,
   tiposPregunta,
   temasContexto,
-  questionPlan,
-  tiempoMin
+  questionPlan
 }) {
   const tiposBlock = buildQuestionTypesBlock(tiposPregunta);
   const planBlock = buildQuestionPlanBlock(questionPlan);
@@ -149,7 +148,6 @@ Plantel: ${plantel || 'No especificado'}
 Grado/Nivel: ${grado || 'No especificado'}
 Materia: ${materia || 'No especificada'}
 Unidad: ${unidad || 'No especificada'}
-Duracion objetivo del examen: ${tiempoMin || 50} minutos
 
 TIPOS DE PREGUNTA SELECCIONADOS:
 ${tiposBlock}

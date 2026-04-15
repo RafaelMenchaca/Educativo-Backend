@@ -26,7 +26,6 @@ function sendError(res, error, fallbackMessage) {
 function parseGeneratePayload(body) {
   const unidadId = typeof body?.unidad_id === 'string' ? body.unidad_id.trim() : '';
   const tiposPregunta = Array.isArray(body?.tipos_pregunta) ? body.tipos_pregunta : [];
-  const tiempoMin = Number.parseInt(body?.tiempo_min, 10);
   const cantidadesPregunta = body?.cantidades_pregunta && typeof body.cantidades_pregunta === 'object' && !Array.isArray(body.cantidades_pregunta)
     ? body.cantidades_pregunta
     : null;
@@ -38,7 +37,6 @@ function parseGeneratePayload(body) {
   return {
     unidadId,
     tiposPregunta,
-    tiempoMin,
     cantidadesPregunta
   };
 }
@@ -58,7 +56,6 @@ export async function postGenerateExamen(req, res) {
       userId: req.user.id,
       unidadId: payload.unidadId,
       tiposPregunta: payload.tiposPregunta,
-      tiempoMin: payload.tiempoMin,
       cantidadesPregunta: payload.cantidadesPregunta
     });
 
