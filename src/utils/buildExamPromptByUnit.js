@@ -37,7 +37,13 @@ function buildQuestionTypesBlock(tiposPregunta) {
 
 function buildQuestionPlanBlock(questionPlan) {
   return (questionPlan?.items || [])
-    .map((item) => `- ${item.tipo}: Referencia sugerida ${item.countRange}. Tiempo estimado: ${item.timeGuide}.`)
+    .map((item) => {
+      if (Number.isInteger(item?.requestedCount) && item.requestedCount > 0) {
+        return `- ${item.tipo}: Genera EXACTAMENTE ${item.requestedCount} pregunta(s).`;
+      }
+
+      return `- ${item.tipo}: Referencia sugerida ${item.countRange}. Tiempo estimado: ${item.timeGuide}.`;
+    })
     .join('\n');
 }
 
@@ -76,6 +82,11 @@ export function buildExamPromptByUnit({
   const planBlock = buildQuestionPlanBlock(questionPlan);
   const topicsBlock = buildTopicsBlock(temasContexto);
   const coverageInstruction = 'Procura cubrir todos los temas disponibles y repartir el examen de forma equilibrada.';
+  const usesExactCounts = Boolean(questionPlan?.exactCounts);
+  const exactTotalQuestions = Number(questionPlan?.totalQuestions || 0);
+  const exactCountRule = usesExactCounts
+    ? `- Debes generar EXACTAMENTE ${exactTotalQuestions} preguntas en total.\n- Debes respetar EXACTAMENTE la cantidad solicitada para cada tipo seleccionado.`
+    : '- Debe aparecer al menos UNA pregunta de cada tipo seleccionado por el usuario.';
 
   return `
 Actua como un DOCENTE EXPERTO en evaluacion academica y diseno de examenes por unidad.
@@ -109,18 +120,19 @@ REGLAS ESTRICTAS:
 - No escribas texto fuera del JSON.
 - Usa SOLO los temas de esta unidad. No inventes temas externos.
 - Genera un examen breve, equilibrado y utilizable en una sola sesion.
-- Debe aparecer al menos UNA pregunta de cada tipo seleccionado por el usuario.
+- No agregues tipos de pregunta que no fueron seleccionados por el usuario.
+${exactCountRule}
 - Distribuye las preguntas entre los temas disponibles de la unidad.
 - Si existe planeacion, usala como apoyo para el contenido y nivel de profundidad.
 - En el campo "tipo" usa EXACTAMENTE una de estas claves internas, no uses labels amigables: opcion_multiple, verdadero_falso, respuesta_corta, emparejamiento, pregunta_abierta, calculo_numerico, ordenacion_jerarquizacion.
-- Usa las referencias por tipo indicadas abajo solo como orientacion pedagogica, no como conteo obligatorio.
+- ${usesExactCounts ? 'Usa las cantidades por tipo indicadas abajo como conteo obligatorio.' : 'Usa las referencias por tipo indicadas abajo solo como orientacion pedagogica, no como conteo obligatorio.'}
 - Cada item debe incluir obligatoriamente el campo "pregunta" como string breve y claro.
 - Manten consistencia entre el tipo de pregunta y sus campos.
 - La redaccion de cada reactivo debe ser breve y directa para no extender innecesariamente el examen.
 - La explicacion debe ser corta, maximo una frase.
 - ${coverageInstruction}
 
-PLAN DE REACTIVOS:
+${usesExactCounts ? 'CANTIDADES SOLICITADAS POR TIPO:' : 'PLAN DE REACTIVOS:'}
 ${planBlock}
 
 CAMPOS POR TIPO:

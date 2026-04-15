@@ -9,12 +9,12 @@ const openai = new OpenAI({
 
 const OPENAI_EXAM_SYSTEM_PROMPT =
   'Actua como un docente experto en evaluacion por competencias. Responde solo con JSON valido, sin markdown, sin backticks y sin texto adicional.';
-const EXAM_PROMPT_VERSION = 'v6_unit_exam_no_total_rules';
-const EXAM_MIN_OUTPUT_TOKENS = 2600;
-const EXAM_MAX_OUTPUT_TOKENS = 5200;
+const EXAM_PROMPT_VERSION = 'v8_unit_exam_counts_by_type_completion';
+const EXAM_MIN_OUTPUT_TOKENS = 3200;
+const EXAM_MAX_OUTPUT_TOKENS = 6800;
 const EXAM_GENERATION_ATTEMPTS = 2;
-const EXAM_RETRY_TOKEN_STEP = 600;
-const EXAM_ATTEMPT_TIMEOUT_MS = 60000;
+const EXAM_RETRY_TOKEN_STEP = 800;
+const EXAM_ATTEMPT_TIMEOUT_MS = 90000;
 const VALID_TIPOS_PREGUNTA = new Set([
   'opcion_multiple',
   'verdadero_falso',
@@ -172,6 +172,31 @@ function normalizeQuestionTypes(tiposPregunta) {
   return normalized;
 }
 
+function normalizeQuestionCounts(rawCounts, selectedTypes) {
+  if (rawCounts == null) {
+    return null;
+  }
+
+  if (typeof rawCounts !== 'object' || Array.isArray(rawCounts)) {
+    throw buildHttpError(400, 'cantidades_pregunta debe ser un objeto valido.');
+  }
+
+  const normalized = {};
+
+  for (const tipo of selectedTypes || []) {
+    const rawValue = rawCounts[tipo];
+    const parsed = Number.parseInt(rawValue, 10);
+
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      throw buildHttpError(400, `Debes indicar una cantidad valida para el tipo ${tipo}.`);
+    }
+
+    normalized[tipo] = parsed;
+  }
+
+  return normalized;
+}
+
 async function fetchUnitTopics(client, unidadId, userId) {
   const temasQuery = client
     .from('temas')
@@ -242,6 +267,90 @@ function buildPromptTopicsContext(temas) {
   }));
 }
 
+function getRequestedQuestionCountTotal(requestedCounts) {
+  if (!requestedCounts || typeof requestedCounts !== 'object') return 0;
+  return Object.values(requestedCounts).reduce((sum, count) => sum + Number(count || 0), 0);
+}
+
+function buildQuestionTypeCountMap(preguntas) {
+  return (Array.isArray(preguntas) ? preguntas : []).reduce((map, question) => {
+    const tipo = normalizeQuestionTypeValue(question?.tipo) || 'sin_tipo';
+    map.set(tipo, Number(map.get(tipo) || 0) + 1);
+    return map;
+  }, new Map());
+}
+
+function buildQuestionTypeCountObject(preguntas) {
+  return Object.fromEntries(buildQuestionTypeCountMap(preguntas).entries());
+}
+
+function buildMissingQuestionCounts(questions, requestedCounts) {
+  if (!requestedCounts || typeof requestedCounts !== 'object') return {};
+
+  const actualCounts = buildQuestionTypeCountMap(questions);
+  const missing = {};
+
+  Object.entries(requestedCounts).forEach(([tipo, expected]) => {
+    const diff = Number(expected || 0) - Number(actualCounts.get(tipo) || 0);
+    if (diff > 0) {
+      missing[tipo] = diff;
+    }
+  });
+
+  return missing;
+}
+
+function hasRequestedQuestionCounts(value) {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && Object.values(value).some((count) => Number(count || 0) > 0)
+  );
+}
+
+function summarizeQuestionPrompt(question) {
+  const tipo = normalizeQuestionTypeValue(question?.tipo) || 'sin_tipo';
+  const tema = normalizeString(question?.tema) || 'Sin tema';
+  const pregunta = normalizeString(question?.pregunta || question?.enunciado || '').slice(0, 140);
+  return `- ${tipo} | ${tema} | ${pregunta}`;
+}
+
+function buildQuestionDebugList(preguntas) {
+  return (Array.isArray(preguntas) ? preguntas : []).map((question, index) => ({
+    index: index + 1,
+    tipo: normalizeQuestionTypeValue(question?.tipo) || 'sin_tipo',
+    tema: normalizeString(question?.tema) || 'Sin tema',
+    pregunta: normalizeString(question?.pregunta || question?.enunciado || '').slice(0, 180)
+  }));
+}
+
+function normalizeCompletionUsage(usage) {
+  return {
+    prompt_tokens: Number(usage?.prompt_tokens || 0),
+    completion_tokens: Number(usage?.completion_tokens || 0),
+    total_tokens: Number(usage?.total_tokens || 0)
+  };
+}
+
+function createUsageAccumulator() {
+  return {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0
+  };
+}
+
+function addUsage(accumulator, usage) {
+  const base = accumulator || createUsageAccumulator();
+  const next = normalizeCompletionUsage(usage);
+
+  base.prompt_tokens += next.prompt_tokens;
+  base.completion_tokens += next.completion_tokens;
+  base.total_tokens += next.total_tokens;
+
+  return base;
+}
+
 function validateTiempoMin(tiempoMin) {
   const parsed = Number.parseInt(tiempoMin, 10);
   if (!Number.isInteger(parsed) || parsed < 10) {
@@ -251,21 +360,27 @@ function validateTiempoMin(tiempoMin) {
   return parsed;
 }
 
-function buildQuestionPlan(tiposPregunta) {
+function buildQuestionPlan(tiposPregunta, questionCounts = null) {
   const selected = Array.isArray(tiposPregunta) ? tiposPregunta : [];
+  const exactCounts = Boolean(questionCounts && typeof questionCounts === 'object');
 
   const items = selected.map((tipo) => {
     const config = QUESTION_TYPE_PLAN[tipo];
     return {
       tipo,
       label: config?.label || tipo,
-      countRange: config?.countRange || 'Cantidad variable',
-      timeGuide: config?.timeGuide || 'Tiempo variable'
+      countRange: exactCounts ? null : (config?.countRange || 'Cantidad variable'),
+      timeGuide: exactCounts ? null : (config?.timeGuide || 'Tiempo variable'),
+      requestedCount: exactCounts ? Number(questionCounts?.[tipo] || 0) : null
     };
   });
 
   return {
-    items
+    items,
+    exactCounts,
+    totalQuestions: exactCounts
+      ? items.reduce((sum, item) => sum + Number(item?.requestedCount || 0), 0)
+      : null
   };
 }
 
@@ -273,8 +388,9 @@ function estimateExamOutputTokens(questionPlan) {
   const items = Array.isArray(questionPlan?.items) ? questionPlan.items : [];
   const estimate = items.reduce((sum, item) => {
     const weight = Number(QUESTION_TYPE_OUTPUT_WEIGHT[item?.tipo] || 60);
-    return sum + weight;
-  }, 450);
+    const count = Math.max(Number(item?.requestedCount || 1), 1);
+    return sum + (weight * count);
+  }, 350);
 
   return Math.max(EXAM_MIN_OUTPUT_TOKENS, Math.min(Math.ceil(estimate), EXAM_MAX_OUTPUT_TOKENS));
 }
@@ -287,7 +403,7 @@ function buildExamRetryPrompt(basePrompt, feedback) {
 CORRECCION OBLIGATORIA DEL NUEVO INTENTO:
 - El intento anterior fallo por: ${details}
 - Regenera TODO el examen desde cero.
-- Debes incluir al menos una pregunta por cada tipo seleccionado.
+- Debes respetar exactamente las cantidades por tipo solicitadas cuando esten definidas en el prompt.
 - Mantén el examen breve y equilibrado.
 - No omitas campos requeridos.
 - Manten cada reactivo breve para que el JSON no se corte.
@@ -386,27 +502,119 @@ function extractQuestionText(question) {
   );
 }
 
+function normalizeEmparejamientoPair(pair) {
+  if (Array.isArray(pair) && pair.length >= 2) {
+    const lado_a = normalizeString(pair[0]);
+    const lado_b = normalizeString(pair[1]);
+    return lado_a && lado_b ? { lado_a, lado_b } : null;
+  }
+
+  if (typeof pair === 'string') {
+    const text = normalizeString(pair);
+    if (!text) return null;
+
+    const separators = [' => ', ' -> ', ' : ', ' - ', ':', '=>', '->', '|'];
+    for (const separator of separators) {
+      if (!text.includes(separator)) continue;
+      const parts = text.split(separator).map((item) => normalizeString(item)).filter(Boolean);
+      if (parts.length >= 2) {
+        return {
+          lado_a: parts[0],
+          lado_b: parts.slice(1).join(' - ')
+        };
+      }
+    }
+
+    return null;
+  }
+
+  if (!pair || typeof pair !== 'object' || Array.isArray(pair)) {
+    return null;
+  }
+
+  const lado_a = pickFirstString(
+    pair.lado_a,
+    pair.columna_a,
+    pair.izquierda,
+    pair.item_a,
+    pair.termino,
+    pair.concepto,
+    pair.pregunta,
+    pair.a
+  );
+  const lado_b = pickFirstString(
+    pair.lado_b,
+    pair.columna_b,
+    pair.derecha,
+    pair.item_b,
+    pair.definicion,
+    pair.descripcion,
+    pair.respuesta,
+    pair.b
+  );
+
+  return lado_a && lado_b ? { lado_a, lado_b } : null;
+}
+
 function validateEmparejamientoPairs(question, index) {
   if (!Array.isArray(question.pares) || question.pares.length < 2) {
     throw buildHttpError(502, `La pregunta ${index + 1} de emparejamiento requiere al menos 2 pares.`);
   }
 
   const pairs = question.pares.map((pair, pairIndex) => {
-    if (!pair || typeof pair !== 'object' || Array.isArray(pair)) {
-      throw buildHttpError(502, `La pregunta ${index + 1} contiene un par invalido en la posicion ${pairIndex + 1}.`);
-    }
-
-    const lado_a = normalizeString(pair.lado_a);
-    const lado_b = normalizeString(pair.lado_b);
-
-    if (!lado_a || !lado_b) {
+    const normalizedPair = normalizeEmparejamientoPair(pair);
+    if (!normalizedPair?.lado_a || !normalizedPair?.lado_b) {
       throw buildHttpError(502, `La pregunta ${index + 1} contiene un par incompleto en la posicion ${pairIndex + 1}.`);
     }
 
-    return { lado_a, lado_b };
+    return normalizedPair;
   });
 
   return pairs;
+}
+
+function trimQuestionsToRequestedCounts(questions, requestedCounts) {
+  if (!requestedCounts || typeof requestedCounts !== 'object') {
+    return Array.isArray(questions) ? questions : [];
+  }
+
+  const questionList = Array.isArray(questions) ? questions : [];
+  const actualCounts = buildQuestionTypeCountMap(questionList);
+  const requestedEntries = Object.entries(requestedCounts);
+
+  const canTrim = requestedEntries.every(([tipo, expected]) => {
+    return Number(actualCounts.get(tipo) || 0) >= Number(expected || 0);
+  });
+
+  if (!canTrim) {
+    return null;
+  }
+
+  const consumed = {};
+  const trimmed = [];
+
+  for (const question of questionList) {
+    const tipo = normalizeQuestionTypeValue(question?.tipo);
+    if (!Object.prototype.hasOwnProperty.call(requestedCounts, tipo)) {
+      continue;
+    }
+
+    const expected = Number(requestedCounts[tipo] || 0);
+    const current = Number(consumed[tipo] || 0);
+
+    if (current >= expected) {
+      continue;
+    }
+
+    trimmed.push(question);
+    consumed[tipo] = current + 1;
+  }
+
+  const hasExactCounts = requestedEntries.every(([tipo, expected]) => {
+    return Number(consumed[tipo] || 0) === Number(expected || 0);
+  });
+
+  return hasExactCounts ? trimmed : null;
 }
 
 function validateQuestion(question, index, selectedTypesSet) {
@@ -552,7 +760,7 @@ function validateQuestion(question, index, selectedTypesSet) {
   throw buildHttpError(502, `La pregunta ${index + 1} contiene un tipo no soportado.`);
 }
 
-function validateExamPayload(examen, selectedTypes) {
+function normalizeExamStructure(examen, selectedTypes) {
   if (!examen || typeof examen !== 'object' || Array.isArray(examen)) {
     throw buildHttpError(502, 'La IA no devolvio un examen valido.');
   }
@@ -575,18 +783,50 @@ function validateExamPayload(examen, selectedTypes) {
 
   const selectedTypesSet = new Set(selectedTypes);
   const normalizedQuestions = preguntas.map((question, index) => validateQuestion(question, index, selectedTypesSet));
-  const usedTypes = new Set(normalizedQuestions.map((question) => question.tipo));
-
-  selectedTypes.forEach((tipo) => {
-    if (!usedTypes.has(tipo)) {
-      throw buildHttpError(502, `El examen generado no incluyo una pregunta del tipo ${tipo}.`);
-    }
-  });
 
   return {
     titulo,
     instrucciones_generales: instrucciones,
     preguntas: normalizedQuestions
+  };
+}
+
+function validateExamPayload(examen, selectedTypes, requestedCounts = null) {
+  const normalizedExam = normalizeExamStructure(examen, selectedTypes);
+  const normalizedQuestions = normalizedExam.preguntas;
+  const adjustedQuestions = requestedCounts
+    ? (trimQuestionsToRequestedCounts(normalizedQuestions, requestedCounts) || normalizedQuestions)
+    : normalizedQuestions;
+  const usedCounts = buildQuestionTypeCountMap(adjustedQuestions);
+
+  if (requestedCounts && typeof requestedCounts === 'object') {
+    selectedTypes.forEach((tipo) => {
+      const expected = Number(requestedCounts?.[tipo] || 0);
+      const actual = Number(usedCounts.get(tipo) || 0);
+
+      if (actual !== expected) {
+        throw buildHttpError(502, `El examen generado debe contener exactamente ${expected} pregunta(s) del tipo ${tipo}.`);
+      }
+    });
+
+    const expectedTotal = Object.values(requestedCounts)
+      .reduce((sum, count) => sum + Number(count || 0), 0);
+
+    if (adjustedQuestions.length !== expectedTotal) {
+      throw buildHttpError(502, `El examen generado debe contener exactamente ${expectedTotal} preguntas.`);
+    }
+  } else {
+    selectedTypes.forEach((tipo) => {
+      if (!usedCounts.has(tipo)) {
+        throw buildHttpError(502, `El examen generado no incluyo una pregunta del tipo ${tipo}.`);
+      }
+    });
+  }
+
+  return {
+    titulo: normalizedExam.titulo,
+    instrucciones_generales: normalizedExam.instrucciones_generales,
+    preguntas: adjustedQuestions
   };
 }
 
@@ -603,14 +843,144 @@ function summarizeQuestionTypeCounts(preguntas) {
     .join(', ');
 }
 
-function buildExamValidationFeedback(examen, error) {
+function buildExamValidationFeedback(examen, error, requestedCounts = null) {
   const baseMessage = normalizeString(error?.message) || 'El examen generado no cumplio la estructura requerida.';
   const actualQuestions = Array.isArray(examen?.preguntas) ? examen.preguntas : [];
   const actualDistribution = summarizeQuestionTypeCounts(actualQuestions);
+  const expectedDistribution = requestedCounts && typeof requestedCounts === 'object'
+    ? summarizeQuestionTypeCounts(
+        Object.entries(requestedCounts).flatMap(([tipo, count]) => (
+          Array.from({ length: Number(count || 0) }, () => ({ tipo }))
+        ))
+      )
+    : '';
 
-  return [baseMessage, actualDistribution ? `Distribucion actual: ${actualDistribution}.` : '']
+  return [
+    baseMessage,
+    expectedDistribution ? `Distribucion esperada: ${expectedDistribution}.` : '',
+    actualDistribution ? `Distribucion actual: ${actualDistribution}.` : ''
+  ]
     .filter(Boolean)
     .join(' ');
+}
+
+function buildMissingQuestionsPrompt(basePrompt, partialExam, missingCounts) {
+  const missingBlock = Object.entries(missingCounts)
+    .map(([tipo, count]) => `- ${tipo}: ${count} pregunta(s) faltante(s)`)
+    .join('\n');
+
+  const existingQuestionsBlock = (Array.isArray(partialExam?.preguntas) ? partialExam.preguntas : [])
+    .map((question) => summarizeQuestionPrompt(question))
+    .join('\n');
+
+  return `${basePrompt}
+
+COMPLEMENTO OBLIGATORIO:
+- Ya existe un examen parcial valido. No lo reescribas.
+- Genera SOLO las preguntas faltantes para completar el examen.
+- Devuelve EXCLUSIVAMENTE un objeto JSON valido con esta estructura:
+{
+  "preguntas": [
+    {
+      "tipo": "clave_interna",
+      "tema": "texto",
+      "pregunta": "texto",
+      "opciones": ["texto"],
+      "respuesta_correcta": "texto o arreglo",
+      "explicacion": "texto",
+      "pares": [
+        {
+          "lado_a": "texto",
+          "lado_b": "texto"
+        }
+      ],
+      "criterios_evaluacion": "texto",
+      "elementos": ["texto"]
+    }
+  ]
+}
+- No incluyas titulo.
+- No incluyas instrucciones_generales.
+- No repitas preguntas ya existentes.
+- Debes generar EXACTAMENTE estas faltantes:
+${missingBlock}
+
+PREGUNTAS YA GENERADAS:
+${existingQuestionsBlock || '- Sin preguntas previas'}
+`;
+}
+
+function validateQuestionListPayload(payload, selectedTypes) {
+  const preguntas = Array.isArray(payload?.preguntas)
+    ? payload.preguntas
+    : (Array.isArray(payload) ? payload : []);
+
+  if (preguntas.length === 0) {
+    throw buildHttpError(502, 'La IA no devolvio preguntas de complemento validas.');
+  }
+
+  const selectedTypesSet = new Set(selectedTypes);
+  return preguntas.map((question, index) => validateQuestion(question, index, selectedTypesSet));
+}
+
+async function generateMissingQuestionsWithIa({
+  basePrompt,
+  partialExam,
+  missingCounts
+}) {
+  const missingTypes = Object.keys(missingCounts);
+  const prompt = buildMissingQuestionsPrompt(basePrompt, partialExam, missingCounts);
+  const missingPlan = buildQuestionPlan(missingTypes, missingCounts);
+  const maxTokens = Math.min(
+    Math.max(1200, estimateExamOutputTokens(missingPlan)),
+    EXAM_MAX_OUTPUT_TOKENS
+  );
+
+  console.info('[exam-debug] generateMissingQuestionsWithIa.request', {
+    missingCounts,
+    maxTokens,
+    partialTotal: Array.isArray(partialExam?.preguntas) ? partialExam.preguntas.length : 0
+  });
+
+  const completion = await requestExamCompletion({
+    prompt,
+    maxTokens,
+    temperature: 0.1
+  });
+  const completionUsage = normalizeCompletionUsage(completion?.usage);
+
+  const rawText = completion.choices?.[0]?.message?.content?.trim() || '';
+  const parsed = parseExamJson(rawText);
+
+  console.info('[exam-debug] generateMissingQuestionsWithIa.response', {
+    finishReason: completion.choices?.[0]?.finish_reason || '',
+    usage: completionUsage,
+    rawLength: rawText.length,
+    parsed: Boolean(parsed),
+    parsedTotal: Array.isArray(parsed?.preguntas) ? parsed.preguntas.length : 0,
+    parsedDistribution: buildQuestionTypeCountObject(parsed?.preguntas || [])
+  });
+
+  if (!parsed) {
+    console.warn('[exam-debug] generateMissingQuestionsWithIa.fallo', {
+      motivo: 'La IA no devolvio preguntas de complemento en JSON valido.',
+      missingCounts,
+      rawResponse: rawText
+    });
+    throw buildHttpError(502, 'La IA no devolvio preguntas de complemento en JSON valido.');
+  }
+
+  const validatedQuestions = validateQuestionListPayload(parsed, missingTypes);
+  console.info('[exam-debug] generateMissingQuestionsWithIa.preguntas_creadas', {
+    total: validatedQuestions.length,
+    distribution: buildQuestionTypeCountObject(validatedQuestions),
+    preguntas: buildQuestionDebugList(validatedQuestions),
+    usage: completionUsage
+  });
+  return {
+    questions: validatedQuestions,
+    usage: completionUsage
+  };
 }
 
 async function requestExamCompletion({ prompt, maxTokens, temperature }) {
@@ -638,7 +1008,8 @@ async function generateExamWithIa({
   tiposPregunta,
   temasContexto,
   tiempoMin,
-  questionPlan
+  questionPlan,
+  questionCounts
 }) {
   const prompt = buildExamPromptByUnit({
     plantel: contexto.plantel?.nombre || '',
@@ -656,36 +1027,167 @@ async function generateExamWithIa({
     temperature: index === 0 ? 0.2 : 0.1
   }));
 
+  console.info('[exam-debug] generateExamWithIa.request', {
+    unidad: contexto.unidad?.nombre || '',
+    tiposPregunta,
+    questionCounts: questionCounts || null,
+    totalRequested: getRequestedQuestionCountTotal(questionCounts),
+    topicsCount: Array.isArray(temasContexto) ? temasContexto.length : 0,
+    estimatedTokens,
+    attempts: attempts.map((attempt, index) => ({
+      attempt: index + 1,
+      maxTokens: attempt.maxTokens,
+      temperature: attempt.temperature
+    })),
+    questionPlan: Array.isArray(questionPlan?.items)
+      ? questionPlan.items.map((item) => ({
+          tipo: item.tipo,
+          requestedCount: item.requestedCount ?? null
+        }))
+      : []
+  });
+
   let lastMessage = '';
   let lastValidationMessage = '';
+  const totalUsage = createUsageAccumulator();
 
   for (let index = 0; index < attempts.length; index += 1) {
     const attempt = attempts[index];
     const promptForAttempt = index === 0
       ? prompt
       : buildExamRetryPrompt(prompt, lastValidationMessage);
-    const completion = await requestExamCompletion({
-      prompt: promptForAttempt,
-      maxTokens: attempt.maxTokens,
-      temperature: attempt.temperature
-    });
+    let completion;
+
+    try {
+      completion = await requestExamCompletion({
+        prompt: promptForAttempt,
+        maxTokens: attempt.maxTokens,
+        temperature: attempt.temperature
+      });
+    } catch (error) {
+      console.error('[exam-debug] generateExamWithIa.fallo', {
+        etapa: 'requestExamCompletion',
+        attempt: index + 1,
+        motivo: error?.message || 'Error desconocido al solicitar generacion a OpenAI.',
+        requestedCounts: questionCounts || null,
+        requestedTotal: getRequestedQuestionCountTotal(questionCounts)
+      });
+      throw error;
+    }
 
     const rawText = completion.choices?.[0]?.message?.content?.trim() || '';
     const finishReason = completion.choices?.[0]?.finish_reason || '';
+    const completionUsage = normalizeCompletionUsage(completion?.usage);
+    addUsage(totalUsage, completionUsage);
     lastMessage = rawText;
     const parsed = parseExamJson(rawText);
+
+    console.info('[exam-debug] generateExamWithIa.attempt', {
+      attempt: index + 1,
+      finishReason,
+      usage: completionUsage,
+      rawLength: rawText.length,
+      parsed: Boolean(parsed),
+      parsedTotal: Array.isArray(parsed?.preguntas) ? parsed.preguntas.length : 0,
+      parsedDistribution: buildQuestionTypeCountObject(parsed?.preguntas || [])
+    });
 
     if (!parsed) {
       lastValidationMessage = finishReason === 'length'
         ? 'La respuesta se corto por limite de salida.'
         : 'La respuesta no se pudo interpretar como JSON valido.';
+      console.warn('[exam-debug] generateExamWithIa.fallo', {
+        etapa: 'parseExamJson',
+        attempt: index + 1,
+        motivo: lastValidationMessage,
+        finishReason,
+        usage: completionUsage,
+        rawLength: rawText.length,
+        rawResponse: rawText
+      });
       continue;
     }
 
     try {
-      return validateExamPayload(parsed, tiposPregunta);
+      const normalizedExam = normalizeExamStructure(parsed, tiposPregunta);
+      let candidateExam = normalizedExam;
+
+      if (hasRequestedQuestionCounts(questionCounts)) {
+        const trimmedQuestions = trimQuestionsToRequestedCounts(normalizedExam.preguntas, questionCounts)
+          || normalizedExam.preguntas;
+        const missingCounts = buildMissingQuestionCounts(trimmedQuestions, questionCounts);
+
+        if (hasRequestedQuestionCounts(missingCounts)) {
+          console.info('[exam-debug] generateExamWithIa.missing_counts', {
+            attempt: index + 1,
+            missingCounts,
+            currentTotal: trimmedQuestions.length,
+            currentDistribution: buildQuestionTypeCountObject(trimmedQuestions)
+          });
+
+          try {
+            const supplementResult = await generateMissingQuestionsWithIa({
+              basePrompt: prompt,
+              partialExam: {
+                ...normalizedExam,
+                preguntas: trimmedQuestions
+              },
+              missingCounts
+            });
+            addUsage(totalUsage, supplementResult?.usage);
+            const supplementalQuestions = supplementResult?.questions || [];
+
+            candidateExam = {
+              ...normalizedExam,
+              preguntas: [...trimmedQuestions, ...supplementalQuestions]
+            };
+
+            console.info('[exam-debug] generateExamWithIa.supplemented', {
+              attempt: index + 1,
+              supplementalTotal: supplementalQuestions.length,
+              mergedTotal: candidateExam.preguntas.length,
+              mergedDistribution: buildQuestionTypeCountObject(candidateExam.preguntas),
+              usageComplemento: supplementResult?.usage || createUsageAccumulator()
+            });
+          } catch (supplementError) {
+            console.warn('[exam-debug] generateExamWithIa.supplement_failed', {
+              attempt: index + 1,
+              message: supplementError?.message || 'No se pudieron generar las preguntas faltantes.',
+              missingCounts
+            });
+          }
+        }
+      }
+
+      const validated = validateExamPayload(candidateExam, tiposPregunta, questionCounts);
+      console.info('[exam-debug] generateExamWithIa.validated', {
+        attempt: index + 1,
+        mensaje: 'Examen validado con exito.',
+        requestedCounts: questionCounts || null,
+        requestedTotal: getRequestedQuestionCountTotal(questionCounts),
+        returnedTotal: Array.isArray(validated?.preguntas) ? validated.preguntas.length : 0,
+        returnedDistribution: buildQuestionTypeCountObject(validated?.preguntas || []),
+        preguntasCreadas: buildQuestionDebugList(validated?.preguntas || []),
+        totalDeTokensUsadosEnEsteExamen: totalUsage.total_tokens,
+        usageAcumulada: totalUsage
+      });
+      return {
+        examen: validated,
+        usage: totalUsage
+      };
     } catch (error) {
-      lastValidationMessage = buildExamValidationFeedback(parsed, error);
+      lastValidationMessage = buildExamValidationFeedback(parsed, error, questionCounts);
+      console.warn('[exam-debug] generateExamWithIa.validation_failed', {
+        attempt: index + 1,
+        mensaje: 'Fallo por validacion del examen generado.',
+        message: error?.message || 'Error de validacion',
+        requestedCounts: questionCounts || null,
+        requestedTotal: getRequestedQuestionCountTotal(questionCounts),
+        returnedTotal: Array.isArray(parsed?.preguntas) ? parsed.preguntas.length : 0,
+        returnedDistribution: buildQuestionTypeCountObject(parsed?.preguntas || []),
+        usage: completionUsage,
+        rawResponse: rawText
+      });
       if (index === attempts.length - 1) {
         throw error;
       }
@@ -693,6 +1195,14 @@ async function generateExamWithIa({
   }
 
   console.error('[exam-debug] respuesta IA invalida', lastMessage);
+  console.error('[exam-debug] generateExamWithIa.fallo', {
+    etapa: 'final',
+    motivo: 'La IA no devolvio un examen valido.',
+    requestedCounts: questionCounts || null,
+    requestedTotal: getRequestedQuestionCountTotal(questionCounts),
+    totalDeTokensUsadosEnEsteExamen: totalUsage.total_tokens,
+    usageAcumulada: totalUsage
+  });
   throw buildHttpError(502, 'La IA no devolvio un examen valido.');
 }
 
@@ -701,63 +1211,112 @@ export async function generarExamenUnidad({
   userId,
   unidadId,
   tiposPregunta,
-  tiempoMin
+  tiempoMin,
+  cantidadesPregunta
 }) {
   const client = getClient(supabaseClient);
   const normalizedUnidadId = normalizeString(unidadId);
 
-  if (!normalizedUnidadId) {
-    throw buildHttpError(400, 'unidad_id es requerido.');
-  }
-
-  const normalizedTypes = normalizeQuestionTypes(tiposPregunta);
-  const normalizedTiempoMin = validateTiempoMin(tiempoMin);
-  const contexto = await obtenerContextoUnidad(client, normalizedUnidadId);
-  const temas = await fetchUnitTopics(client, normalizedUnidadId, userId);
-  const contextoTemas = buildContextoTemasSnapshot(temas);
-  const promptTemasContext = buildPromptTopicsContext(temas);
-  const questionPlan = buildQuestionPlan(normalizedTypes);
-  const examenIa = await generateExamWithIa({
-    contexto,
-    tiposPregunta: normalizedTypes,
-    temasContexto: promptTemasContext,
-    tiempoMin: normalizedTiempoMin,
-    questionPlan
-  });
-  const actualQuestionCount = Array.isArray(examenIa?.preguntas) ? examenIa.preguntas.length : 0;
-  const examenIaPersisted = {
-    ...examenIa,
-    configuracion: {
-      tiempo_min: normalizedTiempoMin,
-      total_preguntas: actualQuestionCount,
-      tema_ids: temas.map((tema) => tema.id)
+  try {
+    if (!normalizedUnidadId) {
+      throw buildHttpError(400, 'unidad_id es requerido.');
     }
-  };
 
-  const insertPayload = {
-    user_id: userId,
-    plantel_id: contexto.plantel?.id || null,
-    grado_id: contexto.grado?.id || null,
-    materia_id: contexto.materia?.id || null,
-    unidad_id: normalizedUnidadId,
-    titulo: examenIa.titulo,
-    instrucciones: examenIa.instrucciones_generales,
-    tipos_pregunta: normalizedTypes,
-    total_preguntas: actualQuestionCount,
-    contexto_temas: contextoTemas,
-    examen_ia: examenIaPersisted,
-    prompt_version: EXAM_PROMPT_VERSION,
-    status: 'generado'
-  };
+    const normalizedTypes = normalizeQuestionTypes(tiposPregunta);
+    const normalizedQuestionCounts = normalizeQuestionCounts(cantidadesPregunta, normalizedTypes);
+    const normalizedTiempoMin = validateTiempoMin(tiempoMin);
+    const contexto = await obtenerContextoUnidad(client, normalizedUnidadId);
+    const temas = await fetchUnitTopics(client, normalizedUnidadId, userId);
+    console.info('[exam-debug] generarExamenUnidad.input', {
+      unidadId: normalizedUnidadId,
+      tiposPregunta: normalizedTypes,
+      cantidadesPregunta: normalizedQuestionCounts,
+      totalRequested: getRequestedQuestionCountTotal(normalizedQuestionCounts),
+      tiempoMin: normalizedTiempoMin,
+      temasContexto: Array.isArray(temas) ? temas.map((tema) => ({
+        id: tema.id,
+        titulo: tema.titulo,
+        planeacionId: tema.planeacion?.id || null
+      })) : []
+    });
+    const contextoTemas = buildContextoTemasSnapshot(temas);
+    const promptTemasContext = buildPromptTopicsContext(temas);
+    const questionPlan = buildQuestionPlan(normalizedTypes, normalizedQuestionCounts);
+    const generationResult = await generateExamWithIa({
+      contexto,
+      tiposPregunta: normalizedTypes,
+      temasContexto: promptTemasContext,
+      tiempoMin: normalizedTiempoMin,
+      questionPlan,
+      questionCounts: normalizedQuestionCounts
+    });
+    const examenIa = generationResult?.examen || generationResult;
+    const generationUsage = generationResult?.usage || createUsageAccumulator();
+    const actualQuestionCount = Array.isArray(examenIa?.preguntas) ? examenIa.preguntas.length : 0;
+    const examenIaPersisted = {
+      ...examenIa,
+      configuracion: {
+        tiempo_min: normalizedTiempoMin,
+        total_preguntas: actualQuestionCount,
+        cantidades_pregunta: normalizedQuestionCounts,
+        tema_ids: temas.map((tema) => tema.id)
+      }
+    };
 
-  const { data, error } = await client
-    .from('examenes')
-    .insert([insertPayload])
-    .select('*')
-    .single();
+    console.info('[exam-debug] examen_generado_con_exito', {
+      mensaje: 'Examen generado con exito antes de guardar en base de datos.',
+      titulo: examenIa.titulo,
+      totalPreguntas: actualQuestionCount,
+      distribucion: buildQuestionTypeCountObject(examenIa?.preguntas || []),
+      preguntasCreadas: buildQuestionDebugList(examenIa?.preguntas || []),
+      totalDeTokensUsadosEnEsteExamen: generationUsage.total_tokens,
+      usageAcumulada: generationUsage
+    });
 
-  if (error) throw error;
-  return data;
+    const insertPayload = {
+      user_id: userId,
+      plantel_id: contexto.plantel?.id || null,
+      grado_id: contexto.grado?.id || null,
+      materia_id: contexto.materia?.id || null,
+      unidad_id: normalizedUnidadId,
+      titulo: examenIa.titulo,
+      instrucciones: examenIa.instrucciones_generales,
+      tipos_pregunta: normalizedTypes,
+      total_preguntas: actualQuestionCount,
+      contexto_temas: contextoTemas,
+      examen_ia: examenIaPersisted,
+      prompt_version: EXAM_PROMPT_VERSION,
+      status: 'generado'
+    };
+
+    const { data, error } = await client
+      .from('examenes')
+      .insert([insertPayload])
+      .select('*')
+      .single();
+
+    if (error) throw error;
+
+    console.info('[exam-debug] examen_creado_con_exito', {
+      mensaje: 'Examen creado con exito en base de datos.',
+      examenId: data?.id || null,
+      unidadId: normalizedUnidadId,
+      titulo: data?.titulo || examenIa.titulo,
+      totalPreguntas: data?.total_preguntas || actualQuestionCount,
+      distribucion: buildQuestionTypeCountObject(examenIa?.preguntas || []),
+      totalDeTokensUsadosEnEsteExamen: generationUsage.total_tokens,
+      usageAcumulada: generationUsage
+    });
+
+    return data;
+  } catch (error) {
+    console.error('[exam-debug] generarExamenUnidad.fallo', {
+      unidadId: normalizedUnidadId || null,
+      motivo: error?.message || 'Error desconocido al generar examen.',
+      status: error?.status || 500
+    });
+    throw error;
+  }
 }
 
 export async function listarExamenesPorUnidad({
