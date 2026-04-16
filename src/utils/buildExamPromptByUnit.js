@@ -42,7 +42,7 @@ function buildQuestionPlanBlock(questionPlan) {
         return `- ${item.tipo}: Genera EXACTAMENTE ${item.requestedCount} pregunta(s).`;
       }
 
-      return `- ${item.tipo}: Referencia sugerida ${item.countRange}. Tiempo estimado: ${item.timeGuide}.`;
+      return `- ${item.tipo}: Tipo de pregunta habilitado por el usuario.`;
     })
     .join('\n');
 }

@@ -63,44 +63,30 @@ const QUESTION_TYPE_ALIASES = new Map([
 const QUESTION_TYPE_PLAN = {
   opcion_multiple: {
     label: 'Opcion multiple',
-    countRange: '10 a 15 preguntas',
-    timeGuide: '1 minuto por item',
     weight: 64
   },
   verdadero_falso: {
     label: 'Verdadero/Falso',
-    countRange: '5 a 8 preguntas',
-    timeGuide: '1 minuto por item',
     weight: 24
   },
   respuesta_corta: {
     label: 'Respuesta corta / completar',
-    countRange: '3 a 5 preguntas',
-    timeGuide: '2 a 3 minutos por item',
     weight: 16
   },
   emparejamiento: {
     label: 'Emparejamiento / relacion de columnas',
-    countRange: '1 a 2 bloques',
-    timeGuide: '5 minutos por bloque',
     weight: 8
   },
   pregunta_abierta: {
     label: 'Pregunta abierta / ensayo',
-    countRange: '1 a 2 preguntas',
-    timeGuide: '10 a 15 minutos por item',
     weight: 12
   },
   calculo_numerico: {
     label: 'Calculo / numerica',
-    countRange: '2 a 4 problemas',
-    timeGuide: '5 a 10 minutos por item',
     weight: 16
   },
   ordenacion_jerarquizacion: {
     label: 'Ordenacion / jerarquizacion',
-    countRange: '1 a 2 ejercicios',
-    timeGuide: '2 a 3 minutos por item',
     weight: 8
   }
 };
@@ -359,8 +345,6 @@ function buildQuestionPlan(tiposPregunta, questionCounts = null) {
     return {
       tipo,
       label: config?.label || tipo,
-      countRange: exactCounts ? null : (config?.countRange || 'Cantidad variable'),
-      timeGuide: exactCounts ? null : (config?.timeGuide || 'Tiempo variable'),
       requestedCount: exactCounts ? Number(questionCounts?.[tipo] || 0) : null
     };
   });
