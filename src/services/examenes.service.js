@@ -919,7 +919,7 @@ async function generateMissingQuestionsWithIa({
   const completion = await requestExamCompletion({
     prompt,
     maxTokens,
-    temperature: 0.1
+    temperature: 0.4
   });
   const completionUsage = normalizeCompletionUsage(completion?.usage);
 
@@ -996,7 +996,7 @@ async function generateExamWithIa({
   const estimatedTokens = estimateExamOutputTokens(questionPlan);
   const attempts = Array.from({ length: EXAM_GENERATION_ATTEMPTS }, (_, index) => ({
     maxTokens: Math.min(estimatedTokens + (index * EXAM_RETRY_TOKEN_STEP), EXAM_MAX_OUTPUT_TOKENS),
-    temperature: index === 0 ? 0.2 : 0.1
+    temperature: index === 0 ? 0.4 : 0.2
   }));
 
   console.info('[exam-debug] generateExamWithIa.request', {

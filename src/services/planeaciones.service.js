@@ -8,8 +8,8 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const TABLA_IA_PRIMARY_MAX_TOKENS = 1200;
-const TABLA_IA_RETRY_MAX_TOKENS = 1600;
+const TABLA_IA_PRIMARY_MAX_TOKENS = 2200;
+const TABLA_IA_RETRY_MAX_TOKENS = 3600;
 const OPENAI_TABLA_SYSTEM_PROMPT =
   'Actua como un docente experto en diseno de planeaciones didacticas, con experiencia en primaria, secundaria, bachillerato y nivel superior. Responde solo con JSON valido, sin markdown, sin backticks y sin texto adicional.';
 const TEMA_DUPLICATE_CONSTRAINT = 'temas_unidad_id_titulo_key';
@@ -465,7 +465,7 @@ Devuelve un objeto JSON valido con esta forma exacta:
 La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
 
   const attempts = [
-    { maxTokens: TABLA_IA_PRIMARY_MAX_TOKENS, temperature: 0.4 },
+    { maxTokens: TABLA_IA_PRIMARY_MAX_TOKENS, temperature: 0.5 },
     { maxTokens: TABLA_IA_RETRY_MAX_TOKENS, temperature: 0.2 }
   ];
 
