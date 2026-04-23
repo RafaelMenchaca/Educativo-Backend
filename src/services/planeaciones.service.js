@@ -3,6 +3,10 @@ import OpenAI from 'openai';
 import { randomUUID } from 'crypto';
 import { buildPromptByLevel } from '../utils/buildPromptByLevel.js';
 import { crearTemas, obtenerContextoTema, obtenerContextoUnidad } from './jerarquia.service.js';
+import {
+  enrichPlaneacionWithImages,
+  normalizeGenerarImagenesEn
+} from './imageEnrichment.service.js';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -1085,6 +1089,7 @@ function normalizeTemaUnidadInput(item) {
   const duracion = Number.parseInt(item?.duracion, 10);
   const orden = Number.isInteger(item?.orden) ? item.orden : Number.parseInt(item?.orden, 10);
   const actividad_cierre = validateActividadCierre(item?.actividad_cierre);
+  const generar_imagenes_en = normalizeGenerarImagenesEn(item?.generar_imagenes_en);
 
   if (!titulo) {
     throw buildHttpError(400, 'Tema invalido: titulo requerido');
@@ -1097,7 +1102,8 @@ function normalizeTemaUnidadInput(item) {
   const normalized = {
     titulo,
     duracion,
-    actividad_cierre
+    actividad_cierre,
+    generar_imagenes_en
   };
 
   if (Number.isInteger(orden) && orden > 0) {
@@ -1286,6 +1292,51 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
 
       await guardarMetricasIa(client, metrics);
 
+      planeacion = updatedPlaneacion;
+
+      if (Array.isArray(temaInput.generar_imagenes_en) && temaInput.generar_imagenes_en.length > 0) {
+        try {
+          const userId = planeacion?.user_id || null;
+          if (userId) {
+            const enrichmentResult = await enrichPlaneacionWithImages({
+              client,
+              userId,
+              planeacionId,
+              tablaIa: planeacion?.tabla_ia || tablaIa,
+              generarImagenesEn: temaInput.generar_imagenes_en,
+              contexto: {
+                materia,
+                tema: tema.titulo
+              }
+            });
+
+            if (enrichmentResult.enriched > 0) {
+              const { data: enrichedPlan, error: enrichUpdateError } = await client
+                .from('planeaciones')
+                .update({ tabla_ia: enrichmentResult.tablaIa })
+                .eq('id', planeacionId)
+                .eq('tema_id', tema.id)
+                .select('*')
+                .single();
+
+              if (!enrichUpdateError && enrichedPlan) {
+                planeacion = enrichedPlan;
+              } else if (enrichUpdateError) {
+                console.error('[image-enrichment] update planeacion fallo:', enrichUpdateError.message || enrichUpdateError);
+              }
+            }
+
+            if (enrichmentResult.errors.length > 0) {
+              console.warn('[image-enrichment] errores parciales:', enrichmentResult.errors.join(' | '));
+            }
+          } else {
+            console.warn('[image-enrichment] planeacion sin user_id, saltando fase 2');
+          }
+        } catch (enrichError) {
+          console.error('[image-enrichment] fase 2 fallo:', enrichError?.message || enrichError);
+        }
+      }
+
       results.push({
         index,
         tema_id: tema.id,
@@ -1304,8 +1355,6 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
           status: 'ready'
         });
       }
-
-      planeacion = updatedPlaneacion;
     } catch (error) {
       if (planeacion?.id) {
         await client
