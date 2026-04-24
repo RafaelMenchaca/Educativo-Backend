@@ -1,4 +1,8 @@
-import { buildImageSearchQuery } from '../utils/buildImageSearchQuery.js';
+import {
+  buildImageSearchQuery,
+  buildFallbackQueries,
+  pickPixabayCategory
+} from '../utils/buildImageSearchQuery.js';
 import { searchEducationalImage, downloadImageBytes } from './imageSearch.service.js';
 
 const STORAGE_BUCKET = 'planeacion-actividades';
@@ -53,19 +57,34 @@ function buildImageId(timestamp) {
   return `img_${timestamp}_${rand}`;
 }
 
+async function searchWithFallback(queries, category) {
+  for (const query of queries) {
+    if (!query) continue;
+    try {
+      const result = await searchEducationalImage(query, { category });
+      if (result) return { result, usedQuery: query };
+    } catch (err) {
+      console.warn('[image-enrichment] query fallback error:', err?.message || err);
+    }
+  }
+  return null;
+}
+
 async function enrichMoment({
-  query,
+  queries,
+  category,
   client,
   userId,
   planeacionId,
   momentKey
 }) {
-  const searchResult = await searchEducationalImage(query);
-  if (!searchResult) return null;
+  const outcome = await searchWithFallback(queries, category);
+  if (!outcome) return null;
 
+  const { result: searchResult, usedQuery } = outcome;
   const downloaded = await downloadImageBytes(searchResult.url);
   const timestamp = Date.now();
-  const fileName = `${sanitizeFileNameBase(query)}.${downloaded.ext}`;
+  const fileName = `${sanitizeFileNameBase(usedQuery)}.${downloaded.ext}`;
   const path = `${userId}/${planeacionId}/${momentKey}/${timestamp}-${fileName}`;
 
   const { data: uploaded, error: uploadError } = await client
@@ -88,7 +107,7 @@ async function enrichMoment({
     mime_type: downloaded.mime,
     uploaded_at: new Date(timestamp).toISOString(),
     source: 'ai_suggested',
-    query
+    query: usedQuery
   };
 }
 
@@ -124,20 +143,27 @@ export async function enrichPlaneacionWithImages({
   const errors = [];
   let enriched = 0;
 
+  const fallbacks = buildFallbackQueries({
+    materia: contexto?.materia,
+    tema: contexto?.tema
+  });
+  const category = pickPixabayCategory({ materia: contexto?.materia });
+
   for (const row of nextTabla) {
     const momentKey = normalizeMomentKey(row?.tiempo_sesion);
     if (!momentKey || !momentos.includes(momentKey)) continue;
 
-    const query = buildImageSearchQuery({
+    const primary = buildImageSearchQuery({
       materia: contexto?.materia,
-      tema: contexto?.tema,
-      tiempoSesion: momentKey,
-      actividades: row?.actividades
+      tema: contexto?.tema
     });
+
+    const queries = [primary, ...fallbacks].filter(Boolean);
 
     try {
       const imagen = await enrichMoment({
-        query,
+        queries,
+        category,
         client,
         userId,
         planeacionId,
@@ -147,6 +173,8 @@ export async function enrichPlaneacionWithImages({
       if (imagen) {
         row.actividades_imagenes.push(imagen);
         enriched += 1;
+      } else {
+        console.warn(`[image-enrichment] [${momentKey}] 0 hits en ${queries.length} intentos (queries: ${queries.join(' | ')})`);
       }
     } catch (error) {
       const message = `[${momentKey}] ${error?.message || 'error desconocido'}`;
