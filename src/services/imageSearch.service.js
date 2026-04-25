@@ -13,15 +13,23 @@ const VALID_CATEGORIES = new Set([
 // Palabras genéricas de "dominio" o modifier — matchear SOLO estas en los tags
 // no constituye relevancia real (cualquier cosa tiene tag "biology" o "science").
 // Una imagen relevante debe tener al menos una palabra NO-genérica del tema.
+// EN and ES equivalents — matching either in Pixabay tags doesn't count as relevant
 const DOMAIN_GENERIC_TOKENS = new Set([
+  // English
   'biology','mathematics','physics','chemistry','history','geography',
   'science','education','art','music','literature','philosophy','economics',
   'technology','computing','english','spanish','civics','ethics','anatomy',
   'astronomy','algebra','geometry','calculus','statistics','trigonometry',
-  'arithmetic','educational','illustration','diagram','infographic','vector'
+  'arithmetic','educational','illustration','diagram','infographic','vector',
+  // Spanish — Pixabay lang=es returns Spanish tags, so we need both
+  'biologia','matematicas','matematica','fisica','quimica','historia','geografia',
+  'ciencias','ciencia','educacion','arte','musica','literatura','filosofia','economia',
+  'tecnologia','informatica','computacion','civica','etica','anatomia','astronomia',
+  'geometria','calculo','estadistica','trigonometria','aritmetica',
+  'ilustracion','diagrama','infografia','educativo','educativa'
 ]);
 
-function buildPixabayUrl(query, apiKey, category) {
+function buildPixabayUrl(query, apiKey) {
   const url = new URL(PIXABAY_ENDPOINT);
   url.searchParams.set('key', apiKey);
   url.searchParams.set('q', query);
@@ -29,9 +37,8 @@ function buildPixabayUrl(query, apiKey, category) {
   url.searchParams.set('image_type', 'illustration');
   url.searchParams.set('safesearch', 'true');
   url.searchParams.set('per_page', '20');
-  if (category && VALID_CATEGORIES.has(category)) {
-    url.searchParams.set('category', category);
-  }
+  // No category filter — combining category + image_type=illustration is too restrictive
+  // and results in 0 hits for many valid educational queries.
   return url.toString();
 }
 
@@ -96,12 +103,15 @@ function pickBestHit(hits, query) {
       .map(stemSpanish)
   );
 
-  // Umbral dinámico: si la query tiene 2+ palabras no-genéricas (tema compuesto),
-  // exigir que 2 de ellas matcheen en tags. Así bloqueamos "revolución digital"
-  // cuando buscas "Revolución Mexicana" (solo matchea "revolucion", no "mexicana").
-  // Para temas de 1 palabra, umbral = 1.
+  // Pixabay's own search already filters for relevance. The overlap scoring here
+  // ranks results (prefer images whose tags explicitly match the query) but does NOT
+  // reject them — rejecting based on overlap caused zero images when Pixabay returned
+  // relevant images whose tags didn't repeat the search term word-for-word.
+  //
+  // Exception: when the query has 2+ non-generic terms, require at least 1 tag match
+  // to avoid unrelated popular images (e.g., CEO/SEO teacher appearing for physics queries).
   const nonDomainInQuery = countNonDomainTokens(queryTokens);
-  const minOverlap = Math.max(1, Math.min(2, nonDomainInQuery));
+  const minOverlap = nonDomainInQuery >= 2 ? 1 : 0;
 
   const scored = hits.map((hit) => {
     const overlap = countUniqueTagOverlap(hit?.tags, queryTokens);
@@ -159,7 +169,7 @@ export async function searchEducationalImage(query, options = {}) {
   }
 
   const trimmedQuery = query.trim();
-  const url = buildPixabayUrl(trimmedQuery, apiKey, options.category);
+  const url = buildPixabayUrl(trimmedQuery, apiKey);
   const response = await fetchWithTimeout(url, undefined, PIXABAY_TIMEOUT_MS);
 
   if (!response.ok) {

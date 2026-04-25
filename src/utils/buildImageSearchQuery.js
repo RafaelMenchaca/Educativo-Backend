@@ -93,7 +93,9 @@ const ES_EN_DICT = new Map([
   ['mapa', 'map'], ['mapas', 'map'],
   ['grafico', 'chart'], ['graficos', 'chart'], ['grafica', 'graph'],
   ['infografia', 'infographic'], ['tabla', 'table'],
-  ['dibujo', 'drawing'], ['modelo', 'model'],
+  ['dibujo', 'drawing'], ['modelo', 'model'], ['maqueta', 'model'],
+  ['experimento', 'experiment'], ['experimentos', 'experiment'],
+  ['laboratorio', 'laboratory'],
 
   // Física
   ['circuito', 'circuit'], ['circuitos', 'circuit'],
@@ -152,6 +154,7 @@ const ES_EN_DICT = new Map([
   ['suma', 'addition'], ['resta', 'subtraction'],
   ['multiplicacion', 'multiplication'], ['division', 'division'],
   ['fraccion', 'fraction'], ['fracciones', 'fraction'],
+  ['equivalente', 'equivalent'], ['equivalentes', 'equivalent'],
   ['decimal', 'decimal'], ['decimales', 'decimal'],
   ['porcentaje', 'percentage'],
   ['ecuacion', 'equation'], ['ecuaciones', 'equation'],
@@ -163,6 +166,9 @@ const ES_EN_DICT = new Map([
   ['area', 'area'], ['perimetro', 'perimeter'],
   ['volumen', 'volume'], ['probabilidad', 'probability'],
   ['potencia', 'power'], ['raiz', 'root'],
+  ['compas', 'compass'], ['regla', 'ruler'],
+  ['conjunto', 'set'], ['conjuntos', 'set'],
+  ['recta', 'line'], ['plano', 'plane'],
 
   // Geografía
   ['continente', 'continent'], ['continentes', 'continent'],
@@ -179,14 +185,19 @@ const ES_EN_DICT = new Map([
 
   // Historia
   ['revolucion', 'revolution'], ['guerra', 'war'], ['guerras', 'war'],
+  ['batalla', 'battle'], ['batallas', 'battle'],
+  ['ejercito', 'army'], ['soldado', 'soldier'], ['soldados', 'soldier'],
+  ['conquista', 'conquest'], ['conquistador', 'conquistador'],
+  ['independencia', 'independence'],
   ['imperio', 'empire'], ['imperios', 'empire'],
   ['civilizacion', 'civilization'], ['civilizaciones', 'civilization'],
   ['cultura', 'culture'], ['culturas', 'culture'],
-  ['independencia', 'independence'], ['conquista', 'conquest'],
   ['prehistoria', 'prehistory'], ['renacimiento', 'renaissance'],
   ['colonia', 'colony'], ['colonial', 'colonial'],
   ['politica', 'politics'], ['sociedad', 'society'],
   ['mexicana', 'mexican'], ['mexicano', 'mexican'], ['mexico', 'mexico'],
+  ['piramide', 'pyramid'], ['piramides', 'pyramid'],
+  ['azteca', 'aztec'], ['maya', 'maya'], ['inca', 'inca'],
 
   // Lenguaje
   ['lectura', 'reading'], ['escritura', 'writing'],
@@ -336,15 +347,32 @@ function dedupCap(words, max) {
   return out.join(' ');
 }
 
-export function buildImageSearchQuery({ materia, tema } = {}) {
+// STRATEGY: all queries are Spanish → Pixabay lang=es returns Spanish tags → overlap scoring works.
+//
+// actividades keywords are filtered through ES_EN_DICT: only domain-specific academic terms
+// (volcán, célula, voltaje, batalla, fracción…) pass — pedagogical noise words
+// (lluvia, proceso, linea, conocen, elaboran) are not in the dict and are excluded.
+// This produces moment-specific queries when the AI wrote rich activity descriptions.
+export function buildImageSearchQuery({ materia, tema, actividades } = {}) {
   const temaKws = extractKeywords(tema, 3, { minLength: 3 });
   const materiaKws = extractKeywords(materia, 1, { minLength: 3 });
-  const translatedMateria = translateBatch(materiaKws);
+  const actKws = actividades ? extractKeywords(actividades, 8, { minLength: 4 }) : [];
 
-  // Primary: tema ES + materia EN. Pixabay indexa tags en español (lang=es)
-  // y las fotos educativas en español suelen ser más específicas que
-  // traducciones literales word-by-word al inglés.
-  return dedupCap([...temaKws, ...translatedMateria], 3);
+  // Keep only actividades words that are academic domain terms (in ES_EN_DICT).
+  // Filters: "lluvia" (brainstorm), "proceso" (process), "conocen" (verb), "etapa" (stage).
+  // Keeps: "voltaje", "planeta", "batalla", "celula", "fraccion", "fotosintesis", etc.
+  const actDomain = actKws.filter((w) => ES_EN_DICT.has(w));
+
+  // Among domain terms, prefer those not already in the tema (adds new info about the moment).
+  const temaSet = new Set([...temaKws, ...materiaKws]);
+  const actNew = actDomain.filter((w) => !temaSet.has(w));
+
+  // Primary: moment-specific domain terms + tema for context (all Spanish)
+  if (actNew.length >= 1) {
+    return dedupCap([...actNew.slice(0, 2), ...temaKws], 3);
+  }
+  // No new domain terms: tema + materia (all moments get same query, which is fine)
+  return dedupCap([...temaKws, ...materiaKws], 3);
 }
 
 export function pickPixabayCategory({ materia } = {}) {
@@ -353,11 +381,14 @@ export function pickPixabayCategory({ materia } = {}) {
   return 'education';
 }
 
-export function buildFallbackQueries({ materia, tema } = {}) {
+export function buildFallbackQueries({ materia, tema, actividades } = {}) {
   const temaKws = extractKeywords(tema, 3, { minLength: 3 });
   const materiaKws = extractKeywords(materia, 1, { minLength: 3 });
-  const translatedTema = translateBatch(temaKws);
-  const translatedMateria = translateBatch(materiaKws);
+  const actKws = actividades ? extractKeywords(actividades, 8, { minLength: 4 }) : [];
+
+  const actDomain = actKws.filter((w) => ES_EN_DICT.has(w));
+  const temaSet = new Set([...temaKws, ...materiaKws]);
+  const actNew = actDomain.filter((w) => !temaSet.has(w));
 
   const fallbacks = [];
   const seen = new Set();
@@ -367,21 +398,21 @@ export function buildFallbackQueries({ materia, tema } = {}) {
     fallbacks.push(query);
   };
 
-  // Nivel 1: solo tema ES (2 palabras, sin materia — más limpio)
+  // F1: tema solo (2 palabras, sin materia)
   pushUnique(dedupCap(temaKws, 2));
 
-  // Nivel 2: tema EN + materia EN (si hay traducción)
-  if (translatedTema.length > 0) {
-    pushUnique(dedupCap([...translatedTema, ...translatedMateria], 3));
+  // F2: tema + materia (contexto más amplio)
+  pushUnique(dedupCap([...temaKws, ...materiaKws], 3));
+
+  // F3: actNew solo — contexto puro del momento sin el tema
+  if (actNew.length > 0) {
+    pushUnique(dedupCap(actNew, 2));
   }
 
-  // Nivel 3: solo tema EN (si hay traducción)
-  if (translatedTema.length > 0) {
-    pushUnique(dedupCap(translatedTema, 2));
+  // F4: palabra principal del tema (último recurso)
+  if (temaKws.length > 0) {
+    pushUnique(temaKws[0]);
   }
-
-  // Nivel 4: palabra principal del tema ES (desesperado, última oportunidad)
-  pushUnique(dedupCap(temaKws.slice(0, 1), 1));
 
   return fallbacks;
 }
