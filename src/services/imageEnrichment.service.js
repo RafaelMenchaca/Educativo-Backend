@@ -1,7 +1,6 @@
 import {
   buildImageSearchQuery,
-  buildFallbackQueries,
-  pickPixabayCategory
+  buildFallbackQueries
 } from '../utils/buildImageSearchQuery.js';
 import { searchEducationalImage, downloadImageBytes } from './imageSearch.service.js';
 
@@ -57,11 +56,11 @@ function buildImageId(timestamp) {
   return `img_${timestamp}_${rand}`;
 }
 
-async function searchWithFallback(queries, category) {
+async function searchWithFallback(queries) {
   for (const query of queries) {
     if (!query) continue;
     try {
-      const result = await searchEducationalImage(query, { category });
+      const result = await searchEducationalImage(query);
       if (result) return { result, usedQuery: query };
     } catch (err) {
       console.warn('[image-enrichment] query fallback error:', err?.message || err);
@@ -72,13 +71,12 @@ async function searchWithFallback(queries, category) {
 
 async function enrichMoment({
   queries,
-  category,
   client,
   userId,
   planeacionId,
   momentKey
 }) {
-  const outcome = await searchWithFallback(queries, category);
+  const outcome = await searchWithFallback(queries);
   if (!outcome) return null;
 
   const { result: searchResult, usedQuery } = outcome;
@@ -143,27 +141,29 @@ export async function enrichPlaneacionWithImages({
   const errors = [];
   let enriched = 0;
 
-  const fallbacks = buildFallbackQueries({
-    materia: contexto?.materia,
-    tema: contexto?.tema
-  });
-  const category = pickPixabayCategory({ materia: contexto?.materia });
-
   for (const row of nextTabla) {
     const momentKey = normalizeMomentKey(row?.tiempo_sesion);
     if (!momentKey || !momentos.includes(momentKey)) continue;
 
+    // Build queries per-row so actividades text differentiates each moment
+    const actividadesText = typeof row?.actividades === 'string' ? row.actividades : '';
     const primary = buildImageSearchQuery({
       materia: contexto?.materia,
-      tema: contexto?.tema
+      tema: contexto?.tema,
+      actividades: actividadesText
+    });
+    const fallbacks = buildFallbackQueries({
+      materia: contexto?.materia,
+      tema: contexto?.tema,
+      actividades: actividadesText
     });
 
     const queries = [primary, ...fallbacks].filter(Boolean);
+    console.log(`[image-enrichment] [${momentKey}] actividades="${actividadesText.slice(0, 60)}" queries: ${queries.join(' | ')}`);
 
     try {
       const imagen = await enrichMoment({
         queries,
-        category,
         client,
         userId,
         planeacionId,
