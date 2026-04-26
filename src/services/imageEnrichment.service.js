@@ -1,7 +1,5 @@
-import {
-  buildImageSearchQuery,
-  buildFallbackQueries
-} from '../utils/buildImageSearchQuery.js';
+import { generateImageQuery } from '../utils/generateImageQuery.js';
+import { buildFallbackQueries } from '../utils/buildImageSearchQuery.js';
 import { searchEducationalImage, downloadImageBytes } from './imageSearch.service.js';
 
 const STORAGE_BUCKET = 'planeacion-actividades';
@@ -69,13 +67,7 @@ async function searchWithFallback(queries) {
   return null;
 }
 
-async function enrichMoment({
-  queries,
-  client,
-  userId,
-  planeacionId,
-  momentKey
-}) {
+async function enrichMoment({ queries, client, userId, planeacionId, momentKey }) {
   const outcome = await searchWithFallback(queries);
   if (!outcome) return null;
 
@@ -145,21 +137,25 @@ export async function enrichPlaneacionWithImages({
     const momentKey = normalizeMomentKey(row?.tiempo_sesion);
     if (!momentKey || !momentos.includes(momentKey)) continue;
 
-    // Build queries per-row so actividades text differentiates each moment
     const actividadesText = typeof row?.actividades === 'string' ? row.actividades : '';
-    const primary = buildImageSearchQuery({
+
+    // PRIMARY: GPT-4o-mini genera keywords precisas en inglés a partir del contexto completo
+    const gptQuery = await generateImageQuery({
       materia: contexto?.materia,
+      nivel: contexto?.nivel,
       tema: contexto?.tema,
       actividades: actividadesText
     });
+
+    // FALLBACK: queries heurísticas en inglés usando el diccionario ES→EN
     const fallbacks = buildFallbackQueries({
       materia: contexto?.materia,
       tema: contexto?.tema,
       actividades: actividadesText
     });
 
-    const queries = [primary, ...fallbacks].filter(Boolean);
-    console.log(`[image-enrichment] [${momentKey}] actividades="${actividadesText.slice(0, 60)}" queries: ${queries.join(' | ')}`);
+    const queries = [gptQuery, ...fallbacks].filter(Boolean);
+    console.log(`[image-enrichment] [${momentKey}] gpt="${gptQuery}" | fallbacks: ${fallbacks.join(' | ')}`);
 
     try {
       const imagen = await enrichMoment({
@@ -174,7 +170,7 @@ export async function enrichPlaneacionWithImages({
         row.actividades_imagenes.push(imagen);
         enriched += 1;
       } else {
-        console.warn(`[image-enrichment] [${momentKey}] 0 hits en ${queries.length} intentos (queries: ${queries.join(' | ')})`);
+        console.warn(`[image-enrichment] [${momentKey}] 0 resultados para queries: ${queries.join(' | ')}`);
       }
     } catch (error) {
       const message = `[${momentKey}] ${error?.message || 'error desconocido'}`;

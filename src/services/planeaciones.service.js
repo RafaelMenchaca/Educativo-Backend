@@ -1294,48 +1294,50 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
 
       planeacion = updatedPlaneacion;
 
-      if (Array.isArray(temaInput.generar_imagenes_en) && temaInput.generar_imagenes_en.length > 0) {
-        try {
-          const userId = planeacion?.user_id || null;
-          if (userId) {
-            const enrichmentResult = await enrichPlaneacionWithImages({
-              client,
-              userId,
-              planeacionId,
-              tablaIa: planeacion?.tabla_ia || tablaIa,
-              generarImagenesEn: temaInput.generar_imagenes_en,
-              contexto: {
-                materia,
-                tema: tema.titulo
-              }
-            });
-
-            if (enrichmentResult.enriched > 0) {
-              const { data: enrichedPlan, error: enrichUpdateError } = await client
-                .from('planeaciones')
-                .update({ tabla_ia: enrichmentResult.tablaIa })
-                .eq('id', planeacionId)
-                .eq('tema_id', tema.id)
-                .select('*')
-                .single();
-
-              if (!enrichUpdateError && enrichedPlan) {
-                planeacion = enrichedPlan;
-              } else if (enrichUpdateError) {
-                console.error('[image-enrichment] update planeacion fallo:', enrichUpdateError.message || enrichUpdateError);
-              }
-            }
-
-            if (enrichmentResult.errors.length > 0) {
-              console.warn('[image-enrichment] errores parciales:', enrichmentResult.errors.join(' | '));
-            }
-          } else {
-            console.warn('[image-enrichment] planeacion sin user_id, saltando fase 2');
-          }
-        } catch (enrichError) {
-          console.error('[image-enrichment] fase 2 fallo:', enrichError?.message || enrichError);
-        }
-      }
+      // PAUSED: image auto-generation disabled — code preserved for future re-enable
+      // if (Array.isArray(temaInput.generar_imagenes_en) && temaInput.generar_imagenes_en.length > 0) {
+      //   try {
+      //     const userId = planeacion?.user_id || null;
+      //     if (userId) {
+      //       const enrichmentResult = await enrichPlaneacionWithImages({
+      //         client,
+      //         userId,
+      //         planeacionId,
+      //         tablaIa: planeacion?.tabla_ia || tablaIa,
+      //         generarImagenesEn: temaInput.generar_imagenes_en,
+      //         contexto: {
+      //           materia,
+      //           nivel,
+      //           tema: tema.titulo
+      //         }
+      //       });
+      //
+      //       if (enrichmentResult.enriched > 0) {
+      //         const { data: enrichedPlan, error: enrichUpdateError } = await client
+      //           .from('planeaciones')
+      //           .update({ tabla_ia: enrichmentResult.tablaIa })
+      //           .eq('id', planeacionId)
+      //           .eq('tema_id', tema.id)
+      //           .select('*')
+      //           .single();
+      //
+      //         if (!enrichUpdateError && enrichedPlan) {
+      //           planeacion = enrichedPlan;
+      //         } else if (enrichUpdateError) {
+      //           console.error('[image-enrichment] update planeacion fallo:', enrichUpdateError.message || enrichUpdateError);
+      //         }
+      //       }
+      //
+      //       if (enrichmentResult.errors.length > 0) {
+      //         console.warn('[image-enrichment] errores parciales:', enrichmentResult.errors.join(' | '));
+      //       }
+      //     } else {
+      //       console.warn('[image-enrichment] planeacion sin user_id, saltando fase 2');
+      //     }
+      //   } catch (enrichError) {
+      //     console.error('[image-enrichment] fase 2 fallo:', enrichError?.message || enrichError);
+      //   }
+      // }
 
       results.push({
         index,
