@@ -381,14 +381,19 @@ export function pickPixabayCategory({ materia } = {}) {
   return 'education';
 }
 
+// Fallbacks en inglés para cuando el query de GPT no devuelve resultados en Wikimedia Commons.
+// Wikimedia tiene mejor cobertura de contenido educativo con términos en inglés.
 export function buildFallbackQueries({ materia, tema, actividades } = {}) {
   const temaKws = extractKeywords(tema, 3, { minLength: 3 });
   const materiaKws = extractKeywords(materia, 1, { minLength: 3 });
   const actKws = actividades ? extractKeywords(actividades, 8, { minLength: 4 }) : [];
 
   const actDomain = actKws.filter((w) => ES_EN_DICT.has(w));
-  const temaSet = new Set([...temaKws, ...materiaKws]);
-  const actNew = actDomain.filter((w) => !temaSet.has(w));
+
+  // Traducir al inglés para coincidir con los tags en inglés que devuelve Pixabay (lang=en)
+  const temaEn = translateBatch(temaKws);
+  const materiaEn = translateBatch(materiaKws);
+  const actDomainEn = translateBatch(actDomain);
 
   const fallbacks = [];
   const seen = new Set();
@@ -398,21 +403,19 @@ export function buildFallbackQueries({ materia, tema, actividades } = {}) {
     fallbacks.push(query);
   };
 
-  // F1: tema solo (2 palabras, sin materia)
-  pushUnique(dedupCap(temaKws, 2));
+  // F1: tema EN (el más específico al tema)
+  pushUnique(dedupCap(temaEn, 2));
 
-  // F2: tema + materia (contexto más amplio)
-  pushUnique(dedupCap([...temaKws, ...materiaKws], 3));
+  // F2: tema EN + materia EN
+  pushUnique(dedupCap([...temaEn, ...materiaEn], 3));
 
-  // F3: actNew solo — contexto puro del momento sin el tema
-  if (actNew.length > 0) {
-    pushUnique(dedupCap(actNew, 2));
+  // F3: domain terms del actividades EN (si hay)
+  if (actDomainEn.length > 0) {
+    pushUnique(dedupCap([...actDomainEn, ...temaEn], 3));
   }
 
-  // F4: palabra principal del tema (último recurso)
-  if (temaKws.length > 0) {
-    pushUnique(temaKws[0]);
-  }
+  // F4: materia EN sola (último recurso con algo de contexto)
+  pushUnique(dedupCap(materiaEn, 1));
 
   return fallbacks;
 }
