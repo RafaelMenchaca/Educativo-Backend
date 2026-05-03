@@ -12,9 +12,11 @@ const OPENAI_EXAM_SYSTEM_PROMPT =
 const EXAM_PROMPT_VERSION = 'v8_unit_exam_counts_by_type_completion';
 const EXAM_MIN_OUTPUT_TOKENS = 3200;
 const EXAM_MAX_OUTPUT_TOKENS = 6800;
+const EXAM_SINGLE_QUESTION_MAX_TOKENS = 1200;
 const EXAM_GENERATION_ATTEMPTS = 2;
 const EXAM_RETRY_TOKEN_STEP = 800;
 const EXAM_ATTEMPT_TIMEOUT_MS = 90000;
+const EXAM_ITEM_MAX_RETRIES = 3;
 const VALID_TIPOS_PREGUNTA = new Set([
   'opcion_multiple',
   'verdadero_falso',
@@ -897,6 +899,455 @@ function validateQuestionListPayload(payload, selectedTypes) {
   return preguntas.map((question, index) => validateQuestion(question, index, selectedTypesSet));
 }
 
+function buildExamQuestionItems({ temas, questionCounts }) {
+  const counts = questionCounts && typeof questionCounts === 'object' ? questionCounts : {};
+  const entries = Object.entries(counts).filter(([, count]) => Number(count || 0) > 0);
+  const topicList = Array.isArray(temas) ? temas : [];
+  const items = [];
+
+  entries.forEach(([tipo, count]) => {
+    for (let index = 0; index < Number(count || 0); index += 1) {
+      const tema = topicList[items.length % Math.max(topicList.length, 1)] || null;
+      items.push({
+        pregunta_numero: items.length + 1,
+        tema_id: tema?.id || null,
+        tema: tema?.titulo || '',
+        tipo_pregunta: tipo
+      });
+    }
+  });
+
+  return items;
+}
+
+function getQuestionJsonPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  if (payload.pregunta_ia && typeof payload.pregunta_ia === 'object' && !Array.isArray(payload.pregunta_ia)) {
+    return payload.pregunta_ia;
+  }
+  if (payload.pregunta && typeof payload.pregunta === 'object' && !Array.isArray(payload.pregunta)) {
+    return payload.pregunta;
+  }
+  if (payload.question && typeof payload.question === 'object' && !Array.isArray(payload.question)) {
+    return payload.question;
+  }
+  return payload;
+}
+
+function parseQuestionJson(rawText) {
+  const candidates = extractJsonCandidates(rawText);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      const question = getQuestionJsonPayload(parsed);
+      if (question) return question;
+    } catch {
+      // Continue trying alternative candidates.
+    }
+  }
+
+  return null;
+}
+
+function sameStringSet(left, right) {
+  const leftValues = normalizeStringArray(left).map((item) => normalizeLooseKey(item)).sort();
+  const rightValues = normalizeStringArray(right).map((item) => normalizeLooseKey(item)).sort();
+  return leftValues.length === rightValues.length && leftValues.every((value, index) => value === rightValues[index]);
+}
+
+function validateGeneratedQuestionStrict(question, expectedType) {
+  const errors = [];
+  const tipo = normalizeQuestionTypeValue(question?.tipo);
+  const tema = normalizeString(question?.tema);
+  const pregunta = extractQuestionText(question);
+  const respuestaCorrectaRaw = question?.respuesta_correcta;
+  const respuestaCorrectaText = Array.isArray(respuestaCorrectaRaw)
+    ? ''
+    : pickFirstString(respuestaCorrectaRaw, question?.correcta, question?.respuesta, question?.answer);
+  const criterios = pickFirstString(question?.criterios_evaluacion, question?.criterios);
+  const explicacion = pickFirstString(question?.explicacion, question?.retroalimentacion, question?.justificacion);
+  const opciones = normalizeStringArray(question?.opciones);
+  const elementos = normalizeStringArray(question?.elementos);
+
+  if (!tema) errors.push('El campo tema esta vacio');
+  if (!tipo) errors.push('El campo tipo esta vacio');
+  if (tipo && tipo !== expectedType) errors.push('El campo tipo no coincide con el tipo solicitado');
+  if (!pregunta) errors.push('El campo pregunta esta vacio');
+  if (!criterios) errors.push('El campo criterios_evaluacion esta vacio');
+
+  if (expectedType === 'opcion_multiple') {
+    if (opciones.length < 3) errors.push('La pregunta de opcion_multiple requiere al menos 3 opciones');
+    if (!respuestaCorrectaText) {
+      errors.push('El campo respuesta_correcta esta vacio');
+    } else if (!opciones.includes(respuestaCorrectaText)) {
+      errors.push('La respuesta_correcta no existe dentro de opciones');
+    }
+  } else if (expectedType === 'verdadero_falso') {
+    const normalizedAnswer = normalizeLooseKey(respuestaCorrectaText);
+    if (normalizedAnswer !== 'verdadero' && normalizedAnswer !== 'falso') {
+      errors.push('La pregunta de verdadero_falso requiere respuesta_correcta Verdadero o Falso');
+    }
+  } else if (expectedType === 'emparejamiento') {
+    const pares = Array.isArray(question?.pares) ? question.pares : [];
+    if (pares.length < 2) {
+      errors.push('La pregunta de emparejamiento requiere al menos 2 pares');
+    } else {
+      try {
+        validateEmparejamientoPairs(question, 0);
+      } catch (error) {
+        errors.push(error?.message || 'La pregunta de emparejamiento contiene pares incompletos');
+      }
+    }
+  } else if (expectedType === 'ordenacion_jerarquizacion') {
+    const respuestaOrden = Array.isArray(respuestaCorrectaRaw)
+      ? respuestaCorrectaRaw.map((item) => normalizeString(item)).filter(Boolean)
+      : [];
+    if (elementos.length < 3) errors.push('La pregunta de ordenacion_jerarquizacion requiere al menos 3 elementos');
+    if (respuestaOrden.length < 3) errors.push('La respuesta_correcta debe ser un array con al menos 3 elementos');
+    if (elementos.length >= 3 && respuestaOrden.length >= 3 && !sameStringSet(elementos, respuestaOrden)) {
+      errors.push('La respuesta_correcta debe contener los mismos elementos que elementos');
+    }
+  } else if (!respuestaCorrectaText) {
+    errors.push('El campo respuesta_correcta esta vacio');
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors, question: null };
+  }
+
+  const normalized = {
+    tema,
+    tipo: expectedType,
+    pregunta,
+    opciones: expectedType === 'opcion_multiple'
+      ? opciones
+      : (expectedType === 'verdadero_falso' ? ['Verdadero', 'Falso'] : []),
+    elementos: expectedType === 'ordenacion_jerarquizacion' ? elementos : [],
+    explicacion,
+    respuesta_correcta: expectedType === 'ordenacion_jerarquizacion'
+      ? respuestaCorrectaRaw.map((item) => normalizeString(item)).filter(Boolean)
+      : (expectedType === 'verdadero_falso'
+        ? (normalizeLooseKey(respuestaCorrectaText) === 'verdadero' ? 'Verdadero' : 'Falso')
+        : (expectedType === 'emparejamiento'
+          ? validateEmparejamientoPairs(question, 0).map((pair) => ({ ...pair }))
+          : respuestaCorrectaText)),
+    criterios_evaluacion: criterios
+  };
+
+  if (expectedType === 'emparejamiento') {
+    normalized.pares = validateEmparejamientoPairs(question, 0);
+    normalized.respuesta_correcta = normalized.pares.map((pair) => ({ ...pair }));
+  }
+
+  return { valid: true, errors: [], question: normalized };
+}
+
+function buildSingleQuestionPrompt({
+  contexto,
+  item,
+  temasContexto,
+  totalPreguntas,
+  retryFeedback
+}) {
+  const type = item.tipo_pregunta;
+  const topicContext = (Array.isArray(temasContexto) ? temasContexto : [])
+    .filter((tema) => !item.tema_id || tema.tema_id === item.tema_id)
+    .slice(0, 1);
+  const contextForPrompt = topicContext.length > 0 ? topicContext : (Array.isArray(temasContexto) ? temasContexto.slice(0, 3) : []);
+
+  return `Genera una sola pregunta para un examen de unidad.
+
+CONTEXTO:
+- Plantel: ${contexto.plantel?.nombre || ''}
+- Grado: ${contexto.grado?.grado_nombre || contexto.grado?.nombre || contexto.grado?.nivel_base || ''}
+- Materia: ${contexto.materia?.nombre || ''}
+- Unidad: ${contexto.unidad?.nombre || ''}
+- Pregunta numero: ${item.pregunta_numero} de ${totalPreguntas}
+- Tema solicitado: ${item.tema || 'Tema de la unidad'}
+- Tipo solicitado: ${type}
+
+TEMAS Y PLANEACION DISPONIBLE:
+${JSON.stringify(contextForPrompt)}
+
+INSTRUCCIONES OBLIGATORIAS:
+- Devuelve unicamente un objeto JSON valido.
+- No incluyas markdown.
+- No incluyas texto antes o despues del JSON.
+- No incluyas explicacion fuera del JSON.
+- El campo "pregunta" es obligatorio.
+- El campo "pregunta" no puede estar vacio.
+- El campo "respuesta_correcta" es obligatorio.
+- El campo "criterios_evaluacion" es obligatorio.
+- El campo "tipo" debe coincidir exactamente con "${type}".
+- Si el tipo es "opcion_multiple", incluye "opciones" con minimo 3 opciones y asegurate de que "respuesta_correcta" exista dentro de "opciones".
+- Si el tipo es "verdadero_falso", usa "respuesta_correcta": "Verdadero" o "Falso".
+- Si el tipo es "emparejamiento", incluye "pares" como array de objetos con "lado_a" y "lado_b".
+- Si el tipo es "ordenacion_jerarquizacion", incluye "elementos" y "respuesta_correcta" como arrays con los mismos elementos.
+- Si no puedes generar una pregunta valida, genera otra pregunta diferente.
+- Para tipos que no usan opciones, devuelve "opciones": [].
+- Para tipos que no usan elementos, devuelve "elementos": [].
+${retryFeedback ? `- Corrige el intento anterior: ${retryFeedback}` : ''}
+
+FORMATO ESPERADO:
+{
+  "tema": "${item.tema || 'Tema'}",
+  "tipo": "${type}",
+  "pregunta": "...",
+  "opciones": [],
+  "elementos": [],
+  "explicacion": "...",
+  "respuesta_correcta": "...",
+  "criterios_evaluacion": "..."
+}`;
+}
+
+async function updateGenerationJob(client, jobId, payload) {
+  const { error } = await client
+    .from('examen_generation_jobs')
+    .update({
+      ...payload,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', jobId);
+
+  if (error) throw error;
+}
+
+async function updateGenerationItem(client, itemId, payload) {
+  const { error } = await client
+    .from('examen_generation_items')
+    .update({
+      ...payload,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', itemId);
+
+  if (error) throw error;
+}
+
+async function fetchGenerationJob(client, jobId, userId) {
+  const query = client
+    .from('examen_generation_jobs')
+    .select('*')
+    .eq('id', jobId);
+
+  if (userId) query.eq('user_id', userId);
+
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Generacion de examen no encontrada');
+  return data;
+}
+
+async function fetchGenerationItems(client, jobId) {
+  const { data, error } = await client
+    .from('examen_generation_items')
+    .select('*')
+    .eq('job_id', jobId)
+    .order('pregunta_numero', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function generateSingleQuestionWithIa({ contexto, item, temasContexto, totalPreguntas, jobId }) {
+  let retryFeedback = '';
+
+  for (let attempt = 1; attempt <= EXAM_ITEM_MAX_RETRIES; attempt += 1) {
+    const prompt = buildSingleQuestionPrompt({
+      contexto,
+      item,
+      temasContexto,
+      totalPreguntas,
+      retryFeedback
+    });
+
+    const completion = await requestExamCompletion({
+      prompt,
+      maxTokens: EXAM_SINGLE_QUESTION_MAX_TOKENS,
+      temperature: attempt === 1 ? 0.35 : 0.2
+    });
+    const rawText = completion.choices?.[0]?.message?.content?.trim() || '';
+    const parsed = parseQuestionJson(rawText);
+    const validation = validateGeneratedQuestionStrict(parsed, item.tipo_pregunta);
+
+    if (validation.valid) {
+      return {
+        question: validation.question,
+        retryCount: attempt - 1,
+        validationErrors: []
+      };
+    }
+
+    retryFeedback = validation.errors.join('; ');
+    if (attempt < EXAM_ITEM_MAX_RETRIES) {
+      await updateGenerationJob(supabaseAdmin, jobId, {
+        current_step: `Reintentando pregunta ${item.pregunta_numero}...`
+      });
+    }
+    await updateGenerationItem(supabaseAdmin, item.id, {
+      status: attempt < EXAM_ITEM_MAX_RETRIES ? 'retrying' : 'failed',
+      retry_count: attempt,
+      validation_errors: validation.errors,
+      error_message: retryFeedback || 'La pregunta generada no paso validacion.'
+    });
+  }
+
+  throw buildHttpError(502, retryFeedback || 'No se pudo generar una pregunta valida.');
+}
+
+function buildFinalExamPayloadFromItems({ job, items }) {
+  const questions = items.map((item) => item.pregunta_ia);
+  return {
+    titulo: job.titulo,
+    preguntas: questions,
+    configuracion: {
+      tema_ids: (Array.isArray(job.contexto_temas) ? job.contexto_temas : [])
+        .map((tema) => tema?.tema_id)
+        .filter(Boolean),
+      total_preguntas: questions.length,
+      cantidades_pregunta: job.configuracion?.cantidades_pregunta || {}
+    },
+    instrucciones_generales: job.instrucciones || 'Lee cuidadosamente cada pregunta antes de responder.'
+  };
+}
+
+async function processExamGenerationJob(jobId) {
+  const client = supabaseAdmin;
+  const job = await fetchGenerationJob(client, jobId);
+  const contexto = await obtenerContextoUnidad(client, job.unidad_id);
+  const temas = await fetchUnitTopics(client, job.unidad_id, job.user_id);
+  const temasContexto = buildPromptTopicsContext(temas);
+  let items = await fetchGenerationItems(client, jobId);
+  const total = Number(job.progress_total || items.length || 0);
+
+  try {
+    for (const item of items) {
+      if (item.status === 'completed') continue;
+
+      await updateGenerationItem(client, item.id, {
+        status: 'processing',
+        error_message: null
+      });
+      await updateGenerationJob(client, jobId, {
+        status: 'processing',
+        current_step: `Generando pregunta ${item.pregunta_numero} de ${total}...`
+      });
+
+      const result = await generateSingleQuestionWithIa({
+        contexto,
+        item,
+        temasContexto,
+        totalPreguntas: total,
+        jobId
+      });
+
+      await updateGenerationItem(client, item.id, {
+        status: 'completed',
+        pregunta_ia: result.question,
+        validation_errors: [],
+        retry_count: result.retryCount,
+        error_message: null
+      });
+
+      const completedCount = Number((await fetchGenerationItems(client, jobId))
+        .filter((candidate) => candidate.status === 'completed').length);
+      await updateGenerationJob(client, jobId, {
+        progress_current: completedCount,
+        current_step: `Validando pregunta ${item.pregunta_numero}...`
+      });
+    }
+
+    items = await fetchGenerationItems(client, jobId);
+    const failedItems = items.filter((item) => item.status !== 'completed');
+
+    if (failedItems.length > 0) {
+      const validationErrors = failedItems.flatMap((item) => (
+        Array.isArray(item.validation_errors) ? item.validation_errors : []
+      ));
+      await updateGenerationJob(client, jobId, {
+        status: 'failed',
+        error_message: 'Una o mas preguntas no se generaron correctamente.',
+        current_step: 'No se pudo completar el examen.',
+        failed_at: new Date().toISOString()
+      });
+      return { ok: false, validationErrors };
+    }
+
+    const freshJob = await fetchGenerationJob(client, jobId);
+    const examenIa = buildFinalExamPayloadFromItems({ job: freshJob, items });
+    const insertPayload = {
+      user_id: freshJob.user_id,
+      plantel_id: freshJob.plantel_id,
+      grado_id: freshJob.grado_id,
+      materia_id: freshJob.materia_id,
+      unidad_id: freshJob.unidad_id,
+      titulo: examenIa.titulo,
+      instrucciones: examenIa.instrucciones_generales,
+      tipos_pregunta: freshJob.tipos_pregunta,
+      total_preguntas: examenIa.preguntas.length,
+      contexto_temas: freshJob.contexto_temas,
+      examen_ia: examenIa,
+      prompt_version: EXAM_PROMPT_VERSION,
+      status: 'generado',
+      generation_job_id: jobId,
+      generation_error: null,
+      validation_errors: []
+    };
+
+    const { data: examen, error: examenError } = await client
+      .from('examenes')
+      .insert([insertPayload])
+      .select('*')
+      .single();
+
+    if (examenError) throw examenError;
+
+    await updateGenerationJob(client, jobId, {
+      status: 'completed',
+      progress_current: total,
+      progress_total: total,
+      current_step: 'Examen generado correctamente',
+      completed_at: new Date().toISOString(),
+      examen_id: examen.id,
+      error_message: null
+    });
+
+    return { ok: true, examenId: examen.id };
+  } catch (error) {
+    const latestItems = await fetchGenerationItems(client, jobId).catch(() => []);
+    const validationErrors = latestItems.flatMap((item) => (
+      Array.isArray(item.validation_errors) ? item.validation_errors : []
+    ));
+
+    await updateGenerationJob(client, jobId, {
+      status: 'failed',
+      error_message: error?.message || 'No se pudo completar el examen.',
+      current_step: 'No se pudo completar el examen.',
+      failed_at: new Date().toISOString()
+    }).catch(() => {});
+
+    console.error('[exam-debug] processExamGenerationJob.fallo', {
+      jobId,
+      motivo: error?.message || 'Error desconocido',
+      validationErrors
+    });
+    return { ok: false, error };
+  }
+}
+
+function scheduleExamGenerationJob(jobId) {
+  setTimeout(() => {
+    processExamGenerationJob(jobId).catch((error) => {
+      console.error('[exam-debug] scheduleExamGenerationJob.fallo', {
+        jobId,
+        motivo: error?.message || 'Error desconocido'
+      });
+    });
+  }, 0);
+}
+
 async function generateMissingQuestionsWithIa({
   basePrompt,
   partialExam,
@@ -1195,6 +1646,10 @@ export async function generarExamenUnidad({
 
     const normalizedTypes = normalizeQuestionTypes(tiposPregunta);
     const normalizedQuestionCounts = normalizeQuestionCounts(cantidadesPregunta, normalizedTypes);
+    if (!hasRequestedQuestionCounts(normalizedQuestionCounts)) {
+      throw buildHttpError(400, 'Debes indicar una cantidad mayor a 0 para cada tipo de pregunta.');
+    }
+
     const contexto = await obtenerContextoUnidad(client, normalizedUnidadId);
     const temas = await fetchUnitTopics(client, normalizedUnidadId, userId);
     console.info('[exam-debug] generarExamenUnidad.input', {
@@ -1208,74 +1663,69 @@ export async function generarExamenUnidad({
         planeacionId: tema.planeacion?.id || null
       })) : []
     });
+
     const contextoTemas = buildContextoTemasSnapshot(temas);
-    const promptTemasContext = buildPromptTopicsContext(temas);
-    const questionPlan = buildQuestionPlan(normalizedTypes, normalizedQuestionCounts);
-    const generationResult = await generateExamWithIa({
-      contexto,
-      tiposPregunta: normalizedTypes,
-      temasContexto: promptTemasContext,
-      questionPlan,
-      questionCounts: normalizedQuestionCounts
-    });
-    const examenIa = generationResult?.examen || generationResult;
-    const generationUsage = generationResult?.usage || createUsageAccumulator();
-    const actualQuestionCount = Array.isArray(examenIa?.preguntas) ? examenIa.preguntas.length : 0;
-    const examenIaPersisted = {
-      ...examenIa,
-      configuracion: {
-        total_preguntas: actualQuestionCount,
-        cantidades_pregunta: normalizedQuestionCounts,
-        tema_ids: temas.map((tema) => tema.id)
-      }
-    };
-
-    console.info('[exam-debug] examen_generado_con_exito', {
-      mensaje: 'Examen generado con exito antes de guardar en base de datos.',
-      titulo: examenIa.titulo,
-      totalPreguntas: actualQuestionCount,
-      distribucion: buildQuestionTypeCountObject(examenIa?.preguntas || []),
-      preguntasCreadas: buildQuestionDebugList(examenIa?.preguntas || []),
-      totalDeTokensUsadosEnEsteExamen: generationUsage.total_tokens,
-      usageAcumulada: generationUsage
-    });
-
-    const insertPayload = {
+    const totalPreguntas = getRequestedQuestionCountTotal(normalizedQuestionCounts);
+    const jobPayload = {
       user_id: userId,
       plantel_id: contexto.plantel?.id || null,
       grado_id: contexto.grado?.id || null,
       materia_id: contexto.materia?.id || null,
       unidad_id: normalizedUnidadId,
-      titulo: examenIa.titulo,
-      instrucciones: examenIa.instrucciones_generales,
+      titulo: `Examen de ${contexto.unidad?.nombre || 'unidad'}`,
+      instrucciones: 'Lee cuidadosamente cada pregunta antes de responder.',
       tipos_pregunta: normalizedTypes,
-      total_preguntas: actualQuestionCount,
+      total_preguntas: totalPreguntas,
       contexto_temas: contextoTemas,
-      examen_ia: examenIaPersisted,
+      configuracion: {
+        tema_ids: temas.map((tema) => tema.id),
+        total_preguntas: totalPreguntas,
+        cantidades_pregunta: normalizedQuestionCounts
+      },
       prompt_version: EXAM_PROMPT_VERSION,
-      status: 'generado'
+      status: 'processing',
+      progress_current: 0,
+      progress_total: totalPreguntas,
+      current_step: 'Preparando generacion del examen...',
+      started_at: new Date().toISOString()
     };
 
-    const { data, error } = await client
-      .from('examenes')
-      .insert([insertPayload])
+    const { data: job, error: jobError } = await client
+      .from('examen_generation_jobs')
+      .insert([jobPayload])
       .select('*')
       .single();
 
-    if (error) throw error;
+    if (jobError) throw jobError;
 
-    console.info('[exam-debug] examen_creado_con_exito', {
-      mensaje: 'Examen creado con exito en base de datos.',
-      examenId: data?.id || null,
+    const generationItems = buildExamQuestionItems({
+      temas,
+      questionCounts: normalizedQuestionCounts
+    }).map((item) => ({
+      ...item,
+      job_id: job.id,
+      user_id: userId,
+      status: 'pending',
+      retry_count: 0,
+      max_retries: EXAM_ITEM_MAX_RETRIES
+    }));
+
+    const { error: itemsError } = await client
+      .from('examen_generation_items')
+      .insert(generationItems);
+
+    if (itemsError) throw itemsError;
+
+    console.info('[exam-debug] examen_generation_job_creado', {
+      jobId: job.id,
       unidadId: normalizedUnidadId,
-      titulo: data?.titulo || examenIa.titulo,
-      totalPreguntas: data?.total_preguntas || actualQuestionCount,
-      distribucion: buildQuestionTypeCountObject(examenIa?.preguntas || []),
-      totalDeTokensUsadosEnEsteExamen: generationUsage.total_tokens,
-      usageAcumulada: generationUsage
+      totalPreguntas,
+      tiposPregunta: normalizedTypes
     });
 
-    return data;
+    scheduleExamGenerationJob(job.id);
+
+    return job;
   } catch (error) {
     console.error('[exam-debug] generarExamenUnidad.fallo', {
       unidadId: normalizedUnidadId || null,
@@ -1284,6 +1734,32 @@ export async function generarExamenUnidad({
     });
     throw error;
   }
+}
+
+export async function obtenerEstadoGeneracionExamen({
+  supabaseClient,
+  userId,
+  jobId
+}) {
+  const client = getClient(supabaseClient);
+  const normalizedJobId = normalizeString(jobId);
+
+  if (!normalizedJobId) {
+    throw buildHttpError(400, 'jobId es requerido.');
+  }
+
+  const job = await fetchGenerationJob(client, normalizedJobId, userId);
+
+  return {
+    ok: true,
+    job_id: job.id,
+    status: job.status,
+    progress_current: Number(job.progress_current || 0),
+    progress_total: Number(job.progress_total || 0),
+    current_step: job.current_step || '',
+    examen_id: job.examen_id || null,
+    error_message: job.error_message || null
+  };
 }
 
 export async function listarExamenesPorUnidad({
