@@ -17,7 +17,7 @@ const TABLA_IA_RETRY_MAX_TOKENS = 3600;
 const OPENAI_TABLA_SYSTEM_PROMPT =
   'Actua como un docente experto en diseno de planeaciones didacticas, con experiencia en primaria, secundaria, bachillerato y nivel superior. Responde solo con JSON valido, sin markdown, sin backticks y sin texto adicional.';
 const TEMA_DUPLICATE_CONSTRAINT = 'temas_unidad_id_titulo_key';
-const ACTIVIDADES_CIERRE_VALIDAS = new Set([
+const ACTIVIDADES_DIDACTICAS_VALIDAS = new Set([
   'Juegos de mesa educativos',
   'Debate en clase',
   'Proyectos de investigación',
@@ -38,6 +38,11 @@ const ACTIVIDADES_CIERRE_VALIDAS = new Set([
   'Mapas conceptuales',
   'Podcasts educativos',
   'Tareas interdisciplinarias'
+]);
+const ACTIVIDADES_MOMENTOS_KEYS = new Set([
+  'conocimientos_previos',
+  'desarrollo',
+  'cierre'
 ]);
 const TABLA_IA_TIEMPOS_ESPERADOS = new Set([
   'conocimientos previos',
@@ -81,11 +86,46 @@ function validateActividadCierre(actividadCierre) {
   const normalized = normalizeActividadCierre(actividadCierre);
 
   if (!normalized) {
-    throw buildHttpError(400, 'Cada tema debe incluir una actividad de cierre seleccionada.');
+    return '';
   }
 
-  if (!ACTIVIDADES_CIERRE_VALIDAS.has(normalized)) {
+  if (!ACTIVIDADES_DIDACTICAS_VALIDAS.has(normalized)) {
     throw buildHttpError(400, 'La actividad de cierre seleccionada no es valida.');
+  }
+
+  return normalized;
+}
+
+function validateActividadDidactica(actividad, label = 'actividad didactica') {
+  const normalized = normalizeActividadCierre(actividad);
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (!ACTIVIDADES_DIDACTICAS_VALIDAS.has(normalized)) {
+    throw buildHttpError(400, `La ${label} seleccionada no es valida.`);
+  }
+
+  return normalized;
+}
+
+function normalizeActividadesMomentos(value, actividadCierreLegacy = '') {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+
+  for (const key of ACTIVIDADES_MOMENTOS_KEYS) {
+    const actividad = validateActividadDidactica(source[key], `actividad para ${key}`);
+    if (actividad) {
+      normalized[key] = actividad;
+    }
+  }
+
+  if (Object.keys(normalized).length === 0) {
+    const cierreLegacy = validateActividadCierre(actividadCierreLegacy);
+    if (cierreLegacy) {
+      normalized.cierre = cierreLegacy;
+    }
   }
 
   return normalized;
@@ -96,7 +136,11 @@ function normalizeTemaGeneracionInput(item) {
     ? item.tema.trim()
     : (typeof item?.titulo === 'string' ? item.titulo.trim() : '');
   const duracion = Number.parseInt(item?.duracion, 10);
-  const actividad_cierre = validateActividadCierre(item?.actividad_cierre);
+  const actividades_momentos = normalizeActividadesMomentos(
+    item?.actividades_momentos,
+    item?.actividad_cierre
+  );
+  const actividad_cierre = actividades_momentos.cierre || validateActividadCierre(item?.actividad_cierre);
 
   if (!tema) {
     throw buildHttpError(400, 'Tema invalido: tema requerido');
@@ -109,6 +153,7 @@ function normalizeTemaGeneracionInput(item) {
   return {
     tema,
     duracion,
+    actividades_momentos,
     actividad_cierre
   };
 }
@@ -439,14 +484,27 @@ async function solicitarTablaIaCompletion({ prompt, maxTokens, temperature }) {
   });
 }
 
-async function generarTablaIa({ materia, nivel, unidad, tema, duracion, actividad_cierre }) {
+async function generarTablaIa({
+  materia,
+  nivel,
+  unidad,
+  tema,
+  duracion,
+  actividad_cierre,
+  actividades_momentos
+}) {
+  const actividadesMomentosNormalizadas = normalizeActividadesMomentos(
+    actividades_momentos,
+    actividad_cierre
+  );
   const basePrompt = buildPromptByLevel({
     materia,
     nivel,
     unidad,
     tema,
     duracion,
-    actividad_cierre
+    actividad_cierre,
+    actividades_momentos: actividadesMomentosNormalizadas
   });
 
   const prompt = `${basePrompt}
@@ -489,6 +547,7 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
           tema,
           duracion,
           actividad_cierre,
+          actividades_momentos: actividadesMomentosNormalizadas,
           response_format: { type: 'json_object' },
           temperature: attempt.temperature,
           max_tokens: attempt.maxTokens,
@@ -536,7 +595,7 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
           error_tipo: parsed.errorTipo,
           nivel,
           materia,
-          prompt_version: 'v2_json_object_retry'
+          prompt_version: 'v3_actividades_momentos'
         }
       };
     }
@@ -572,7 +631,7 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
       error_tipo: lastAttempt?.parsed?.errorTipo || 'fallback_used',
       nivel,
       materia,
-      prompt_version: 'v2_json_object_retry'
+      prompt_version: 'v3_actividades_momentos'
     }
   };
 }
@@ -715,6 +774,18 @@ export async function actualizarPlaneacion({
 
   if (safeUpdate.tabla_ia !== undefined) {
     safeUpdate.tabla_ia = validateTablaIaUpdate(safeUpdate.tabla_ia);
+  }
+
+  if (safeUpdate.actividades_momentos !== undefined) {
+    safeUpdate.actividades_momentos = normalizeActividadesMomentos(
+      safeUpdate.actividades_momentos,
+      safeUpdate.actividad_cierre
+    );
+    if (safeUpdate.actividad_cierre === undefined) {
+      safeUpdate.actividad_cierre = safeUpdate.actividades_momentos.cierre || '';
+    }
+  } else if (safeUpdate.actividad_cierre !== undefined) {
+    safeUpdate.actividad_cierre = validateActividadCierre(safeUpdate.actividad_cierre);
   }
 
   const query = client.from('planeaciones').update(safeUpdate).eq('id', id);
@@ -997,6 +1068,7 @@ async function generarPlaneacionesIAInternal({
     const temaNombre = t.tema;
     const duracion = t.duracion;
     const actividad_cierre = t.actividad_cierre;
+    const actividades_momentos = t.actividades_momentos;
     const index = i + 1;
 
     if (typeof onEvent === 'function') {
@@ -1010,7 +1082,8 @@ async function generarPlaneacionesIAInternal({
         unidad,
         tema: temaNombre,
         duracion,
-        actividad_cierre
+        actividad_cierre,
+        actividades_momentos
       });
 
       const insertPayload = {
@@ -1020,6 +1093,7 @@ async function generarPlaneacionesIAInternal({
         tema: temaNombre,
         duracion,
         actividad_cierre,
+        actividades_momentos,
         tabla_ia: tablaIa,
         batch_id
       };
@@ -1088,7 +1162,11 @@ function normalizeTemaUnidadInput(item) {
     : (typeof item?.tema === 'string' ? item.tema.trim() : '');
   const duracion = Number.parseInt(item?.duracion, 10);
   const orden = Number.isInteger(item?.orden) ? item.orden : Number.parseInt(item?.orden, 10);
-  const actividad_cierre = validateActividadCierre(item?.actividad_cierre);
+  const actividades_momentos = normalizeActividadesMomentos(
+    item?.actividades_momentos,
+    item?.actividad_cierre
+  );
+  const actividad_cierre = actividades_momentos.cierre || validateActividadCierre(item?.actividad_cierre);
   const generar_imagenes_en = normalizeGenerarImagenesEn(item?.generar_imagenes_en);
 
   if (!titulo) {
@@ -1102,6 +1180,7 @@ function normalizeTemaUnidadInput(item) {
   const normalized = {
     titulo,
     duracion,
+    actividades_momentos,
     actividad_cierre,
     generar_imagenes_en
   };
@@ -1120,7 +1199,8 @@ async function createPendingPlaneacion({
   materia,
   nivel,
   unidadLegacy,
-  actividad_cierre
+  actividad_cierre,
+  actividades_momentos
 }) {
   const { data, error } = await client
     .from('planeaciones')
@@ -1134,6 +1214,7 @@ async function createPendingPlaneacion({
         nivel,
         batch_id: batchId,
         actividad_cierre,
+        actividades_momentos,
         status: 'pending'
       }
     ])
@@ -1233,7 +1314,8 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
         materia,
         nivel,
         unidadLegacy,
-        actividad_cierre: temaInput.actividad_cierre
+        actividad_cierre: temaInput.actividad_cierre,
+        actividades_momentos: temaInput.actividades_momentos
       });
 
       const planeacionId = planeacion.id;
@@ -1266,7 +1348,8 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
         unidad: unidadLegacy,
         tema: tema.titulo,
         duracion: tema.duracion,
-        actividad_cierre: temaInput.actividad_cierre
+        actividad_cierre: temaInput.actividad_cierre,
+        actividades_momentos: temaInput.actividades_momentos
       });
 
       const { data: updatedPlaneacion, error: readyError } = await client
@@ -1279,7 +1362,8 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
           unidad: unidadLegacy,
           materia,
           nivel,
-          actividad_cierre: temaInput.actividad_cierre
+          actividad_cierre: temaInput.actividad_cierre,
+          actividades_momentos: temaInput.actividades_momentos
         })
         .eq('id', planeacionId)
         .eq('tema_id', tema.id)
