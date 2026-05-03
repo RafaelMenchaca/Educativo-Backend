@@ -4,8 +4,46 @@ export function buildPromptByLevel({
   unidad,
   tema,
   duracion,
-  actividad_cierre
+  actividad_cierre,
+  actividades_momentos = {}
 }) {
+  const momentosActividades = [
+    { key: 'conocimientos_previos', label: 'Conocimientos previos' },
+    { key: 'desarrollo', label: 'Desarrollo' },
+    { key: 'cierre', label: 'Cierre' }
+  ];
+  const actividadesSeleccionadas = actividades_momentos && typeof actividades_momentos === 'object'
+    ? actividades_momentos
+    : {};
+  const actividadesLines = momentosActividades
+    .map(({ key, label }) => {
+      const actividad = typeof actividadesSeleccionadas[key] === 'string'
+        ? actividadesSeleccionadas[key].trim()
+        : '';
+      return actividad ? `- ${label}: ${actividad}` : '';
+    })
+    .filter(Boolean);
+  const actividadesMomentosPrompt = actividadesLines.length > 0
+    ? `Actividades didacticas seleccionadas por el usuario por momento:
+${actividadesLines.join('\n')}
+
+Reglas obligatorias:
+1. Cada actividad seleccionada debe aplicarse unicamente al objeto cuyo "tiempo_sesion" corresponde a ese momento.
+2. No uses una actividad seleccionada para un momento diferente.
+3. Si un momento no tiene actividad seleccionada, genera su actividad normalmente segun el tema, nivel, materia y duracion.
+4. No agregues campos nuevos al JSON.
+5. No cambies los nombres de las propiedades existentes.
+6. Solo adapta el contenido del campo "actividades" para hacerlo coherente con la actividad seleccionada en ese momento.
+7. Manten los tres momentos: Conocimientos previos, Desarrollo y Cierre.
+8. Manten la suma de "sumativa" en 10.
+9. Manten el total de "tiempo_min" igual a la duracion solicitada.
+10. Respeta la estructura actual de respuesta.`
+    : `Actividades didacticas seleccionadas por el usuario por momento:
+- Conocimientos previos: Sin actividad especifica
+- Desarrollo: Sin actividad especifica
+- Cierre: Sin actividad especifica
+
+Regla: como no hay actividades seleccionadas, genera las actividades normalmente segun el tema, nivel, materia y duracion.`;
   const base = `
 Actúa como un DOCENTE EXPERTO en diseño de planeaciones didácticas para educación media superior.
 No generes formatos genéricos. Diseña la clase como si fuera aplicada en un aula real.
@@ -92,10 +130,10 @@ Varía las estrategias:
 
 NO repitas siempre el mismo tipo de cierre.
 Ajusta la actividad al tema y al nivel educativo.
-La actividad del momento Cierre debe basarse obligatoriamente en esta actividad seleccionada por el usuario: ${actividad_cierre}
-En el objeto donde "tiempo_sesion": "Cierre", el campo "actividades" debe describir una actividad coherente con ${actividad_cierre}
-No sustituyas esa actividad por otra distinta.
-Puede adaptarse pedagogicamente al tema y al nivel, pero debe conservar claramente el tipo de actividad seleccionado.
+========================
+ACTIVIDADES DIDACTICAS OPCIONALES
+========================
+${actividadesMomentosPrompt}
 
 ========================
 CRITERIOS GENERALES
