@@ -1,6 +1,7 @@
 import { createUserClient } from '../../supabaseClient.js';
 import {
   generarExamenUnidad,
+  obtenerEstadoGeneracionExamen,
   listarExamenesPorUnidad,
   obtenerExamenPorId
 } from '../services/examenes.service.js';
@@ -51,7 +52,7 @@ export async function postGenerateExamen(req, res) {
   }
 
   try {
-    const examen = await generarExamenUnidad({
+    const job = await generarExamenUnidad({
       supabaseClient: userClientFromReq(req),
       userId: req.user.id,
       unidadId: payload.unidadId,
@@ -59,9 +60,27 @@ export async function postGenerateExamen(req, res) {
       cantidadesPregunta: payload.cantidadesPregunta
     });
 
-    res.status(201).json({ examen });
+    res.status(202).json({
+      ok: true,
+      job_id: job.id,
+      status: job.status || 'processing'
+    });
   } catch (error) {
     sendError(res, error, 'Error al generar el examen');
+  }
+}
+
+export async function getExamenGenerationJob(req, res) {
+  try {
+    const job = await obtenerEstadoGeneracionExamen({
+      supabaseClient: userClientFromReq(req),
+      userId: req.user.id,
+      jobId: req.params.jobId
+    });
+
+    res.json(job);
+  } catch (error) {
+    sendError(res, error, 'Error al obtener el progreso del examen');
   }
 }
 
