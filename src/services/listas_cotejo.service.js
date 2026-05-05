@@ -6,8 +6,16 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const LISTA_COTEJO_SYSTEM_PROMPT =
   'Actua como un docente experto en evaluacion por competencias. Responde solo con JSON valido, sin markdown, sin backticks y sin texto adicional.';
-const LISTA_COTEJO_PROMPT_VERSION = 'v1_lista_cotejo_actividad_cierre';
+const LISTA_COTEJO_PROMPT_VERSION = 'v2_lista_cotejo_actividades_momentos';
 const LISTA_COTEJO_ATTEMPT_TIMEOUT_MS = 60000;
+
+const MOMENTO_LABEL_MAP = {
+  conocimientos_previos: 'Conocimientos previos',
+  desarrollo: 'Desarrollo',
+  cierre: 'Cierre'
+};
+
+const FALLBACK_PRIORITY = ['cierre', 'desarrollo', 'conocimientos_previos'];
 
 function buildHttpError(status, message) {
   const error = new Error(message);
@@ -23,34 +31,94 @@ function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function extractActividadCierre(tablaIa) {
-  if (!Array.isArray(tablaIa)) return null;
-
-  const fila = tablaIa.find((row) => {
-    const ts = normalizeString(row?.tiempo_sesion).toLowerCase();
-    return ts === 'cierre';
-  });
-
-  if (!fila) return null;
-  return normalizeString(fila?.actividades || fila?.actividad || '') || null;
+function safeParseJson(value, fallback) {
+  if (value == null) return fallback;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
 }
 
-function buildListaCoTejoPrompt({ materia, nivel, tema, actividadCierre }) {
-  return `Genera una lista de cotejo para evaluar la siguiente actividad de cierre.
+function getActividadesEvaluadas(planeacion) {
+  const actividadesMomentos = safeParseJson(planeacion.actividades_momentos, {});
+  const tablaIa = safeParseJson(planeacion.tabla_ia, []);
+
+  const momentosKeys = Object.keys(actividadesMomentos || {}).filter(
+    (k) => MOMENTO_LABEL_MAP[k] && normalizeString(actividadesMomentos[k])
+  );
+
+  if (momentosKeys.length > 0) {
+    return momentosKeys.map((key) => {
+      const label = MOMENTO_LABEL_MAP[key];
+      const actividadSeleccionada = normalizeString(actividadesMomentos[key]);
+      const filaIa = Array.isArray(tablaIa)
+        ? tablaIa.find((row) => normalizeString(row?.tiempo_sesion).toLowerCase() === label.toLowerCase())
+        : null;
+      const actividadTexto = normalizeString(filaIa?.actividades || filaIa?.actividad || '') || actividadSeleccionada;
+      return { momento_key: key, momento_label: label, actividad_seleccionada: actividadSeleccionada, actividad_texto: actividadTexto };
+    });
+  }
+
+  const actividadCierreLegacy = normalizeString(planeacion.actividad_cierre);
+  if (actividadCierreLegacy) {
+    const filaIa = Array.isArray(tablaIa)
+      ? tablaIa.find((row) => normalizeString(row?.tiempo_sesion).toLowerCase() === 'cierre')
+      : null;
+    return [{
+      momento_key: 'cierre',
+      momento_label: 'Cierre',
+      actividad_seleccionada: actividadCierreLegacy,
+      actividad_texto: normalizeString(filaIa?.actividades || '') || actividadCierreLegacy
+    }];
+  }
+
+  if (Array.isArray(tablaIa) && tablaIa.length > 0) {
+    for (const fallbackKey of FALLBACK_PRIORITY) {
+      const label = MOMENTO_LABEL_MAP[fallbackKey];
+      const filaIa = tablaIa.find((row) => normalizeString(row?.tiempo_sesion).toLowerCase() === label.toLowerCase());
+      if (filaIa) {
+        const actividadTexto = normalizeString(filaIa.actividades || '');
+        if (actividadTexto) {
+          return [{ momento_key: fallbackKey, momento_label: label, actividad_seleccionada: actividadTexto, actividad_texto: actividadTexto }];
+        }
+      }
+    }
+  }
+
+  return [];
+}
+
+function buildListaCoTejoPrompt({ materia, nivel, tema, actividadesEvaluadas }) {
+  const momentosTexto = actividadesEvaluadas
+    .map((act) => `- ${act.momento_label} — ${act.actividad_seleccionada}:\n  ${act.actividad_texto}`)
+    .join('\n\n');
+
+  const instruccionMomentos = actividadesEvaluadas.length === 1
+    ? 'Centra los 5 criterios en ese unico momento.'
+    : 'Integra los 5 criterios en una sola tabla, cubriendo de forma equilibrada las evidencias principales de esos momentos.';
+
+  return `Genera una lista de cotejo para evaluar la(s) siguiente(s) actividad(es) didactica(s).
 
 Contexto:
 Materia: ${materia || 'No especificada'}
 Nivel: ${nivel || 'No especificado'}
 Tema: ${tema || 'No especificado'}
-Actividad de cierre: ${actividadCierre}
+
+Momentos y actividades que debe evaluar la lista de cotejo:
+${momentosTexto}
 
 Instrucciones:
 - Genera exactamente 5 criterios.
 - Cada criterio debe valer 2 puntos en "si".
 - Cada criterio debe valer 0 puntos en "no".
 - El total debe ser 10 puntos.
+- ${instruccionMomentos}
 - Los criterios deben ser claros, observables y evaluables.
-- Los criterios deben estar directamente relacionados con la actividad de cierre.
+- Los criterios deben estar directamente relacionados con las actividades evaluadas.
+- Genera UNA sola lista de cotejo para la planeacion completa. No generes una lista por cada momento.
+- No conviertas una actividad en otra. Evalua exactamente la actividad seleccionada.
 - La lista debe servir como instrumento de evaluacion para el docente.
 - No uses markdown.
 - No agregues explicacion.
@@ -59,7 +127,6 @@ Instrucciones:
 Formato obligatorio:
 {
   "titulo": "Lista de cotejo",
-  "actividad_cierre": "${actividadCierre.replace(/"/g, '\\"')}",
   "criterios": [
     { "criterio": "Criterio observable y evaluable", "si": 2, "no": 0 },
     { "criterio": "Criterio observable y evaluable", "si": 2, "no": 0 },
@@ -109,8 +176,8 @@ function validateListaPayload(payload) {
   return payload;
 }
 
-async function generateListaWithIa({ materia, nivel, tema, actividadCierre }) {
-  const prompt = buildListaCoTejoPrompt({ materia, nivel, tema, actividadCierre });
+async function generateListaWithIa({ materia, nivel, tema, actividadesEvaluadas }) {
+  const prompt = buildListaCoTejoPrompt({ materia, nivel, tema, actividadesEvaluadas });
 
   const completion = await Promise.race([
     openai.chat.completions.create({
@@ -152,7 +219,7 @@ async function fetchTemasConPlaneaciones(client, unidadId, userId) {
   const topicIds = temas.map((t) => t.id);
   const planeacionesQuery = client
     .from('planeaciones')
-    .select('id, tema_id, batch_id, tabla_ia, status, updated_at, is_archived')
+    .select('id, tema_id, batch_id, tabla_ia, actividades_momentos, actividad_cierre, status, updated_at, is_archived')
     .in('tema_id', topicIds)
     .or('is_archived.is.null,is_archived.eq.false')
     .order('updated_at', { ascending: false })
@@ -203,9 +270,9 @@ export async function generarListasCotejoUnidad({ supabaseClient, userId, unidad
       continue;
     }
 
-    const actividadCierre = extractActividadCierre(planeacion.tabla_ia);
-    if (!actividadCierre) {
-      skipped.push({ tema_id: tema.id, tema: tema.titulo, razon: 'Sin actividad de cierre en la planeacion' });
+    const actividadesEvaluadas = getActividadesEvaluadas(planeacion);
+    if (!actividadesEvaluadas.length) {
+      skipped.push({ tema_id: tema.id, tema: tema.titulo, razon: 'Sin actividades evaluables en la planeacion' });
       continue;
     }
 
@@ -214,8 +281,10 @@ export async function generarListasCotejoUnidad({ supabaseClient, userId, unidad
         materia,
         nivel,
         tema: tema.titulo,
-        actividadCierre
+        actividadesEvaluadas
       });
+
+      const actividadCierreLegacy = actividadesEvaluadas.find((a) => a.momento_key === 'cierre')?.actividad_texto || '';
 
       const upsertPayload = {
         user_id: userId,
@@ -227,7 +296,8 @@ export async function generarListasCotejoUnidad({ supabaseClient, userId, unidad
         materia: materia || null,
         nivel: nivel || null,
         tema: tema.titulo,
-        actividad_cierre: actividadCierre,
+        actividad_cierre: actividadCierreLegacy || '',
+        actividades_evaluadas: actividadesEvaluadas,
         criterios: listaIa.criterios,
         total_puntos: 10,
         updated_at: new Date().toISOString()
@@ -276,7 +346,7 @@ export async function listarListasCotejoPorUnidad({ supabaseClient, userId, unid
 
   const query = client
     .from('listas_cotejo')
-    .select('id, planeacion_id, tema_id, unidad_id, titulo, materia, nivel, tema, actividad_cierre, criterios, total_puntos, created_at, updated_at')
+    .select('id, planeacion_id, tema_id, unidad_id, titulo, materia, nivel, tema, actividad_cierre, actividades_evaluadas, criterios, total_puntos, created_at, updated_at')
     .eq('unidad_id', normalizedUnidadId)
     .order('created_at', { ascending: false });
 
