@@ -977,7 +977,7 @@ function validateGeneratedQuestionStrict(question, expectedType) {
   if (!criterios) errors.push('El campo criterios_evaluacion esta vacio');
 
   if (expectedType === 'opcion_multiple') {
-    if (opciones.length < 3) errors.push('La pregunta de opcion_multiple requiere al menos 3 opciones');
+    if (opciones.length !== 4) errors.push('La pregunta de opcion_multiple requiere exactamente 4 opciones (A, B, C, D)');
     if (!respuestaCorrectaText) {
       errors.push('El campo respuesta_correcta esta vacio');
     } else if (!opciones.includes(respuestaCorrectaText)) {
@@ -1080,7 +1080,7 @@ INSTRUCCIONES OBLIGATORIAS:
 - El campo "respuesta_correcta" es obligatorio.
 - El campo "criterios_evaluacion" es obligatorio.
 - El campo "tipo" debe coincidir exactamente con "${type}".
-- Si el tipo es "opcion_multiple", incluye "opciones" con minimo 3 opciones y asegurate de que "respuesta_correcta" exista dentro de "opciones".
+- Si el tipo es "opcion_multiple", incluye "opciones" con EXACTAMENTE 4 opciones (A, B, C y D) y asegurate de que "respuesta_correcta" exista dentro de "opciones".
 - Si el tipo es "verdadero_falso", usa "respuesta_correcta": "Verdadero" o "Falso".
 - Si el tipo es "emparejamiento", incluye "pares" como array de objetos con "lado_a" y "lado_b".
 - Si el tipo es "ordenacion_jerarquizacion", incluye "elementos" y "respuesta_correcta" como arrays con los mismos elementos.

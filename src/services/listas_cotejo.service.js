@@ -317,7 +317,8 @@ export async function generarListasCotejoUnidad({ supabaseClient, userId, unidad
         listaId: data?.id,
         planeacionId: planeacion.id,
         tema: tema.titulo,
-        promptVersion: LISTA_COTEJO_PROMPT_VERSION
+        promptVersion: LISTA_COTEJO_PROMPT_VERSION,
+        actividadesEvaluadas
       });
     } catch (err) {
       console.error('[lista-cotejo] error generando lista para tema', {
