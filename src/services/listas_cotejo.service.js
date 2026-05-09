@@ -245,6 +245,148 @@ async function fetchTemasConPlaneaciones(client, unidadId, userId) {
   }));
 }
 
+export async function generarListasCotejoPorIds({ supabaseClient, userId, planeacionIds, unidadId }) {
+  const client = getClient(supabaseClient);
+
+  if (!Array.isArray(planeacionIds) || planeacionIds.length === 0) {
+    throw buildHttpError(400, 'planeacion_ids debe ser un arreglo con al menos un elemento.');
+  }
+
+  const normalizedIds = planeacionIds.map((id) => String(id).trim()).filter(Boolean);
+  if (normalizedIds.length === 0) {
+    throw buildHttpError(400, 'planeacion_ids no contiene IDs validos.');
+  }
+
+  // Fetch planeaciones validando pertenencia al usuario
+  let planeacionesQuery = client
+    .from('planeaciones')
+    .select('id, tema_id, batch_id, tabla_ia, actividades_momentos, actividad_cierre, status, updated_at, is_archived')
+    .in('id', normalizedIds);
+
+  if (userId) {
+    planeacionesQuery = planeacionesQuery.eq('user_id', userId);
+  }
+
+  const { data: planeaciones, error: planeacionesError } = await planeacionesQuery;
+  if (planeacionesError) throw planeacionesError;
+
+  if (!planeaciones || planeaciones.length === 0) {
+    throw buildHttpError(404, 'No se encontraron planeaciones validas.');
+  }
+
+  // Verificar cuales planeaciones ya tienen lista de cotejo
+  const { data: existingListas } = await client
+    .from('listas_cotejo')
+    .select('planeacion_id')
+    .in('planeacion_id', normalizedIds);
+
+  const existingPlaneacionIds = new Set((existingListas || []).map((l) => String(l.planeacion_id)));
+
+  // Obtener temas para titulo y unidad_id
+  const temaIds = [...new Set(planeaciones.map((p) => p.tema_id).filter(Boolean))];
+  const temasMap = new Map();
+  let contexto = { materia: null, grado: null };
+
+  if (temaIds.length > 0) {
+    const { data: temas } = await client
+      .from('temas')
+      .select('id, unidad_id, titulo')
+      .in('id', temaIds);
+
+    if (temas && temas.length > 0) {
+      temas.forEach((t) => temasMap.set(t.id, t));
+      const resolvedUnidadId = normalizeString(unidadId) || temas[0].unidad_id;
+      if (resolvedUnidadId) {
+        try {
+          contexto = await obtenerContextoUnidad(client, resolvedUnidadId);
+        } catch {
+          // contexto es opcional; continuar sin el
+        }
+      }
+    }
+  }
+
+  const materia = normalizeString(contexto.materia?.nombre);
+  const nivel = normalizeString(contexto.grado?.nombre);
+
+  const listas = [];
+  const skipped = [];
+
+  for (const planeacion of planeaciones) {
+    const planeacionIdStr = String(planeacion.id);
+
+    if (existingPlaneacionIds.has(planeacionIdStr)) {
+      skipped.push({ planeacion_id: planeacion.id, reason: 'already_exists' });
+      continue;
+    }
+
+    const actividadesEvaluadas = getActividadesEvaluadas(planeacion);
+    if (!actividadesEvaluadas.length) {
+      skipped.push({ planeacion_id: planeacion.id, reason: 'missing_closing_activity' });
+      continue;
+    }
+
+    const tema = temasMap.get(planeacion.tema_id);
+    const temaTitulo = tema?.titulo || 'Tema sin titulo';
+    const temaUnidadId = normalizeString(unidadId) || tema?.unidad_id || '';
+
+    try {
+      const listaIa = await generateListaWithIa({ materia, nivel, tema: temaTitulo, actividadesEvaluadas });
+
+      const actividadCierreLegacy = actividadesEvaluadas.find((a) => a.momento_key === 'cierre')?.actividad_texto || '';
+
+      const insertPayload = {
+        user_id: userId,
+        planeacion_id: planeacion.id,
+        tema_id: planeacion.tema_id || null,
+        unidad_id: temaUnidadId || null,
+        batch_id: planeacion.batch_id || null,
+        titulo: normalizeString(listaIa.titulo) || 'Lista de cotejo',
+        materia: materia || null,
+        nivel: nivel || null,
+        tema: temaTitulo,
+        actividad_cierre: actividadCierreLegacy || '',
+        actividades_evaluadas: actividadesEvaluadas,
+        criterios: listaIa.criterios,
+        total_puntos: 10,
+        updated_at: new Date().toISOString()
+      };
+
+      const { data, error } = await client
+        .from('listas_cotejo')
+        .insert(insertPayload)
+        .select('id, planeacion_id, tema_id, tema, titulo, created_at, updated_at')
+        .single();
+
+      if (error) {
+        if (error.code === '23505') {
+          skipped.push({ planeacion_id: planeacion.id, reason: 'already_exists' });
+          continue;
+        }
+        throw error;
+      }
+
+      listas.push(data);
+
+      console.info('[lista-cotejo] lista_generada_por_id', {
+        listaId: data?.id,
+        planeacionId: planeacion.id,
+        tema: temaTitulo,
+        promptVersion: LISTA_COTEJO_PROMPT_VERSION,
+        actividadesEvaluadas
+      });
+    } catch (err) {
+      console.error('[lista-cotejo] error generando lista para planeacion', {
+        planeacionId: planeacion.id,
+        motivo: err?.message || 'Error desconocido'
+      });
+      skipped.push({ planeacion_id: planeacion.id, reason: 'invalid_ai_response' });
+    }
+  }
+
+  return { created: listas.length, skipped, listas };
+}
+
 export async function generarListasCotejoUnidad({ supabaseClient, userId, unidadId }) {
   const client = getClient(supabaseClient);
   const normalizedUnidadId = normalizeString(unidadId);
