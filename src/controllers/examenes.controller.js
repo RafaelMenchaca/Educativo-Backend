@@ -31,6 +31,7 @@ function parseGeneratePayload(body) {
     ? body.cantidades_pregunta
     : null;
   const temaIds = Array.isArray(body?.tema_ids) && body.tema_ids.length > 0 ? body.tema_ids : null;
+  const batchId = typeof body?.batch_id === 'string' && body.batch_id.trim() ? body.batch_id.trim() : null;
 
   if (!unidadId || tiposPregunta.length === 0) {
     return null;
@@ -40,7 +41,8 @@ function parseGeneratePayload(body) {
     unidadId,
     tiposPregunta,
     cantidadesPregunta,
-    temaIds
+    temaIds,
+    batchId
   };
 }
 
@@ -60,7 +62,8 @@ export async function postGenerateExamen(req, res) {
       unidadId: payload.unidadId,
       tiposPregunta: payload.tiposPregunta,
       cantidadesPregunta: payload.cantidadesPregunta,
-      temaIds: payload.temaIds
+      temaIds: payload.temaIds,
+      batchId: payload.batchId
     });
 
     res.status(202).json({

@@ -1079,6 +1079,36 @@ export async function eliminarBatchPermanentemente({
   };
 }
 
+function buildBatchTitulo({ titulo, materia, unidad }) {
+  if (titulo && typeof titulo === 'string' && titulo.trim()) return titulo.trim();
+  if (materia && (unidad !== undefined && unidad !== null && String(unidad).trim())) {
+    return `${materia} - Unidad ${unidad}`;
+  }
+  if (materia) return materia;
+  return 'Conjunto de planeaciones';
+}
+
+async function crearPlaneacionBatch(client, { userId, titulo, nivel, materia, unidad, plantelId, gradoId, materiaId, unidadId }) {
+  const { data, error } = await client
+    .from('planeacion_batches')
+    .insert([{
+      user_id: userId || null,
+      titulo,
+      nivel: nivel || null,
+      materia: materia || null,
+      unidad: (unidad !== undefined && unidad !== null) ? String(unidad) : null,
+      plantel_id: plantelId || null,
+      grado_id: gradoId || null,
+      materia_id: materiaId || null,
+      unidad_id: unidadId || null,
+      status: 'ready'
+    }])
+    .select('id')
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
 async function generarPlaneacionesIAInternal({
   supabaseClient,
   materia,
@@ -1087,10 +1117,18 @@ async function generarPlaneacionesIAInternal({
   temas,
   userId,
   onEvent,
-  continueOnError = false
+  continueOnError = false,
+  titulo,
+  plantelId,
+  gradoId,
+  materiaId,
+  unidadId
 }) {
   const client = getClient(supabaseClient);
-  const batch_id = randomUUID();
+  const batchTitulo = buildBatchTitulo({ titulo, materia, unidad });
+  const batch_id = await crearPlaneacionBatch(client, {
+    userId, titulo: batchTitulo, nivel, materia, unidad, plantelId, gradoId, materiaId, unidadId
+  });
   const planeacionesCreadas = [];
   const normalizedTemas = temas.map(normalizeTemaGeneracionInput);
 
@@ -1285,7 +1323,18 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
     ? contexto.unidad.orden
     : null;
 
-  const batch_id = randomUUID();
+  const batchTitulo = buildBatchTitulo({ materia, unidad: unidadLegacy });
+  const batch_id = await crearPlaneacionBatch(client, {
+    userId: payload?.userId || null,
+    titulo: batchTitulo,
+    nivel,
+    materia,
+    unidad: unidadLegacy,
+    plantelId: contexto.plantel?.id || null,
+    gradoId: contexto.grado?.id || null,
+    materiaId: contexto.materia?.id || null,
+    unidadId: unidadId || null
+  });
 
   const results = [];
   const planeacionIds = [];
