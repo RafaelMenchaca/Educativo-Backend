@@ -1,6 +1,7 @@
 import { createUserClient } from '../../supabaseClient.js';
 import {
   generarListasCotejoUnidad,
+  generarListasCotejoPorIds,
   listarListasCotejoPorUnidad,
   obtenerListaCotejoPorId,
   obtenerListaCotejoPorPlaneacion
@@ -25,10 +26,31 @@ function sendError(res, error, fallbackMessage) {
 }
 
 export async function postGenerateListasCotejo(req, res) {
-  const unidadId = typeof req.body?.unidad_id === 'string' ? req.body.unidad_id.trim() : '';
+  const body = req.body || {};
+  const planeacionIds = body.planeacion_ids;
+  const unidadId = typeof body.unidad_id === 'string' ? body.unidad_id.trim() : '';
 
+  // Flujo nuevo: IDs explícitos de planeaciones seleccionadas
+  if (Array.isArray(planeacionIds)) {
+    if (planeacionIds.length === 0) {
+      return res.status(400).json({ error: 'planeacion_ids debe contener al menos un elemento.' });
+    }
+    try {
+      const result = await generarListasCotejoPorIds({
+        supabaseClient: userClientFromReq(req),
+        userId: req.user.id,
+        planeacionIds,
+        unidadId
+      });
+      return res.status(201).json({ ok: true, ...result });
+    } catch (error) {
+      return sendError(res, error, 'Error al generar las listas de cotejo');
+    }
+  }
+
+  // Flujo legado: por unidad completa
   if (!unidadId) {
-    return res.status(400).json({ error: 'unidad_id es requerido.' });
+    return res.status(400).json({ error: 'Se requiere planeacion_ids o unidad_id.' });
   }
 
   try {
@@ -37,7 +59,6 @@ export async function postGenerateListasCotejo(req, res) {
       userId: req.user.id,
       unidadId
     });
-
     res.status(201).json({ ok: true, ...result });
   } catch (error) {
     sendError(res, error, 'Error al generar las listas de cotejo');
