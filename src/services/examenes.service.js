@@ -1634,7 +1634,8 @@ export async function generarExamenUnidad({
   userId,
   unidadId,
   tiposPregunta,
-  cantidadesPregunta
+  cantidadesPregunta,
+  temaIds
 }) {
   const client = getClient(supabaseClient);
   const normalizedUnidadId = normalizeString(unidadId);
@@ -1651,7 +1652,11 @@ export async function generarExamenUnidad({
     }
 
     const contexto = await obtenerContextoUnidad(client, normalizedUnidadId);
-    const temas = await fetchUnitTopics(client, normalizedUnidadId, userId);
+    const allTemas = await fetchUnitTopics(client, normalizedUnidadId, userId);
+    const normalizedTemaIds = Array.isArray(temaIds) && temaIds.length > 0 ? temaIds.map(String) : null;
+    const temas = normalizedTemaIds
+      ? allTemas.filter((tema) => normalizedTemaIds.includes(String(tema.id)))
+      : allTemas;
     console.info('[exam-debug] generarExamenUnidad.input', {
       unidadId: normalizedUnidadId,
       tiposPregunta: normalizedTypes,

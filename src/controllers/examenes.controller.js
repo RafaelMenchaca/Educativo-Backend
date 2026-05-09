@@ -30,6 +30,7 @@ function parseGeneratePayload(body) {
   const cantidadesPregunta = body?.cantidades_pregunta && typeof body.cantidades_pregunta === 'object' && !Array.isArray(body.cantidades_pregunta)
     ? body.cantidades_pregunta
     : null;
+  const temaIds = Array.isArray(body?.tema_ids) && body.tema_ids.length > 0 ? body.tema_ids : null;
 
   if (!unidadId || tiposPregunta.length === 0) {
     return null;
@@ -38,7 +39,8 @@ function parseGeneratePayload(body) {
   return {
     unidadId,
     tiposPregunta,
-    cantidadesPregunta
+    cantidadesPregunta,
+    temaIds
   };
 }
 
@@ -57,7 +59,8 @@ export async function postGenerateExamen(req, res) {
       userId: req.user.id,
       unidadId: payload.unidadId,
       tiposPregunta: payload.tiposPregunta,
-      cantidadesPregunta: payload.cantidadesPregunta
+      cantidadesPregunta: payload.cantidadesPregunta,
+      temaIds: payload.temaIds
     });
 
     res.status(202).json({
