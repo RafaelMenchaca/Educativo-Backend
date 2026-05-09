@@ -22,6 +22,10 @@ function buildConjuntoPayload(batch, planeaciones, examenes, listas) {
     nivel: batch.nivel,
     materia: batch.materia,
     unidad: batch.unidad,
+    unidad_id: batch.unidad_id || null,
+    materia_id: batch.materia_id || null,
+    grado_id: batch.grado_id || null,
+    plantel_id: batch.plantel_id || null,
     status: batch.status,
     is_archived: batch.is_archived || false,
     created_at: batch.created_at,
@@ -68,7 +72,7 @@ export async function listConjuntosByUser({ supabaseClient, userId }) {
 
   const { data: batches, error: batchError } = await client
     .from('planeacion_batches')
-    .select('id, titulo, descripcion, nivel, materia, unidad, status, is_archived, created_at, updated_at')
+    .select('id, titulo, descripcion, nivel, materia, unidad, unidad_id, materia_id, grado_id, plantel_id, status, is_archived, created_at, updated_at')
     .eq('user_id', userId)
     .or('is_archived.is.null,is_archived.eq.false')
     .order('created_at', { ascending: false });
@@ -129,7 +133,7 @@ export async function getConjuntoById({ supabaseClient, userId, batchId }) {
 
   const { data: batch, error: batchError } = await client
     .from('planeacion_batches')
-    .select('id, titulo, descripcion, nivel, materia, unidad, status, is_archived, created_at, updated_at')
+    .select('id, titulo, descripcion, nivel, materia, unidad, unidad_id, materia_id, grado_id, plantel_id, status, is_archived, created_at, updated_at')
     .eq('id', normalizedBatchId)
     .eq('user_id', userId)
     .maybeSingle();

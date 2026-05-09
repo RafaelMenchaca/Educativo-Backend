@@ -1088,8 +1088,8 @@ function buildBatchTitulo({ titulo, materia, unidad }) {
   return 'Conjunto de planeaciones';
 }
 
-async function crearPlaneacionBatch(client, { userId, titulo, nivel, materia, unidad, plantelId, gradoId, materiaId, unidadId }) {
-  const { data, error } = await client
+async function crearPlaneacionBatch({ userId, titulo, nivel, materia, unidad, plantelId, gradoId, materiaId, unidadId }) {
+  const { data, error } = await supabaseAdmin
     .from('planeacion_batches')
     .insert([{
       user_id: userId || null,
@@ -1106,7 +1106,42 @@ async function crearPlaneacionBatch(client, { userId, titulo, nivel, materia, un
     .select('id')
     .single();
   if (error) throw error;
+  console.info('[batch] created', { batchId: data.id, userId, unidadId, titulo });
   return data.id;
+}
+
+async function getOrCreatePlaneacionBatch({ userId, batchId, unidadId, materiaId, gradoId, plantelId, nivel, materia, unidad, titulo }) {
+  if (batchId) {
+    const { data } = await supabaseAdmin
+      .from('planeacion_batches')
+      .select('id')
+      .eq('id', batchId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (data) {
+      console.info('[batch] reusing explicit batchId', { batchId, userId });
+      return data.id;
+    }
+  }
+
+  if (unidadId) {
+    const { data } = await supabaseAdmin
+      .from('planeacion_batches')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('unidad_id', unidadId)
+      .or('is_archived.is.null,is_archived.eq.false')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      console.info('[batch] reusing existing batch for unidad', { batchId: data.id, unidadId, userId });
+      return data.id;
+    }
+  }
+
+  const batchTitulo = buildBatchTitulo({ titulo, materia, unidad });
+  return crearPlaneacionBatch({ userId, titulo: batchTitulo, nivel, materia, unidad, plantelId, gradoId, materiaId, unidadId });
 }
 
 async function generarPlaneacionesIAInternal({
@@ -1126,7 +1161,7 @@ async function generarPlaneacionesIAInternal({
 }) {
   const client = getClient(supabaseClient);
   const batchTitulo = buildBatchTitulo({ titulo, materia, unidad });
-  const batch_id = await crearPlaneacionBatch(client, {
+  const batch_id = await crearPlaneacionBatch({
     userId, titulo: batchTitulo, nivel, materia, unidad, plantelId, gradoId, materiaId, unidadId
   });
   const planeacionesCreadas = [];
@@ -1269,24 +1304,26 @@ async function createPendingPlaneacion({
   nivel,
   unidadLegacy,
   actividad_cierre,
-  actividades_momentos
+  actividades_momentos,
+  userId
 }) {
+  const insertPayload = {
+    tema_id: tema.id,
+    tema: tema.titulo,
+    duracion: tema.duracion,
+    unidad: unidadLegacy,
+    materia,
+    nivel,
+    batch_id: batchId,
+    actividad_cierre,
+    actividades_momentos,
+    status: 'pending'
+  };
+  if (userId) insertPayload.user_id = userId;
+
   const { data, error } = await client
     .from('planeaciones')
-    .insert([
-      {
-        tema_id: tema.id,
-        tema: tema.titulo,
-        duracion: tema.duracion,
-        unidad: unidadLegacy,
-        materia,
-        nivel,
-        batch_id: batchId,
-        actividad_cierre,
-        actividades_momentos,
-        status: 'pending'
-      }
-    ])
+    .insert([insertPayload])
     .select('*')
     .single();
 
@@ -1323,18 +1360,22 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
     ? contexto.unidad.orden
     : null;
 
-  const batchTitulo = buildBatchTitulo({ materia, unidad: unidadLegacy });
-  const batch_id = await crearPlaneacionBatch(client, {
-    userId: payload?.userId || null,
-    titulo: batchTitulo,
+  const userId = payload?.userId || null;
+  console.info('[batch] generarPorUnidad inicio', { userId, unidadId, batchIdRecibido: payload?.batchId || null });
+
+  const batch_id = await getOrCreatePlaneacionBatch({
+    userId,
+    batchId: payload?.batchId || null,
+    unidadId,
     nivel,
     materia,
     unidad: unidadLegacy,
     plantelId: contexto.plantel?.id || null,
     gradoId: contexto.grado?.id || null,
     materiaId: contexto.materia?.id || null,
-    unidadId: unidadId || null
   });
+
+  console.info('[batch] usando batch_id', { batch_id, userId, unidadId });
 
   const results = [];
   const planeacionIds = [];
@@ -1395,7 +1436,8 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
         nivel,
         unidadLegacy,
         actividad_cierre: temaInput.actividad_cierre,
-        actividades_momentos: temaInput.actividades_momentos
+        actividades_momentos: temaInput.actividades_momentos,
+        userId
       });
 
       const planeacionId = planeacion.id;
