@@ -50,6 +50,8 @@ function buildConjuntoPayload(batch, planeaciones, examenes, listas) {
     examenes: examenes.map((e) => ({
       id: e.id,
       titulo: e.titulo,
+      tipos_pregunta: Array.isArray(e.tipos_pregunta) ? e.tipos_pregunta : [],
+      contexto_temas: Array.isArray(e.contexto_temas) ? e.contexto_temas : [],
       total_preguntas: e.total_preguntas,
       status: e.status,
       created_at: e.created_at
@@ -93,7 +95,7 @@ export async function listConjuntosByUser({ supabaseClient, userId }) {
 
     client
       .from('examenes')
-      .select('id, batch_id, titulo, total_preguntas, status, created_at')
+      .select('id, batch_id, titulo, tipos_pregunta, contexto_temas, total_preguntas, status, created_at')
       .in('batch_id', batchIds)
       .eq('user_id', userId)
       .order('created_at', { ascending: false }),
@@ -152,7 +154,7 @@ export async function getConjuntoById({ supabaseClient, userId, batchId }) {
 
     client
       .from('examenes')
-      .select('id, batch_id, titulo, instrucciones, tipos_pregunta, total_preguntas, status, created_at, updated_at')
+      .select('id, batch_id, titulo, instrucciones, tipos_pregunta, contexto_temas, total_preguntas, status, created_at, updated_at')
       .eq('batch_id', normalizedBatchId)
       .eq('user_id', userId)
       .order('created_at', { ascending: false }),
