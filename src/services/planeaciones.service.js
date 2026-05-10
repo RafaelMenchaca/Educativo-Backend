@@ -1110,7 +1110,7 @@ async function crearPlaneacionBatch({ userId, titulo, nivel, materia, unidad, pl
   return data.id;
 }
 
-async function getOrCreatePlaneacionBatch({ userId, batchId, unidadId, materiaId, gradoId, plantelId, nivel, materia, unidad, titulo }) {
+async function getOrCreatePlaneacionBatch({ userId, batchId, unidadId, materiaId, gradoId, plantelId, nivel, materia, unidad, titulo, forceNewBatch = false }) {
   if (batchId) {
     const { data } = await supabaseAdmin
       .from('planeacion_batches')
@@ -1124,7 +1124,7 @@ async function getOrCreatePlaneacionBatch({ userId, batchId, unidadId, materiaId
     }
   }
 
-  if (unidadId) {
+  if (!forceNewBatch && unidadId) {
     const { data } = await supabaseAdmin
       .from('planeacion_batches')
       .select('id')
@@ -1361,12 +1361,19 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
     : null;
 
   const userId = payload?.userId || null;
-  console.info('[batch] generarPorUnidad inicio', { userId, unidadId, batchIdRecibido: payload?.batchId || null });
+  console.info('[batch] generarPorUnidad inicio', {
+    userId,
+    unidadId,
+    batchIdRecibido: payload?.batchId || null,
+    forceNewBatch: payload?.forceNewBatch === true
+  });
 
   const batch_id = await getOrCreatePlaneacionBatch({
     userId,
     batchId: payload?.batchId || null,
     unidadId,
+    titulo: payload?.tituloConjunto || null,
+    forceNewBatch: payload?.forceNewBatch === true,
     nivel,
     materia,
     unidad: unidadLegacy,
