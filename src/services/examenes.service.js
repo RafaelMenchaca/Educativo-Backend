@@ -202,7 +202,7 @@ async function fetchUnitTopics(client, unidadId, userId) {
   const topicIds = temas.map((tema) => tema.id);
   const planeacionesQuery = client
     .from('planeaciones')
-    .select('id, tema_id, tabla_ia, status, updated_at, is_archived')
+    .select('id, tema_id, batch_id, tabla_ia, status, updated_at, is_archived')
     .in('tema_id', topicIds)
     .or('is_archived.is.null,is_archived.eq.false')
     .order('updated_at', { ascending: false })
@@ -1277,12 +1277,14 @@ async function processExamGenerationJob(jobId) {
 
     const freshJob = await fetchGenerationJob(client, jobId);
     const examenIa = buildFinalExamPayloadFromItems({ job: freshJob, items });
+    const jobBatchId = freshJob.configuracion?.batch_id || null;
     const insertPayload = {
       user_id: freshJob.user_id,
       plantel_id: freshJob.plantel_id,
       grado_id: freshJob.grado_id,
       materia_id: freshJob.materia_id,
       unidad_id: freshJob.unidad_id,
+      batch_id: jobBatchId,
       titulo: examenIa.titulo,
       instrucciones: examenIa.instrucciones_generales,
       tipos_pregunta: freshJob.tipos_pregunta,
@@ -1629,13 +1631,30 @@ async function generateExamWithIa({
   throw buildHttpError(502, 'La IA no devolvio un examen valido.');
 }
 
+function detectBatchIdFromTemas(temas) {
+  const batchIds = [...new Set(
+    (temas || [])
+      .map((t) => t.planeacion?.batch_id)
+      .filter(Boolean)
+  )];
+  if (batchIds.length === 1) return batchIds[0];
+  if (batchIds.length > 1) {
+    throw buildHttpError(
+      400,
+      'No se puede generar un examen mezclando planeaciones de diferentes conjuntos.'
+    );
+  }
+  return null;
+}
+
 export async function generarExamenUnidad({
   supabaseClient,
   userId,
   unidadId,
   tiposPregunta,
   cantidadesPregunta,
-  temaIds
+  temaIds,
+  batchId
 }) {
   const client = getClient(supabaseClient);
   const normalizedUnidadId = normalizeString(unidadId);
@@ -1671,6 +1690,14 @@ export async function generarExamenUnidad({
 
     const contextoTemas = buildContextoTemasSnapshot(temas);
     const totalPreguntas = getRequestedQuestionCountTotal(normalizedQuestionCounts);
+
+    const resolvedBatchId = normalizeString(batchId) || detectBatchIdFromTemas(temas);
+    if (resolvedBatchId) {
+      console.info('[exam-debug] batch_id_detectado', { batchId: resolvedBatchId });
+    } else {
+      console.warn('[exam-debug] batch_id_no_detectado: examen se guardara sin batch_id');
+    }
+
     const jobPayload = {
       user_id: userId,
       plantel_id: contexto.plantel?.id || null,
@@ -1685,7 +1712,8 @@ export async function generarExamenUnidad({
       configuracion: {
         tema_ids: temas.map((tema) => tema.id),
         total_preguntas: totalPreguntas,
-        cantidades_pregunta: normalizedQuestionCounts
+        cantidades_pregunta: normalizedQuestionCounts,
+        batch_id: resolvedBatchId || null
       },
       prompt_version: EXAM_PROMPT_VERSION,
       status: 'processing',

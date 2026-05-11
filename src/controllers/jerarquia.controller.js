@@ -368,7 +368,11 @@ export async function generarPlaneacionesPorUnidad(req, res) {
     unidadId: req.params.unidadId,
     temas,
     materia: typeof req.body?.materia === 'string' ? req.body.materia : null,
-    nivel: typeof req.body?.nivel === 'string' ? req.body.nivel : null
+    nivel: typeof req.body?.nivel === 'string' ? req.body.nivel : null,
+    userId: req.user.id,
+    batchId: typeof req.body?.batch_id === 'string' && req.body.batch_id.trim() ? req.body.batch_id.trim() : null,
+    tituloConjunto: typeof req.body?.titulo_conjunto === 'string' && req.body.titulo_conjunto.trim() ? req.body.titulo_conjunto.trim() : null,
+    forceNewBatch: req.body?.force_new_batch === true || req.body?.mode === 'create'
   };
 
   logPlaneacionDebug('backend request /api/unidades/:unidadId/generar', payload);
