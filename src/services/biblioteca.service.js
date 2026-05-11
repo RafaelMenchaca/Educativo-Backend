@@ -59,6 +59,7 @@ function buildConjuntoPayload(batch, planeaciones, examenes, listas) {
 
     listas_cotejo: listas.map((l) => ({
       id: l.id,
+      planeacion_id: l.planeacion_id || null,
       titulo: l.titulo,
       tema: l.tema,
       total_puntos: l.total_puntos,
@@ -102,7 +103,7 @@ export async function listConjuntosByUser({ supabaseClient, userId }) {
 
     client
       .from('listas_cotejo')
-      .select('id, batch_id, titulo, tema, total_puntos, created_at')
+      .select('id, batch_id, planeacion_id, titulo, tema, total_puntos, created_at')
       .in('batch_id', batchIds)
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
@@ -161,7 +162,7 @@ export async function getConjuntoById({ supabaseClient, userId, batchId }) {
 
     client
       .from('listas_cotejo')
-      .select('id, batch_id, titulo, tema, materia, nivel, total_puntos, criterios, created_at, updated_at')
+      .select('id, batch_id, planeacion_id, titulo, tema, materia, nivel, total_puntos, criterios, created_at, updated_at')
       .eq('batch_id', normalizedBatchId)
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
