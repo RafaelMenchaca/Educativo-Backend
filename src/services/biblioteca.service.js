@@ -14,7 +14,7 @@ function buildHttpError(status, message) {
   return error;
 }
 
-function buildConjuntoPayload(batch, planeaciones, examenes, listas) {
+function buildConjuntoPayload(batch, planeaciones, examenes, listas, anexos) {
   return {
     id: batch.id,
     titulo: batch.titulo,
@@ -34,6 +34,7 @@ function buildConjuntoPayload(batch, planeaciones, examenes, listas) {
     total_planeaciones: planeaciones.length,
     total_examenes: examenes.length,
     total_listas_cotejo: listas.length,
+    total_anexos: (anexos || []).length,
 
     planeaciones: planeaciones.map((p) => ({
       id: p.id,
@@ -64,6 +65,17 @@ function buildConjuntoPayload(batch, planeaciones, examenes, listas) {
       tema: l.tema,
       total_puntos: l.total_puntos,
       created_at: l.created_at
+    })),
+
+    anexos: (anexos || []).map((a) => ({
+      id: a.id,
+      planeacion_id: a.planeacion_id || null,
+      titulo: a.titulo,
+      materia: a.materia,
+      nivel: a.nivel,
+      tema: a.tema,
+      status: a.status,
+      created_at: a.created_at
     }))
   };
 }
@@ -85,7 +97,7 @@ export async function listConjuntosByUser({ supabaseClient, userId }) {
 
   const batchIds = batches.map((b) => b.id);
 
-  const [planeacionesRes, examenesRes, listasRes] = await Promise.all([
+  const [planeacionesRes, examenesRes, listasRes, anexosRes] = await Promise.all([
     client
       .from('planeaciones')
       .select('id, batch_id, tema, materia, nivel, unidad, duracion, fecha_creacion, status, custom_title')
@@ -106,23 +118,33 @@ export async function listConjuntosByUser({ supabaseClient, userId }) {
       .select('id, batch_id, planeacion_id, titulo, tema, total_puntos, created_at')
       .in('batch_id', batchIds)
       .eq('user_id', userId)
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }),
+
+    client
+      .from('anexos')
+      .select('id, batch_id, planeacion_id, titulo, materia, nivel, tema, status, created_at')
+      .in('batch_id', batchIds)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
   ]);
 
   if (planeacionesRes.error) throw planeacionesRes.error;
   if (examenesRes.error) throw examenesRes.error;
   if (listasRes.error) throw listasRes.error;
+  if (anexosRes.error) throw anexosRes.error;
 
   const planeacionesByBatch = groupById(planeacionesRes.data || [], 'batch_id');
   const examenessByBatch = groupById(examenesRes.data || [], 'batch_id');
   const listasByBatch = groupById(listasRes.data || [], 'batch_id');
+  const anexosByBatch = groupById(anexosRes.data || [], 'batch_id');
 
   return batches.map((batch) =>
     buildConjuntoPayload(
       batch,
       planeacionesByBatch[batch.id] || [],
       examenessByBatch[batch.id] || [],
-      listasByBatch[batch.id] || []
+      listasByBatch[batch.id] || [],
+      anexosByBatch[batch.id] || []
     )
   );
 }
@@ -144,7 +166,7 @@ export async function getConjuntoById({ supabaseClient, userId, batchId }) {
   if (batchError) throw batchError;
   if (!batch) throw buildHttpError(404, 'Conjunto no encontrado.');
 
-  const [planeacionesRes, examenesRes, listasRes] = await Promise.all([
+  const [planeacionesRes, examenesRes, listasRes, anexosRes] = await Promise.all([
     client
       .from('planeaciones')
       .select('id, batch_id, tema, materia, nivel, unidad, duracion, fecha_creacion, status, custom_title, tabla_ia, actividades_momentos, actividad_cierre, tema_id, updated_at')
@@ -165,18 +187,27 @@ export async function getConjuntoById({ supabaseClient, userId, batchId }) {
       .select('id, batch_id, planeacion_id, titulo, tema, materia, nivel, total_puntos, criterios, created_at, updated_at')
       .eq('batch_id', normalizedBatchId)
       .eq('user_id', userId)
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }),
+
+    client
+      .from('anexos')
+      .select('id, batch_id, planeacion_id, titulo, materia, nivel, tema, status, created_at, updated_at')
+      .eq('batch_id', normalizedBatchId)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
   ]);
 
   if (planeacionesRes.error) throw planeacionesRes.error;
   if (examenesRes.error) throw examenesRes.error;
   if (listasRes.error) throw listasRes.error;
+  if (anexosRes.error) throw anexosRes.error;
 
   return buildConjuntoPayload(
     batch,
     planeacionesRes.data || [],
     examenesRes.data || [],
-    listasRes.data || []
+    listasRes.data || [],
+    anexosRes.data || []
   );
 }
 
