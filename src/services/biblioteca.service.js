@@ -221,3 +221,64 @@ function groupById(items, key) {
   }
   return map;
 }
+
+export async function deleteBibliotecaBloque({ supabaseClient, userId, batchId }) {
+  const client = getClient(supabaseClient);
+  const normalizedBatchId = normalizeString(batchId);
+
+  if (!userId) throw buildHttpError(401, 'Usuario requerido.');
+  if (!normalizedBatchId) throw buildHttpError(400, 'batchId es requerido.');
+
+  const { data: batch, error: batchError } = await client
+    .from('planeacion_batches')
+    .select('id')
+    .eq('id', normalizedBatchId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (batchError) throw batchError;
+  if (!batch) throw buildHttpError(404, 'Bloque no encontrado.');
+
+  const { error: anexosError } = await client
+    .from('anexos')
+    .delete()
+    .eq('batch_id', normalizedBatchId)
+    .eq('user_id', userId);
+  if (anexosError) throw anexosError;
+
+  const { error: listasError } = await client
+    .from('listas_cotejo')
+    .delete()
+    .eq('batch_id', normalizedBatchId)
+    .eq('user_id', userId);
+  if (listasError) throw listasError;
+
+  const { error: examenesError } = await client
+    .from('examenes')
+    .delete()
+    .eq('batch_id', normalizedBatchId)
+    .eq('user_id', userId);
+  if (examenesError) throw examenesError;
+
+  const { error: planeacionesError } = await client
+    .from('planeaciones')
+    .delete()
+    .eq('batch_id', normalizedBatchId)
+    .eq('user_id', userId);
+  if (planeacionesError) throw planeacionesError;
+
+  let deletedBatch = false;
+  const { error: batchDeleteError } = await client
+    .from('planeacion_batches')
+    .delete()
+    .eq('id', normalizedBatchId)
+    .eq('user_id', userId);
+
+  if (batchDeleteError) {
+    console.warn('[biblioteca] No se pudo eliminar el registro del batch:', batchDeleteError.message);
+  } else {
+    deletedBatch = true;
+  }
+
+  return { ok: true, deleted: { batch: deletedBatch } };
+}

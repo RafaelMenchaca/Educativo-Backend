@@ -4,7 +4,8 @@ import {
   generarListasCotejoPorIds,
   listarListasCotejoPorUnidad,
   obtenerListaCotejoPorId,
-  obtenerListaCotejoPorPlaneacion
+  obtenerListaCotejoPorPlaneacion,
+  eliminarListaCotejo
 } from '../services/listas_cotejo.service.js';
 
 function userClientFromReq(req) {
@@ -104,5 +105,18 @@ export async function getListaCotejoPorPlaneacion(req, res) {
     res.json({ lista });
   } catch (error) {
     sendError(res, error, 'Error al obtener la lista de cotejo de la planeacion');
+  }
+}
+
+export async function deleteListaCotejoController(req, res) {
+  try {
+    const result = await eliminarListaCotejo({
+      supabaseClient: userClientFromReq(req),
+      userId: req.user.id,
+      id: req.params.id
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error, 'Error al eliminar la lista de cotejo');
   }
 }

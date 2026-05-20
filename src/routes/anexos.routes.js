@@ -5,7 +5,8 @@ import {
   postRegenerarAnexo,
   getAnexosPorBatch,
   getAnexoPorPlaneacion,
-  getAnexoById
+  getAnexoById,
+  deleteAnexoController
 } from '../controllers/anexos.controller.js';
 
 const router = Router();
@@ -15,5 +16,6 @@ router.post('/:id/regenerate', requireAuth, postRegenerarAnexo);
 router.get('/batch/:batchId', requireAuth, getAnexosPorBatch);
 router.get('/planeacion/:planeacionId', requireAuth, getAnexoPorPlaneacion);
 router.get('/:id', requireAuth, getAnexoById);
+router.delete('/:id', requireAuth, deleteAnexoController);
 
 export default router;

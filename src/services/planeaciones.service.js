@@ -1668,6 +1668,47 @@ export async function listarBatches({ supabaseClient, userId }) {
   return Object.values(map);
 }
 
+export async function eliminarPlaneacionDirecta({ supabaseClient, userId, id }) {
+  const client = getClient(supabaseClient);
+  const normalizedId = String(id || '').trim();
+
+  if (!userId) throw buildHttpError(401, 'Usuario requerido.');
+  if (!normalizedId) throw buildHttpError(400, 'id es requerido.');
+
+  const { data: planeacion, error: fetchError } = await client
+    .from('planeaciones')
+    .select('id')
+    .eq('id', normalizedId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (!planeacion) throw buildHttpError(404, 'Planeacion no encontrada.');
+
+  const { error: anexosError } = await client
+    .from('anexos')
+    .delete()
+    .eq('planeacion_id', normalizedId)
+    .eq('user_id', userId);
+  if (anexosError) throw anexosError;
+
+  const { error: listasError } = await client
+    .from('listas_cotejo')
+    .delete()
+    .eq('planeacion_id', normalizedId)
+    .eq('user_id', userId);
+  if (listasError) throw listasError;
+
+  const { error: deleteError } = await client
+    .from('planeaciones')
+    .delete()
+    .eq('id', normalizedId)
+    .eq('user_id', userId);
+  if (deleteError) throw deleteError;
+
+  return { ok: true };
+}
+
 export async function listarPlaneacionesPorBatch({
   supabaseClient,
   batchId,

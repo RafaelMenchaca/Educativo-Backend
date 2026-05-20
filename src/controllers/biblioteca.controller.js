@@ -1,5 +1,5 @@
 import { createUserClient } from '../../supabaseClient.js';
-import { listConjuntosByUser, getConjuntoById } from '../services/biblioteca.service.js';
+import { listConjuntosByUser, getConjuntoById, deleteBibliotecaBloque } from '../services/biblioteca.service.js';
 
 function userClientFromReq(req) {
   return createUserClient(req.accessToken);
@@ -35,5 +35,18 @@ export async function getConjunto(req, res) {
     res.json(data);
   } catch (error) {
     sendError(res, error, 'Error al obtener el conjunto');
+  }
+}
+
+export async function deleteBloque(req, res) {
+  try {
+    const result = await deleteBibliotecaBloque({
+      supabaseClient: userClientFromReq(req),
+      userId: req.user.id,
+      batchId: req.params.batchId
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error, 'Error al eliminar el bloque');
   }
 }

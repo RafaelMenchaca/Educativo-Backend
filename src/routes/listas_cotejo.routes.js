@@ -4,7 +4,8 @@ import {
   postGenerateListasCotejo,
   getListasCotejoPorUnidad,
   getListaCotejoById,
-  getListaCotejoPorPlaneacion
+  getListaCotejoPorPlaneacion,
+  deleteListaCotejoController
 } from '../controllers/listas_cotejo.controller.js';
 
 const router = Router();
@@ -13,5 +14,6 @@ router.post('/generate', requireAuth, postGenerateListasCotejo);
 router.get('/unidad/:unidadId', requireAuth, getListasCotejoPorUnidad);
 router.get('/planeacion/:planeacionId', requireAuth, getListaCotejoPorPlaneacion);
 router.get('/:id', requireAuth, getListaCotejoById);
+router.delete('/:id', requireAuth, deleteListaCotejoController);
 
 export default router;

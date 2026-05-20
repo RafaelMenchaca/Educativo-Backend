@@ -3,7 +3,8 @@ import {
   generarExamenUnidad,
   obtenerEstadoGeneracionExamen,
   listarExamenesPorUnidad,
-  obtenerExamenPorId
+  obtenerExamenPorId,
+  eliminarExamen
 } from '../services/examenes.service.js';
 
 function userClientFromReq(req) {
@@ -115,5 +116,18 @@ export async function getExamenById(req, res) {
     res.json({ examen });
   } catch (error) {
     sendError(res, error, 'Error al obtener el examen');
+  }
+}
+
+export async function deleteExamen(req, res) {
+  try {
+    const result = await eliminarExamen({
+      supabaseClient: userClientFromReq(req),
+      userId: req.user.id,
+      id: req.params.id
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error, 'Error al eliminar el examen');
   }
 }

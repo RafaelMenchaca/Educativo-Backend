@@ -525,6 +525,33 @@ export async function obtenerListaCotejoPorId({ supabaseClient, userId, id }) {
   return data;
 }
 
+export async function eliminarListaCotejo({ supabaseClient, userId, id }) {
+  const client = getClient(supabaseClient);
+  const normalizedId = normalizeString(id);
+
+  if (!userId) throw buildHttpError(401, 'Usuario requerido.');
+  if (!normalizedId) throw buildHttpError(400, 'id es requerido.');
+
+  const { data: lista, error: fetchError } = await client
+    .from('listas_cotejo')
+    .select('id')
+    .eq('id', normalizedId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (!lista) throw buildHttpError(404, 'Lista de cotejo no encontrada.');
+
+  const { error: deleteError } = await client
+    .from('listas_cotejo')
+    .delete()
+    .eq('id', normalizedId)
+    .eq('user_id', userId);
+  if (deleteError) throw deleteError;
+
+  return { ok: true };
+}
+
 export async function obtenerListaCotejoPorPlaneacion({ supabaseClient, userId, planeacionId }) {
   const client = getClient(supabaseClient);
   const normalizedId = String(planeacionId || '').trim();
