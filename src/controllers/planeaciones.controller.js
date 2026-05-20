@@ -11,6 +11,7 @@ import {
   listarPlaneacionesArchivadas,
   eliminarPlaneacionPermanentemente,
   eliminarBatchPermanentemente,
+  eliminarPlaneacionDirecta,
   generarPlaneacionesIA,
   generarPlaneacionesIAConProgreso,
   listarBatches,
@@ -248,6 +249,19 @@ export async function deleteBatchPermanent(req, res) {
       error,
       'Error al eliminar permanentemente el batch'
     );
+  }
+}
+
+export async function deletePlaneacionDirectaController(req, res) {
+  try {
+    const result = await eliminarPlaneacionDirecta({
+      supabaseClient: userClientFromReq(req),
+      userId: req.user.id,
+      id: req.params.id
+    });
+    res.json(result);
+  } catch (error) {
+    sendPlaneacionesError(res, error, 'Error al eliminar la planeacion');
   }
 }
 

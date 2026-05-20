@@ -1823,6 +1823,33 @@ export async function listarExamenesPorUnidad({
   return data || [];
 }
 
+export async function eliminarExamen({ supabaseClient, userId, id }) {
+  const client = getClient(supabaseClient);
+  const normalizedId = normalizeString(id);
+
+  if (!userId) throw buildHttpError(401, 'Usuario requerido.');
+  if (!normalizedId) throw buildHttpError(400, 'id es requerido.');
+
+  const { data: examen, error: fetchError } = await client
+    .from('examenes')
+    .select('id')
+    .eq('id', normalizedId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (!examen) throw buildHttpError(404, 'Examen no encontrado.');
+
+  const { error: deleteError } = await client
+    .from('examenes')
+    .delete()
+    .eq('id', normalizedId)
+    .eq('user_id', userId);
+  if (deleteError) throw deleteError;
+
+  return { ok: true };
+}
+
 export async function obtenerExamenPorId({
   supabaseClient,
   userId,

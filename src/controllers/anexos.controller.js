@@ -4,7 +4,8 @@ import {
   regenerarAnexo,
   obtenerAnexosPorBatch,
   obtenerAnexoPorPlaneacion,
-  obtenerAnexoPorId
+  obtenerAnexoPorId,
+  eliminarAnexo
 } from '../services/anexos.service.js';
 
 function userClientFromReq(req) {
@@ -93,5 +94,18 @@ export async function getAnexoById(req, res) {
     return res.json({ anexo });
   } catch (error) {
     return sendError(res, error, 'Error al obtener el anexo.');
+  }
+}
+
+export async function deleteAnexoController(req, res) {
+  try {
+    const result = await eliminarAnexo({
+      supabaseClient: userClientFromReq(req),
+      userId: req.user.id,
+      id: req.params.id
+    });
+    return res.json(result);
+  } catch (error) {
+    return sendError(res, error, 'Error al eliminar el anexo.');
   }
 }

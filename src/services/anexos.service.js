@@ -426,6 +426,33 @@ export async function obtenerAnexoPorPlaneacion({ supabaseClient, userId, planea
   return data;
 }
 
+export async function eliminarAnexo({ supabaseClient, userId, id }) {
+  const client = getClient(supabaseClient);
+  const normalizedId = normalizeString(id);
+
+  if (!userId) throw buildHttpError(401, 'Usuario requerido.');
+  if (!normalizedId) throw buildHttpError(400, 'id es requerido.');
+
+  const { data: anexo, error: fetchError } = await client
+    .from('anexos')
+    .select('id')
+    .eq('id', normalizedId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (!anexo) throw buildHttpError(404, 'Anexo no encontrado.');
+
+  const { error: deleteError } = await client
+    .from('anexos')
+    .delete()
+    .eq('id', normalizedId)
+    .eq('user_id', userId);
+  if (deleteError) throw deleteError;
+
+  return { ok: true };
+}
+
 export async function obtenerAnexoPorId({ supabaseClient, userId, id }) {
   const client = getClient(supabaseClient);
   const normalizedId = normalizeString(id);

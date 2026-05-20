@@ -4,7 +4,8 @@ import {
   postGenerateExamen,
   getExamenGenerationJob,
   getExamenesByUnidad,
-  getExamenById
+  getExamenById,
+  deleteExamen
 } from '../controllers/examenes.controller.js';
 
 const router = Router();
@@ -14,5 +15,6 @@ router.post('/generar', requireAuth, postGenerateExamen);
 router.get('/generacion/:jobId', requireAuth, getExamenGenerationJob);
 router.get('/unidad/:unidadId', requireAuth, getExamenesByUnidad);
 router.get('/:id', requireAuth, getExamenById);
+router.delete('/:id', requireAuth, deleteExamen);
 
 export default router;

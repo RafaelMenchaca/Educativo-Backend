@@ -12,6 +12,7 @@ import {
   restoreBatch,
   deletePlaneacionPermanent,
   deleteBatchPermanent,
+  deletePlaneacionDirectaController,
   generarPlaneaciones,
   getBatches,
   getPlaneacionesByBatch
@@ -32,6 +33,7 @@ router.post('/generate', requireAuth, generarPlaneaciones);
 router.patch('/:id/archive', requireAuth, archivePlaneacion);
 router.patch('/:id/restore', requireAuth, restorePlaneacion);
 router.delete('/:id/permanent', requireAuth, deletePlaneacionPermanent);
+router.delete('/:id/directo', requireAuth, deletePlaneacionDirectaController);
 router.get('/:id', requireAuth, getPlaneacionById);
 router.put('/:id', requireAuth, updatePlaneacion);
 router.delete('/:id', requireAuth, deletePlaneacion);
