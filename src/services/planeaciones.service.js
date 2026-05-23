@@ -7,6 +7,7 @@ import {
   enrichPlaneacionWithImages,
   normalizeGenerarImagenesEn
 } from './imageEnrichment.service.js';
+import { createAiJob, finishAiJob, failAiJob, logAiCall } from './aiMetrics.service.js';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -522,7 +523,9 @@ async function generarTablaIa({
   tema,
   duracion,
   actividad_cierre,
-  actividades_momentos
+  actividades_momentos,
+  jobId = null,
+  userId = null
 }) {
   const actividadesMomentosNormalizadas = normalizeActividadesMomentos(
     actividades_momentos,
@@ -598,11 +601,13 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
       )
     );
 
+    const callStart = Date.now();
     const completion = await solicitarTablaIaCompletion({
       prompt,
       maxTokens: attempt.maxTokens,
       temperature: attempt.temperature
     });
+    const callDurationMs = Date.now() - callStart;
 
     const usage = completion.usage || {};
     const rawText = completion.choices?.[0]?.message?.content?.trim() || '';
@@ -614,6 +619,24 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
       finishReason,
       usage
     };
+
+    // Log this OpenAI call to new metrics system (fire-and-forget; errors are swallowed inside logAiCall)
+    if (jobId && userId) {
+      logAiCall({
+        jobId,
+        userId,
+        artifactType:  'planeacion',
+        callPurpose:   'main_generation',
+        model:         'gpt-4o-mini',
+        promptVersion: 'v3_actividades_momentos',
+        usage,
+        status:        parsed.jsonOk ? 'success' : 'error',
+        jsonOk:        parsed.jsonOk,
+        retryNumber:   index,
+        durationMs:    callDurationMs,
+        metadata:      { finish_reason: finishReason, error_tipo: parsed.errorTipo || null }
+      }).catch((err) => console.error('[aiMetrics] planeaciones logAiCall failed:', err?.message));
+    }
 
     if (parsed.jsonOk) {
       return {
@@ -1179,6 +1202,31 @@ async function generarPlaneacionesIAInternal({
       onEvent({ type: 'item_started', index, tema: temaNombre });
     }
 
+    // Create an ai_generation_job for this planeacion (metrics; errors must not block generation)
+    let aiJobId = null;
+    if (userId) {
+      try {
+        aiJobId = await createAiJob({
+          userId,
+          artifactType: 'planeacion',
+          actionType:   'generate',
+          batchId:      batch_id,
+          nivel,
+          materia,
+          tema:         temaNombre,
+          inputSummary: {
+            nivel,
+            materia,
+            tema:              temaNombre,
+            duracion,
+            actividades_count: Object.keys(actividades_momentos || {}).length
+          }
+        });
+      } catch (err) {
+        console.error('[aiMetrics] createAiJob (planeacion) error:', err?.message);
+      }
+    }
+
     try {
       const { tablaIa, metrics } = await generarTablaIa({
         materia,
@@ -1187,7 +1235,9 @@ async function generarPlaneacionesIAInternal({
         tema: temaNombre,
         duracion,
         actividad_cierre,
-        actividades_momentos
+        actividades_momentos,
+        jobId:  aiJobId,
+        userId
       });
 
       const insertPayload = {
@@ -1216,7 +1266,20 @@ async function generarPlaneacionesIAInternal({
 
       planeacionesCreadas.push(data);
 
+      // Legacy metrics table (keep for compatibility)
       await guardarMetricasIa(client, metrics);
+
+      // Finalize new metrics job (fire-and-forget)
+      if (aiJobId) {
+        finishAiJob(aiJobId, {
+          planeacionId:  data.id,
+          outputSummary: {
+            planeaciones_creadas: 1,
+            json_ok:              metrics.json_ok,
+            error_tipo:           metrics.error_tipo || null
+          }
+        }).catch((err) => console.error('[aiMetrics] finishAiJob (planeacion) error:', err?.message));
+      }
 
       if (typeof onEvent === 'function') {
         onEvent({
@@ -1227,6 +1290,13 @@ async function generarPlaneacionesIAInternal({
         });
       }
     } catch (error) {
+      if (aiJobId) {
+        failAiJob(aiJobId, {
+          errorType:        error?.status ? `http_${error.status}` : 'generation_error',
+          errorMessageSafe: error?.message || 'Error generando planeacion'
+        }).catch(() => {});
+      }
+
       if (typeof onEvent === 'function') {
         onEvent({
           type: 'item_error',
