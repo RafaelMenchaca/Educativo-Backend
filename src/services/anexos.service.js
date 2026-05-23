@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../../supabaseClient.js';
 import OpenAI from 'openai';
+import { createAiJob, finishAiJob, failAiJob, logAiCall } from './aiMetrics.service.js';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -184,9 +185,10 @@ function validateAnexosPayload(payload) {
   return payload;
 }
 
-async function generateAnexosWithIa({ nivel, materia, tema, duracion, tablaIa, actividadesMomentos }) {
+async function generateAnexosWithIa({ nivel, materia, tema, duracion, tablaIa, actividadesMomentos, jobId = null, userId = null }) {
   const userPrompt = buildAnexosUserPrompt({ nivel, materia, tema, duracion, tablaIa, actividadesMomentos });
 
+  const callStart = Date.now();
   const completion = await Promise.race([
     openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -202,6 +204,7 @@ async function generateAnexosWithIa({ nivel, materia, tema, duracion, tablaIa, a
       setTimeout(() => reject(buildHttpError(504, 'La generacion de IA tardo demasiado.')), ANEXOS_TIMEOUT_MS)
     )
   ]);
+  const callDurationMs = Date.now() - callStart;
 
   const rawText = completion.choices?.[0]?.message?.content || '';
   const tokensPrompt = completion.usage?.prompt_tokens ?? null;
@@ -210,6 +213,25 @@ async function generateAnexosWithIa({ nivel, materia, tema, duracion, tablaIa, a
 
   const parsed = parseAnexosJson(rawText);
   const validated = validateAnexosPayload(parsed);
+
+  if (jobId && userId) {
+    logAiCall({
+      jobId,
+      userId,
+      artifactType:  'anexo',
+      callPurpose:   'main_generation',
+      model:         'gpt-4o-mini',
+      promptVersion: ANEXOS_PROMPT_VERSION,
+      usage:         completion.usage,
+      status:        'success',
+      jsonOk:        Boolean(parsed),
+      durationMs:    callDurationMs,
+      metadata:      {
+        tema,
+        anexos_count: Array.isArray(validated?.anexos) ? validated.anexos.length : 0
+      }
+    }).catch((err) => console.error('[aiMetrics] anexos logAiCall failed:', err?.message));
+  }
 
   return { contenido: validated, tokensPrompt, tokensCompletion, tokensTotal };
 }
@@ -267,14 +289,48 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
   const tablaIa = safeParseJson(planeacion.tabla_ia, []);
   const actividadesMomentos = safeParseJson(planeacion.actividades_momentos, {});
 
-  const { contenido, tokensPrompt, tokensCompletion, tokensTotal } = await generateAnexosWithIa({
-    nivel: normalizeString(planeacion.nivel),
-    materia: normalizeString(planeacion.materia),
-    tema: normalizeString(planeacion.tema),
-    duracion: planeacion.duracion || null,
-    tablaIa,
-    actividadesMomentos
-  });
+  // Create AI metrics job
+  let aiJobId = null;
+  if (userId) {
+    try {
+      aiJobId = await createAiJob({
+        userId,
+        artifactType: 'anexo',
+        actionType:   'generate',
+        nivel:        normalizeString(planeacion.nivel) || null,
+        materia:      normalizeString(planeacion.materia) || null,
+        tema:         normalizeString(planeacion.tema) || null,
+        inputSummary: {
+          planeacion_id: planeacion.id,
+          planeaciones_count: 1
+        }
+      });
+    } catch (err) {
+      console.error('[aiMetrics] createAiJob (anexo) error:', err?.message);
+    }
+  }
+
+  let contenido, tokensPrompt, tokensCompletion, tokensTotal;
+  try {
+    ({ contenido, tokensPrompt, tokensCompletion, tokensTotal } = await generateAnexosWithIa({
+      nivel: normalizeString(planeacion.nivel),
+      materia: normalizeString(planeacion.materia),
+      tema: normalizeString(planeacion.tema),
+      duracion: planeacion.duracion || null,
+      tablaIa,
+      actividadesMomentos,
+      jobId: aiJobId,
+      userId
+    }));
+  } catch (err) {
+    if (aiJobId) {
+      failAiJob(aiJobId, {
+        errorType:        err?.status ? `http_${err.status}` : 'generation_error',
+        errorMessageSafe: err?.message || 'Error generando anexo'
+      }).catch(() => {});
+    }
+    throw err;
+  }
 
   const titulo = normalizeString(contenido.titulo_general) || `Anexos: ${normalizeString(planeacion.tema) || 'Sin titulo'}`;
 
@@ -311,9 +367,29 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
         .select('id, planeacion_id, titulo, status')
         .eq('planeacion_id', normalizedPlaneacionId)
         .maybeSingle();
+      if (aiJobId) {
+        finishAiJob(aiJobId, {
+          outputSummary: { anexos_creados: 0, status: 'already_exists' }
+        }).catch(() => {});
+      }
       return { ok: true, anexo_id: raceAnexo?.id, status: 'already_exists' };
     }
+    if (aiJobId) {
+      failAiJob(aiJobId, {
+        errorType: 'db_insert_error',
+        errorMessageSafe: insertError.message
+      }).catch(() => {});
+    }
     throw insertError;
+  }
+
+  if (aiJobId) {
+    finishAiJob(aiJobId, {
+      anexoId:      nuevoAnexo.id,
+      outputSummary: {
+        anexos_creados: Array.isArray(contenido?.anexos) ? contenido.anexos.length : 0
+      }
+    }).catch(() => {});
   }
 
   console.info('[anexos] generado', {
@@ -353,14 +429,45 @@ export async function regenerarAnexo({ supabaseClient, userId, id }) {
   const tablaIa = safeParseJson(planeacion.tabla_ia, []);
   const actividadesMomentos = safeParseJson(planeacion.actividades_momentos, {});
 
-  const { contenido, tokensPrompt, tokensCompletion, tokensTotal } = await generateAnexosWithIa({
-    nivel: normalizeString(planeacion.nivel),
-    materia: normalizeString(planeacion.materia),
-    tema: normalizeString(planeacion.tema),
-    duracion: planeacion.duracion || null,
-    tablaIa,
-    actividadesMomentos
-  });
+  // Create AI metrics job for regeneration
+  let aiJobId = null;
+  if (userId) {
+    try {
+      aiJobId = await createAiJob({
+        userId,
+        artifactType: 'anexo',
+        actionType:   'regenerate',
+        nivel:        normalizeString(planeacion.nivel) || null,
+        materia:      normalizeString(planeacion.materia) || null,
+        tema:         normalizeString(planeacion.tema) || null,
+        inputSummary: { planeacion_id: planeacion.id, planeaciones_count: 1 }
+      });
+    } catch (err) {
+      console.error('[aiMetrics] createAiJob (anexo regenerar) error:', err?.message);
+    }
+  }
+
+  let contenido, tokensPrompt, tokensCompletion, tokensTotal;
+  try {
+    ({ contenido, tokensPrompt, tokensCompletion, tokensTotal } = await generateAnexosWithIa({
+      nivel: normalizeString(planeacion.nivel),
+      materia: normalizeString(planeacion.materia),
+      tema: normalizeString(planeacion.tema),
+      duracion: planeacion.duracion || null,
+      tablaIa,
+      actividadesMomentos,
+      jobId: aiJobId,
+      userId
+    }));
+  } catch (err) {
+    if (aiJobId) {
+      failAiJob(aiJobId, {
+        errorType:        err?.status ? `http_${err.status}` : 'generation_error',
+        errorMessageSafe: err?.message || 'Error regenerando anexo'
+      }).catch(() => {});
+    }
+    throw err;
+  }
 
   const titulo = normalizeString(contenido.titulo_general) || `Anexos: ${normalizeString(planeacion.tema) || 'Sin titulo'}`;
 
@@ -380,7 +487,24 @@ export async function regenerarAnexo({ supabaseClient, userId, id }) {
     .select('id, planeacion_id, titulo, status, updated_at')
     .single();
 
-  if (updateError) throw updateError;
+  if (updateError) {
+    if (aiJobId) {
+      failAiJob(aiJobId, {
+        errorType: 'db_update_error',
+        errorMessageSafe: updateError.message
+      }).catch(() => {});
+    }
+    throw updateError;
+  }
+
+  if (aiJobId) {
+    finishAiJob(aiJobId, {
+      anexoId:      updated.id,
+      outputSummary: {
+        anexos_creados: Array.isArray(contenido?.anexos) ? contenido.anexos.length : 0
+      }
+    }).catch(() => {});
+  }
 
   console.info('[anexos] regenerado', {
     anexoId: updated?.id,

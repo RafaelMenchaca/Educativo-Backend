@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../../supabaseClient.js';
 import OpenAI from 'openai';
 import { obtenerContextoUnidad } from './jerarquia.service.js';
+import { createAiJob, finishAiJob, failAiJob, logAiCall } from './aiMetrics.service.js';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -176,9 +177,10 @@ function validateListaPayload(payload) {
   return payload;
 }
 
-async function generateListaWithIa({ materia, nivel, tema, actividadesEvaluadas }) {
+async function generateListaWithIa({ materia, nivel, tema, actividadesEvaluadas, jobId = null, userId = null }) {
   const prompt = buildListaCoTejoPrompt({ materia, nivel, tema, actividadesEvaluadas });
 
+  const callStart = Date.now();
   const completion = await Promise.race([
     openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -197,10 +199,32 @@ async function generateListaWithIa({ materia, nivel, tema, actividadesEvaluadas 
       );
     })
   ]);
+  const callDurationMs = Date.now() - callStart;
 
   const rawText = completion.choices?.[0]?.message?.content || '';
   const parsed = parseListaJson(rawText);
-  return validateListaPayload(parsed);
+  const validated = validateListaPayload(parsed);
+
+  if (jobId && userId) {
+    logAiCall({
+      jobId,
+      userId,
+      artifactType:  'lista_cotejo',
+      callPurpose:   'main_generation',
+      model:         'gpt-4o-mini',
+      promptVersion: LISTA_COTEJO_PROMPT_VERSION,
+      usage:         completion.usage,
+      status:        'success',
+      jsonOk:        Boolean(parsed),
+      durationMs:    callDurationMs,
+      metadata:      {
+        tema,
+        momentos_evaluados: actividadesEvaluadas.map((a) => a.momento_key)
+      }
+    }).catch((err) => console.error('[aiMetrics] listas_cotejo logAiCall failed:', err?.message));
+  }
+
+  return validated;
 }
 
 async function fetchTemasConPlaneaciones(client, unidadId, userId) {
@@ -312,6 +336,25 @@ export async function generarListasCotejoPorIds({ supabaseClient, userId, planea
   const listas = [];
   const skipped = [];
 
+  // Create one AI metrics job for this batch call
+  let aiJobId = null;
+  if (userId) {
+    try {
+      aiJobId = await createAiJob({
+        userId,
+        artifactType: 'lista_cotejo',
+        actionType:   'generate',
+        nivel:        nivel || null,
+        materia:      materia || null,
+        inputSummary: {
+          planeaciones_count: planeaciones.length
+        }
+      });
+    } catch (err) {
+      console.error('[aiMetrics] createAiJob (lista_cotejo por ids) error:', err?.message);
+    }
+  }
+
   for (const planeacion of planeaciones) {
     const planeacionIdStr = String(planeacion.id);
 
@@ -331,7 +374,7 @@ export async function generarListasCotejoPorIds({ supabaseClient, userId, planea
     const temaUnidadId = normalizeString(unidadId) || tema?.unidad_id || '';
 
     try {
-      const listaIa = await generateListaWithIa({ materia, nivel, tema: temaTitulo, actividadesEvaluadas });
+      const listaIa = await generateListaWithIa({ materia, nivel, tema: temaTitulo, actividadesEvaluadas, jobId: aiJobId, userId });
 
       const actividadCierreLegacy = actividadesEvaluadas.find((a) => a.momento_key === 'cierre')?.actividad_texto || '';
 
@@ -384,6 +427,15 @@ export async function generarListasCotejoPorIds({ supabaseClient, userId, planea
     }
   }
 
+  if (aiJobId) {
+    const finishFn = listas.length === 0 && skipped.some((s) => s.reason === 'invalid_ai_response')
+      ? failAiJob
+      : finishAiJob;
+    finishFn(aiJobId, {
+      outputSummary: { listas_creadas: listas.length, skipped: skipped.length }
+    }).catch(() => {});
+  }
+
   return { created: listas.length, skipped, listas };
 }
 
@@ -404,6 +456,25 @@ export async function generarListasCotejoUnidad({ supabaseClient, userId, unidad
   const listas = [];
   const skipped = [];
 
+  // Create one AI metrics job for this unit batch
+  let aiJobId = null;
+  if (userId) {
+    try {
+      aiJobId = await createAiJob({
+        userId,
+        artifactType: 'lista_cotejo',
+        actionType:   'generate',
+        nivel:        nivel || null,
+        materia:      materia || null,
+        inputSummary: {
+          planeaciones_count: temas.filter((t) => t.planeacion?.id).length
+        }
+      });
+    } catch (err) {
+      console.error('[aiMetrics] createAiJob (lista_cotejo unidad) error:', err?.message);
+    }
+  }
+
   for (const tema of temas) {
     const planeacion = tema.planeacion;
 
@@ -423,7 +494,9 @@ export async function generarListasCotejoUnidad({ supabaseClient, userId, unidad
         materia,
         nivel,
         tema: tema.titulo,
-        actividadesEvaluadas
+        actividadesEvaluadas,
+        jobId: aiJobId,
+        userId
       });
 
       const actividadCierreLegacy = actividadesEvaluadas.find((a) => a.momento_key === 'cierre')?.actividad_texto || '';
@@ -470,6 +543,15 @@ export async function generarListasCotejoUnidad({ supabaseClient, userId, unidad
       });
       skipped.push({ tema_id: tema.id, tema: tema.titulo, razon: err?.message || 'Error al generar' });
     }
+  }
+
+  if (aiJobId) {
+    const finishFn = listas.length === 0 && skipped.some((s) => s.razon && !['Sin planeacion generada', 'Sin actividades evaluables en la planeacion'].includes(s.razon))
+      ? failAiJob
+      : finishAiJob;
+    finishFn(aiJobId, {
+      outputSummary: { listas_creadas: listas.length, skipped: skipped.length }
+    }).catch(() => {});
   }
 
   return {

@@ -2,6 +2,7 @@ import { supabaseAdmin } from '../../supabaseClient.js';
 import OpenAI from 'openai';
 import { buildExamPromptByUnit } from '../utils/buildExamPromptByUnit.js';
 import { obtenerContextoUnidad } from './jerarquia.service.js';
+import { createAiJob, finishAiJob, failAiJob, logAiCall } from './aiMetrics.service.js';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -1151,7 +1152,15 @@ async function fetchGenerationItems(client, jobId) {
   return data || [];
 }
 
-async function generateSingleQuestionWithIa({ contexto, item, temasContexto, totalPreguntas, jobId }) {
+async function generateSingleQuestionWithIa({
+  contexto,
+  item,
+  temasContexto,
+  totalPreguntas,
+  jobId,
+  aiJobId = null,
+  userId = null
+}) {
   let retryFeedback = '';
 
   for (let attempt = 1; attempt <= EXAM_ITEM_MAX_RETRIES; attempt += 1) {
@@ -1163,14 +1172,40 @@ async function generateSingleQuestionWithIa({ contexto, item, temasContexto, tot
       retryFeedback
     });
 
+    const callStart = Date.now();
     const completion = await requestExamCompletion({
       prompt,
       maxTokens: EXAM_SINGLE_QUESTION_MAX_TOKENS,
       temperature: attempt === 1 ? 0.35 : 0.2
     });
+    const callDurationMs = Date.now() - callStart;
+
     const rawText = completion.choices?.[0]?.message?.content?.trim() || '';
     const parsed = parseQuestionJson(rawText);
     const validation = validateGeneratedQuestionStrict(parsed, item.tipo_pregunta);
+
+    // Log each OpenAI call to metrics (fire-and-forget)
+    if (aiJobId && userId) {
+      logAiCall({
+        jobId:         aiJobId,
+        userId,
+        artifactType:  'examen',
+        callPurpose:   `question_${item.tipo_pregunta}`,
+        model:         'gpt-4o-mini',
+        promptVersion: EXAM_PROMPT_VERSION,
+        usage:         completion.usage,
+        status:        validation.valid ? 'success' : 'error',
+        jsonOk:        Boolean(parsed),
+        validationOk:  validation.valid,
+        retryNumber:   attempt - 1,
+        durationMs:    callDurationMs,
+        metadata:      {
+          pregunta_numero: item.pregunta_numero,
+          tipo_pregunta:   item.tipo_pregunta,
+          finish_reason:   completion.choices?.[0]?.finish_reason || null
+        }
+      }).catch((err) => console.error('[aiMetrics] examenes logAiCall failed:', err?.message));
+    }
 
     if (validation.valid) {
       return {
@@ -1222,6 +1257,28 @@ async function processExamGenerationJob(jobId) {
   let items = await fetchGenerationItems(client, jobId);
   const total = Number(job.progress_total || items.length || 0);
 
+  // Create AI metrics job for this exam generation
+  let aiJobId = null;
+  if (job.user_id) {
+    try {
+      aiJobId = await createAiJob({
+        userId:       job.user_id,
+        artifactType: 'examen',
+        actionType:   'generate',
+        nivel:        contexto.grado?.nivel_base || null,
+        materia:      contexto.materia?.nombre   || null,
+        titulo:       job.titulo || null,
+        inputSummary: {
+          total_preguntas: total,
+          tipos_pregunta:  job.tipos_pregunta || [],
+          temas_count:     temas.length
+        }
+      });
+    } catch (err) {
+      console.error('[aiMetrics] createAiJob (examen) error:', err?.message);
+    }
+  }
+
   try {
     for (const item of items) {
       if (item.status === 'completed') continue;
@@ -1240,7 +1297,9 @@ async function processExamGenerationJob(jobId) {
         item,
         temasContexto,
         totalPreguntas: total,
-        jobId
+        jobId,
+        aiJobId,
+        userId: job.user_id
       });
 
       await updateGenerationItem(client, item.id, {
@@ -1272,6 +1331,17 @@ async function processExamGenerationJob(jobId) {
         current_step: 'No se pudo completar el examen.',
         failed_at: new Date().toISOString()
       });
+      if (aiJobId) {
+        failAiJob(aiJobId, {
+          status:           'partial',
+          errorType:        'validation_failed',
+          errorMessageSafe: 'Una o mas preguntas no se generaron correctamente.',
+          outputSummary:    {
+            preguntas_generadas: items.length - failedItems.length,
+            preguntas_fallidas:  failedItems.length
+          }
+        }).catch(() => {});
+      }
       return { ok: false, validationErrors };
     }
 
@@ -1316,6 +1386,17 @@ async function processExamGenerationJob(jobId) {
       error_message: null
     });
 
+    if (aiJobId) {
+      finishAiJob(aiJobId, {
+        examenId:     examen.id,
+        outputSummary: {
+          preguntas_generadas: examenIa.preguntas.length,
+          preguntas_fallidas:  0,
+          retries:             items.reduce((sum, it) => sum + Number(it.retry_count || 0), 0)
+        }
+      }).catch(() => {});
+    }
+
     return { ok: true, examenId: examen.id };
   } catch (error) {
     const latestItems = await fetchGenerationItems(client, jobId).catch(() => []);
@@ -1329,6 +1410,13 @@ async function processExamGenerationJob(jobId) {
       current_step: 'No se pudo completar el examen.',
       failed_at: new Date().toISOString()
     }).catch(() => {});
+
+    if (aiJobId) {
+      failAiJob(aiJobId, {
+        errorType:        error?.status ? `http_${error.status}` : 'generation_error',
+        errorMessageSafe: error?.message || 'No se pudo completar el examen.'
+      }).catch(() => {});
+    }
 
     console.error('[exam-debug] processExamGenerationJob.fallo', {
       jobId,
