@@ -1,96 +1,160 @@
 # Educativo Backend
 
-Backend de Educativo IA. Este repositorio expone una API en Node.js y Express para autenticacion con Supabase, administracion de jerarquia academica y generacion de planeaciones didacticas con IA.
+Backend de Educativo IA. Expone una API REST en Node.js y Express para autenticacion con Supabase, administracion de jerarquia academica y generacion de planeaciones didacticas, examenes, anexos y listas de cotejo con IA.
+
+La **Biblioteca** actua como hub de documentos: agrupa todos los documentos generados de una unidad academica bajo un `batch_id` comun y los expone a traves de sus propios endpoints.
 
 ## Alcance del repositorio
 
-Este proyecto concentra la capa backend del producto y cubre estas responsabilidades:
-
-- API REST para planeaciones y jerarquia academica.
-- Validacion de tokens Bearer emitidos por Supabase.
-- Clientes Supabase para operaciones administrativas y consultas con contexto de usuario.
-- Generacion de planeaciones con OpenAI.
-- Respuestas JSON y streaming SSE para mostrar progreso de generacion.
-- Persistencia de planeaciones, temas y metricas de IA en Supabase.
+- API REST para planeaciones y todos los documentos derivados (examenes, anexos, listas de cotejo).
+- Validacion de tokens Bearer emitidos por Supabase en todas las rutas privadas.
+- Generacion de contenido educativo con OpenAI (planeaciones, examenes, anexos, listas de cotejo).
+- Streaming SSE para mostrar progreso de generacion en tiempo real.
+- Persistencia en Supabase con RLS; el `user_id` se extrae del token, nunca del frontend.
+- Sistema de archivado soft (archive/restore) y eliminacion permanente.
+- Metricas de consumo de IA por job, tipo de generacion y modelo.
 
 ## Stack tecnico
 
-- Node.js
+- Node.js (ES Modules)
 - Express 4
 - Supabase JavaScript SDK
 - OpenAI SDK
-- dotenv
-- cors
-- nodemon
+- dotenv, cors, nodemon
 
 ## Arquitectura general
 
-- `src/server.js`: arranque del servidor HTTP.
-- `src/app.js`: configuracion de Express, CORS, JSON body parser, healthcheck y montaje de rutas.
-- `src/routes/`: definicion de endpoints de planeaciones y jerarquia.
-- `src/middleware/auth.middleware.js`: validacion de `Authorization: Bearer <token>`.
-- `src/controllers/`: parsing de requests, validaciones y armado de respuestas JSON o SSE.
-- `src/services/`: acceso a Supabase, generacion con OpenAI y reglas de negocio.
-- `src/utils/buildPromptByLevel.js`: construccion del prompt segun materia, nivel, unidad, tema y duracion.
-- `supabaseClient.js`: cliente admin y cliente por usuario para consultas con token de acceso.
+```
+src/
+|-- server.js              arranque HTTP
+|-- app.js                 Express, CORS, rutas, healthcheck
+|-- middleware/
+|   `-- auth.middleware.js requireAuth: valida Bearer token y adjunta req.user
+|-- routes/
+|   |-- index.js           monta todos los routers bajo /api
+|   |-- planeaciones.routes.js
+|   |-- examenes.routes.js
+|   |-- listas_cotejo.routes.js
+|   |-- biblioteca.routes.js
+|   |-- anexos.routes.js
+|   `-- jerarquia.routes.js
+|-- controllers/           parsing de request, validaciones, armado de respuesta
+|-- services/              logica de dominio, acceso a Supabase y llamadas a OpenAI
+|   |-- planeaciones.service.js
+|   |-- examenes.service.js
+|   |-- listas_cotejo.service.js
+|   |-- biblioteca.service.js
+|   |-- anexos.service.js
+|   |-- aiMetrics.service.js
+|   |-- imageEnrichment.service.js
+|   `-- imageSearch.service.js
+`-- utils/
+    |-- buildPromptByLevel.js
+    |-- buildExamPromptByUnit.js
+    |-- buildImageSearchQuery.js
+    `-- generateImageQuery.js
+supabaseClient.js          cliente admin + cliente por usuario
+```
 
 ## Flujo principal
 
-1. El frontend envia un token Bearer de Supabase.
-2. `requireAuth` valida el token y adjunta `req.user` y `req.accessToken`.
-3. El controlador crea un cliente Supabase ligado al usuario.
-4. El servicio consulta o persiste datos en tablas como `planteles`, `grados`, `materias`, `unidades`, `temas` y `planeaciones`.
-5. Cuando aplica, el servicio llama a OpenAI para generar `tabla_ia` y registra metricas en `ia_metrics`.
+1. El frontend envia `Authorization: Bearer <supabase_access_token>`.
+2. `requireAuth` valida el token con `supabaseAdmin.auth.getUser()` y adjunta `req.user` y `req.accessToken`.
+3. El controlador crea un cliente Supabase ligado al usuario para que las consultas respeten RLS.
+4. El servicio consulta o persiste en Supabase y, cuando aplica, llama a OpenAI.
+5. `aiMetrics.service.js` registra el job, las llamadas y el costo estimado antes y despues de cada generacion.
 6. La API responde en JSON o por SSE cuando se solicita progreso en tiempo real.
-
-## Autenticacion
-
-- Todas las rutas bajo `/api` requieren encabezado `Authorization: Bearer <supabase_access_token>`.
-- La validacion se hace con `supabaseAdmin.auth.getUser(token)`.
-- Despues de validar el token, el backend crea un cliente con `SUPABASE_KEY` para operar con contexto de usuario.
 
 ## Endpoints
 
-Rutas publicas:
+### Publicos
 
 | Metodo | Ruta | Descripcion |
-| --- | --- | --- |
-| GET | `/` | Respuesta simple para confirmar que el servidor esta arriba |
+|---|---|---|
+| GET | `/` | Confirma que el servidor esta arriba |
 | GET | `/health` | Healthcheck JSON |
 
-Rutas de planeaciones:
+### Planeaciones — `/api/planeaciones`
 
 | Metodo | Ruta | Descripcion |
-| --- | --- | --- |
-| GET | `/api/planeaciones` | Lista planeaciones del usuario autenticado |
+|---|---|---|
+| GET | `/api/planeaciones` | Lista planeaciones activas del usuario |
+| GET | `/api/planeaciones/archived` | Lista planeaciones archivadas |
 | GET | `/api/planeaciones/batches` | Lista batches disponibles |
-| GET | `/api/planeaciones/batch/:batch_id` | Obtiene planeaciones agrupadas por batch |
+| GET | `/api/planeaciones/batch/:batch_id` | Planeaciones de un batch |
 | POST | `/api/planeaciones/generate` | Genera una o varias planeaciones con IA |
-| GET | `/api/planeaciones/:id` | Obtiene una planeacion por ID |
-| PUT | `/api/planeaciones/:id` | Actualiza una planeacion existente |
-| DELETE | `/api/planeaciones/:id` | Elimina una planeacion |
+| GET | `/api/planeaciones/:id` | Obtiene una planeacion |
+| PUT | `/api/planeaciones/:id` | Actualiza una planeacion |
+| PATCH | `/api/planeaciones/:id/archive` | Archiva una planeacion |
+| PATCH | `/api/planeaciones/:id/restore` | Restaura una planeacion archivada |
+| DELETE | `/api/planeaciones/:id` | Elimina (soft) una planeacion |
+| DELETE | `/api/planeaciones/:id/permanent` | Elimina permanentemente |
+| DELETE | `/api/planeaciones/:id/directo` | Elimina directamente desde la Biblioteca |
+| PATCH | `/api/planeaciones/batch/:batchId/archive` | Archiva todas las planeaciones del batch |
+| PATCH | `/api/planeaciones/batch/:batchId/restore` | Restaura todas las planeaciones del batch |
+| DELETE | `/api/planeaciones/batch/:batchId/permanent` | Elimina permanentemente el batch completo |
 
-Rutas de jerarquia academica:
+### Biblioteca — `/api/biblioteca`
 
 | Metodo | Ruta | Descripcion |
-| --- | --- | --- |
+|---|---|---|
+| GET | `/api/biblioteca/conjuntos` | Lista todos los conjuntos (batches) del usuario con sus documentos |
+| GET | `/api/biblioteca/conjuntos/:batchId` | Detalle de un conjunto: planeaciones, examenes, anexos y listas de cotejo |
+| DELETE | `/api/biblioteca/bloques/:batchId` | Elimina un bloque completo de la Biblioteca |
+
+### Examenes — `/api/examenes`
+
+| Metodo | Ruta | Descripcion |
+|---|---|---|
+| POST | `/api/examenes/generate` | Genera un examen con IA |
+| POST | `/api/examenes/generar` | Alias de generate |
+| GET | `/api/examenes/generacion/:jobId` | Consulta el estado de un job de generacion |
+| GET | `/api/examenes/unidad/:unidadId` | Lista examenes de una unidad |
+| GET | `/api/examenes/:id` | Obtiene un examen |
+| DELETE | `/api/examenes/:id` | Elimina un examen |
+
+### Listas de cotejo — `/api/listas-cotejo`
+
+| Metodo | Ruta | Descripcion |
+|---|---|---|
+| POST | `/api/listas-cotejo/generate` | Genera listas de cotejo con IA |
+| GET | `/api/listas-cotejo/unidad/:unidadId` | Lista de cotejo de una unidad |
+| GET | `/api/listas-cotejo/planeacion/:planeacionId` | Lista de cotejo de una planeacion |
+| GET | `/api/listas-cotejo/:id` | Obtiene una lista de cotejo |
+| DELETE | `/api/listas-cotejo/:id` | Elimina una lista de cotejo |
+
+### Anexos — `/api/anexos`
+
+| Metodo | Ruta | Descripcion |
+|---|---|---|
+| POST | `/api/anexos/generate` | Genera anexos para planeaciones seleccionadas |
+| POST | `/api/anexos/:id/regenerate` | Regenera un anexo existente |
+| GET | `/api/anexos/batch/:batchId` | Anexos de un batch |
+| GET | `/api/anexos/planeacion/:planeacionId` | Anexo de una planeacion |
+| GET | `/api/anexos/:id` | Obtiene un anexo |
+| DELETE | `/api/anexos/:id` | Elimina un anexo |
+
+### Jerarquia academica
+
+| Metodo | Ruta | Descripcion |
+|---|---|---|
 | GET | `/api/planteles` | Lista planteles |
 | POST | `/api/planteles` | Crea un plantel |
-| DELETE | `/api/planteles/:plantelId` | Elimina un plantel y su cascada relacionada |
-| GET | `/api/planteles/:plantelId/grados` | Lista grados de un plantel |
+| DELETE | `/api/planteles/:plantelId` | Elimina un plantel en cascada |
+| GET | `/api/planteles/:plantelId/grados` | Grados de un plantel |
 | POST | `/api/grados` | Crea un grado |
 | DELETE | `/api/grados/:gradoId` | Elimina un grado |
-| GET | `/api/grados/:gradoId/materias` | Lista materias de un grado |
+| GET | `/api/grados/:gradoId/materias` | Materias de un grado |
 | POST | `/api/materias` | Crea una materia |
 | DELETE | `/api/materias/:materiaId` | Elimina una materia |
-| GET | `/api/materias/:materiaId/unidades` | Lista unidades de una materia |
+| GET | `/api/materias/:materiaId/unidades` | Unidades de una materia |
 | POST | `/api/unidades` | Crea una unidad |
 | DELETE | `/api/unidades/:unidadId` | Elimina una unidad |
-| GET | `/api/unidades/:unidadId/temas` | Lista temas de una unidad |
+| GET | `/api/unidades/:unidadId/temas` | Temas de una unidad |
 | POST | `/api/temas` | Crea uno o varios temas |
 | DELETE | `/api/temas/:temaId` | Elimina un tema |
 | POST | `/api/unidades/:unidadId/generar` | Genera planeaciones por unidad |
-| GET | `/api/temas/:temaId/planeacion` | Obtiene la ultima planeacion asociada a un tema |
+| GET | `/api/temas/:temaId/planeacion` | Ultima planeacion asociada a un tema |
 
 ## Streaming SSE
 
@@ -99,38 +163,70 @@ Los endpoints de generacion soportan streaming con Server-Sent Events:
 - `POST /api/planeaciones/generate?stream=1`
 - `POST /api/unidades/:unidadId/generar?stream=1`
 
-Tambien pueden activarse enviando `Accept: text/event-stream`.
+Tambien se activan enviando `Accept: text/event-stream`.
 
-Eventos esperados:
+Eventos emitidos: `item_started`, `item_completed`, `item_error`, `done`.
 
-- `item_started`
-- `item_completed`
-- `item_error`
-- `done`
+## Metricas de IA
+
+`src/services/aiMetrics.service.js` es el servicio central de observabilidad de uso de IA. Registra cada generacion como un job y cada llamada a OpenAI como un evento individual.
+
+Tablas en Supabase:
+
+| Tabla | Descripcion |
+|---|---|
+| `user_profiles` | Perfil extendido del usuario (vinculado a `auth.users`) |
+| `ai_generation_jobs` | Un job por operacion de generacion (tipo, estado, duracion) |
+| `ai_generation_calls` | Una fila por llamada a OpenAI: tokens, costo estimado, modelo, error si hubo |
+| `ai_model_prices` | Precios de entrada/salida por modelo; consultados en tiempo de ejecucion |
+| `ia_metrics` | Tabla legacy mantenida por compatibilidad; sigue recibiendo datos de planeaciones |
+
+Exports del servicio: `createAiJob`, `finishAiJob`, `failAiJob`, `logAiCall`, `getModelPrice`, `calculateAiCost`, `normalizeOpenAiUsage`.
+
+El servicio esta integrado en planeaciones, examenes, listas de cotejo y anexos. Los errores se sanitizan: API keys y tokens nunca aparecen en los registros.
+
+## Tablas principales en Supabase
+
+| Tabla | Descripcion |
+|---|---|
+| `planteles` | Primer nivel de la jerarquia academica |
+| `grados` | Grado o nivel educativo dentro de un plantel |
+| `materias` | Materia dentro de un grado |
+| `unidades` | Unidad didactica dentro de una materia |
+| `temas` | Tema especifico dentro de una unidad |
+| `planeaciones` | Planeaciones generadas; vinculadas a un tema y a un batch |
+| `planeacion_batches` | Agrupa planeaciones creadas juntas; base del sistema de Biblioteca |
+| `examenes` | Examenes generados por unidad |
+| `listas_cotejo` | Listas de cotejo por planeacion o actividad |
+| `anexos` | Anexos generados para cada planeacion (max 1 por planeacion) |
+
+Todas las tablas tienen RLS habilitado. El `user_id` se deriva del token de Supabase, nunca del cuerpo del request.
 
 ## Variables de entorno
 
-Este backend depende de un archivo `.env` con al menos estas variables:
+Crea un archivo `.env` en la raiz con estas variables:
 
 ```bash
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 SUPABASE_KEY=your-anon-public-key
 OPENAI_API_KEY=your-openai-api-key
+PIXABAY_API_KEY=your-pixabay-api-key
 CORS_ORIGIN=http://127.0.0.1:5500,http://localhost:5500
 PORT=3000
 NODE_ENV=development
 ```
 
-Descripcion rapida:
-
-- `SUPABASE_URL`: URL del proyecto Supabase.
-- `SUPABASE_SERVICE_ROLE_KEY`: clave admin para validar usuarios y operaciones privilegiadas.
-- `SUPABASE_KEY`: clave publica usada para crear clientes por usuario autenticado.
-- `OPENAI_API_KEY`: clave para generacion de planeaciones.
-- `CORS_ORIGIN`: lista separada por comas de origenes permitidos en produccion.
-- `PORT`: puerto del servidor Express.
-- `NODE_ENV`: controla comportamiento de CORS y entorno.
+| Variable | Uso |
+|---|---|
+| `SUPABASE_URL` | URL del proyecto Supabase |
+| `SUPABASE_SERVICE_ROLE_KEY` | Clave admin para validar usuarios |
+| `SUPABASE_KEY` | Clave publica usada para clientes por usuario (respeta RLS) |
+| `OPENAI_API_KEY` | Generacion de todos los documentos educativos |
+| `PIXABAY_API_KEY` | Busqueda de imagenes para enriquecer planeaciones (opcional) |
+| `CORS_ORIGIN` | Origenes permitidos separados por coma |
+| `PORT` | Puerto del servidor Express (default 3000) |
+| `NODE_ENV` | Controla comportamiento de CORS y logs |
 
 ## Instalacion
 
@@ -141,62 +237,87 @@ npm install
 ## Scripts disponibles
 
 ```bash
-npm start
-npm run dev
-npm test
+npm start       # node src/server.js
+npm run dev     # nodemon (recarga automatica)
+npm test        # placeholder, no hay suite configurada
 ```
-
-Estado de los scripts:
-
-- `npm start`: inicia el servidor con `node src/server.js`.
-- `npm run dev`: inicia el servidor con `nodemon`.
-- `npm test`: hoy es un placeholder y devuelve error porque no hay suite configurada.
 
 ## Ejecucion local
 
 1. Crea y completa el archivo `.env`.
 2. Instala dependencias con `npm install`.
-3. Ejecuta `npm run dev` para desarrollo o `npm start` para una corrida normal.
+3. Ejecuta `npm run dev`.
 4. Verifica el servicio en `http://localhost:3000/health`.
 
 ## Estructura del proyecto
-
-Se muestra la estructura actual del repositorio. Se omiten `.git/` y `node_modules/` por brevedad:
 
 ```text
 Educativo-Backend/
 |-- .env
 |-- .gitignore
 |-- CHANGELOG.md
-|-- package-lock.json
 |-- package.json
 |-- README.md
-|-- src/
-|   |-- app.js
-|   |-- controllers/
-|   |   |-- jerarquia.controller.js
-|   |   `-- planeaciones.controller.js
-|   |-- middleware/
-|   |   `-- auth.middleware.js
-|   |-- routes/
-|   |   |-- index.js
-|   |   |-- jerarquia.routes.js
-|   |   `-- planeaciones.routes.js
-|   |-- server.js
-|   |-- services/
-|   |   |-- jerarquia.service.js
-|   |   `-- planeaciones.service.js
-|   `-- utils/
-|       `-- buildPromptByLevel.js
-`-- supabaseClient.js
+|-- supabase/
+|   `-- migrations/
+|-- supabaseClient.js
+`-- src/
+    |-- app.js
+    |-- server.js
+    |-- controllers/
+    |   |-- anexos.controller.js
+    |   |-- biblioteca.controller.js
+    |   |-- examenes.controller.js
+    |   |-- jerarquia.controller.js
+    |   |-- listas_cotejo.controller.js
+    |   `-- planeaciones.controller.js
+    |-- middleware/
+    |   `-- auth.middleware.js
+    |-- routes/
+    |   |-- index.js
+    |   |-- anexos.routes.js
+    |   |-- biblioteca.routes.js
+    |   |-- examenes.routes.js
+    |   |-- jerarquia.routes.js
+    |   |-- listas_cotejo.routes.js
+    |   `-- planeaciones.routes.js
+    |-- services/
+    |   |-- aiMetrics.service.js
+    |   |-- anexos.service.js
+    |   |-- biblioteca.service.js
+    |   |-- examenes.service.js
+    |   |-- imageEnrichment.service.js
+    |   |-- imageSearch.service.js
+    |   |-- jerarquia.service.js
+    |   |-- listas_cotejo.service.js
+    |   `-- planeaciones.service.js
+    `-- utils/
+        |-- buildExamPromptByUnit.js
+        |-- buildImageSearchQuery.js
+        |-- buildPromptByLevel.js
+        `-- generateImageQuery.js
 ```
+
+## Relacion con el frontend
+
+El frontend de Educativo IA consume esta API desde el navegador. La URL base se configura en `js/core/config.js` del repo frontend segun el hostname.
+
+CORS esta configurado en `src/app.js`; la variable `CORS_ORIGIN` define los origenes permitidos en produccion. En desarrollo local acepta `localhost` y `127.0.0.1`.
+
+## Seguridad y datos
+
+- Todas las rutas bajo `/api` requieren `Authorization: Bearer <supabase_access_token>`.
+- El backend valida el token con `supabaseAdmin.auth.getUser(token)` antes de procesar cualquier request.
+- RLS en Supabase garantiza que cada usuario solo accede a sus propios datos.
+- `user_id` se extrae del token validado, nunca del cuerpo del request.
+- Los logs de metricas sanitizan API keys y tokens antes de persistir errores.
 
 ## Notas de mantenimiento
 
-- El `README` anterior mezclaba dos versiones del proyecto; este archivo se rehizo contra el codigo actual.
-- La generacion por unidad crea temas nuevos, registra estados `pending`, `generating`, `ready` o `error` y devuelve un `batch_id`.
-- El backend registra metricas de uso de IA en la tabla `ia_metrics`.
-- Si este repo va a publicarse, conviene retirar `.env` del workspace versionado y mantener solo un ejemplo como `.env.example`.
+- `imageEnrichment.service.js` y `imageSearch.service.js` son servicios de busqueda de imagenes por Pixabay. La generacion automatica de imagenes por momento fue desactivada definitivamente (v2.0); estos servicios quedan disponibles pero sin uso activo en el flujo principal.
+- La tabla legacy `ia_metrics` se mantiene; `planeaciones.service.js` sigue escribiendo en ella junto con el nuevo sistema de `aiMetrics.service.js`.
+- No hay suite de tests configurada mas alla del placeholder en `package.json`.
+- El archivo `.env` con credenciales reales esta versionado en el repo; conviene rotarlo y agregar solo `.env.example` al control de versiones.
 
 ## Licencia
 
