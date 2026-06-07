@@ -9,10 +9,19 @@ const app = express();
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // --- CORS: en dev permite todo, en prod solo orígenes listados ---
-const allowedOrigins = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+const CORS_DEFAULTS = [
+  'https://educativoia.com',
+  'https://www.educativoia.com',
+  'https://planeacion-docente-ia.vercel.app',
+];
+
+const allowedOrigins = [
+  ...CORS_DEFAULTS,
+  ...(process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean),
+];
 
 app.use(cors({
   origin: NODE_ENV === 'development'
