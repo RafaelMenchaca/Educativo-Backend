@@ -102,6 +102,18 @@ const QUESTION_TYPE_OUTPUT_WEIGHT = {
   calculo_numerico: 65,
   ordenacion_jerarquizacion: 70
 };
+const QUESTION_SIMILARITY_WARNING_THRESHOLD = 0.82;
+const QUESTION_SIMILARITY_DUPLICATE_THRESHOLD = 0.90;
+const QUESTION_MIN_NORMALIZED_WORDS = 5;
+const GENERIC_QUESTION_PATTERNS = [
+  /^cual es la importancia de\b/,
+  /^que importancia tiene\b/,
+  /^por que es importante\b/,
+  /^explica la importancia de\b/,
+  /^describe la importancia de\b/,
+  /^que es\b/,
+  /^define\b/
+];
 
 function buildHttpError(status, message) {
   const error = new Error(message);
@@ -479,6 +491,188 @@ function extractQuestionText(question) {
   );
 }
 
+export function normalizeQuestionText(text) {
+  return normalizeString(text)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getQuestionWords(questionText) {
+  return normalizeQuestionText(questionText)
+    .split(' ')
+    .map((word) => word.trim())
+    .filter(Boolean);
+}
+
+export function calculateSimilarity(a, b) {
+  const left = new Set(getQuestionWords(a));
+  const right = new Set(getQuestionWords(b));
+
+  if (left.size === 0 && right.size === 0) return 1;
+  if (left.size === 0 || right.size === 0) return 0;
+
+  let intersection = 0;
+  for (const word of left) {
+    if (right.has(word)) intersection += 1;
+  }
+
+  const union = new Set([...left, ...right]).size;
+  const jaccard = union > 0 ? intersection / union : 0;
+  const overlap = intersection / Math.min(left.size, right.size);
+  return Math.max(jaccard, overlap);
+}
+
+function isGenericQuestionText(questionText) {
+  const normalized = normalizeQuestionText(questionText);
+  if (!normalized) return true;
+
+  const words = normalized.split(' ').filter(Boolean);
+  if (words.length < QUESTION_MIN_NORMALIZED_WORDS) return true;
+
+  return GENERIC_QUESTION_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function buildQuestionValidationError({
+  code,
+  reason,
+  preguntaNumero = null,
+  duplicateOf = null,
+  similarity = null,
+  pregunta = '',
+  comparedQuestion = ''
+}) {
+  return {
+    code,
+    reason,
+    pregunta_numero: preguntaNumero,
+    duplicate_of: duplicateOf,
+    similarity,
+    pregunta,
+    compared_question: comparedQuestion
+  };
+}
+
+export function isDuplicateQuestion(newQuestion, existingQuestions) {
+  const newText = extractQuestionText(newQuestion);
+  const normalizedNewText = normalizeQuestionText(newText);
+
+  if (!normalizedNewText) {
+    return {
+      duplicate: false,
+      warning: false,
+      reason: 'pregunta_vacia',
+      similarity: 0,
+      duplicateOf: null,
+      comparedQuestion: null
+    };
+  }
+
+  for (const existing of Array.isArray(existingQuestions) ? existingQuestions : []) {
+    const existingQuestion = existing?.question || existing?.pregunta_ia || existing;
+    const existingText = extractQuestionText(existingQuestion);
+    const normalizedExistingText = normalizeQuestionText(existingText);
+    if (!normalizedExistingText) continue;
+
+    const similarity = normalizedNewText === normalizedExistingText
+      ? 1
+      : calculateSimilarity(normalizedNewText, normalizedExistingText);
+
+    if (normalizedNewText === normalizedExistingText || similarity >= QUESTION_SIMILARITY_DUPLICATE_THRESHOLD) {
+      return {
+        duplicate: true,
+        warning: false,
+        reason: normalizedNewText === normalizedExistingText ? 'duplicado_exacto' : 'duplicado_semantico',
+        similarity,
+        duplicateOf: existing?.pregunta_numero ?? existing?.index ?? null,
+        comparedQuestion: existingText
+      };
+    }
+
+    if (similarity >= QUESTION_SIMILARITY_WARNING_THRESHOLD) {
+      return {
+        duplicate: false,
+        warning: true,
+        reason: 'posible_duplicado_semantico',
+        similarity,
+        duplicateOf: existing?.pregunta_numero ?? existing?.index ?? null,
+        comparedQuestion: existingText
+      };
+    }
+  }
+
+  return {
+    duplicate: false,
+    warning: false,
+    reason: '',
+    similarity: 0,
+    duplicateOf: null,
+    comparedQuestion: null
+  };
+}
+
+function validateSingleQuestionUniqueness(question, existingQuestions, preguntaNumero = null) {
+  const pregunta = extractQuestionText(question);
+  const errors = [];
+
+  if (isGenericQuestionText(pregunta)) {
+    errors.push(buildQuestionValidationError({
+      code: 'pregunta_generica_o_corta',
+      reason: 'La pregunta es demasiado corta o generica.',
+      preguntaNumero,
+      pregunta
+    }));
+  }
+
+  const duplicate = isDuplicateQuestion(question, existingQuestions);
+  if (duplicate.duplicate || duplicate.warning) {
+    errors.push(buildQuestionValidationError({
+      code: duplicate.reason,
+      reason: duplicate.duplicate
+        ? 'La pregunta duplica o evalua lo mismo que otra pregunta aceptada.'
+        : 'La pregunta es muy parecida a otra pregunta aceptada.',
+      preguntaNumero,
+      duplicateOf: duplicate.duplicateOf,
+      similarity: Number(duplicate.similarity.toFixed(4)),
+      pregunta,
+      comparedQuestion: duplicate.comparedQuestion || ''
+    }));
+  }
+
+  return errors;
+}
+
+export function validateExamQuestionsUniqueness(examOrQuestions) {
+  const questions = Array.isArray(examOrQuestions)
+    ? examOrQuestions
+    : (Array.isArray(examOrQuestions?.preguntas) ? examOrQuestions.preguntas : []);
+  const accepted = [];
+  const errors = [];
+
+  questions.forEach((question, index) => {
+    const preguntaNumero = index + 1;
+    const questionErrors = validateSingleQuestionUniqueness(question, accepted, preguntaNumero);
+
+    if (questionErrors.length > 0) {
+      errors.push(...questionErrors);
+    }
+
+    accepted.push({
+      index: preguntaNumero,
+      pregunta_numero: preguntaNumero,
+      question
+    });
+  });
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
 function normalizeEmparejamientoPair(pair) {
   if (Array.isArray(pair) && pair.length >= 2) {
     const lado_a = normalizeString(pair[0]);
@@ -622,6 +816,7 @@ function validateQuestion(question, index, selectedTypesSet) {
 
   if (tipo === 'opcion_multiple') {
     const opciones = normalizeStringArray(question.opciones);
+    const normalizedOptions = opciones.map((option) => normalizeQuestionText(option));
     const respuestaCorrecta = pickFirstString(
       question.respuesta_correcta,
       question.correcta,
@@ -629,8 +824,14 @@ function validateQuestion(question, index, selectedTypesSet) {
       question.opcion_correcta,
       question.answer
     );
-    if (opciones.length < 2 || !respuestaCorrecta) {
-      throw buildHttpError(502, `La pregunta ${index + 1} de opcion multiple requiere opciones y respuesta_correcta.`);
+    if (opciones.length !== 4 || !respuestaCorrecta) {
+      throw buildHttpError(502, `La pregunta ${index + 1} de opcion multiple requiere exactamente 4 opciones y respuesta_correcta.`);
+    }
+    if (new Set(normalizedOptions).size !== normalizedOptions.length) {
+      throw buildHttpError(502, `La pregunta ${index + 1} de opcion multiple contiene opciones duplicadas.`);
+    }
+    if (!normalizedOptions.includes(normalizeQuestionText(respuestaCorrecta))) {
+      throw buildHttpError(502, `La respuesta_correcta de la pregunta ${index + 1} no existe dentro de opciones.`);
     }
     normalized.opciones = opciones;
     normalized.respuesta_correcta = respuestaCorrecta;
@@ -775,6 +976,15 @@ function validateExamPayload(examen, selectedTypes, requestedCounts = null) {
     ? (trimQuestionsToRequestedCounts(normalizedQuestions, requestedCounts) || normalizedQuestions)
     : normalizedQuestions;
   const usedCounts = buildQuestionTypeCountMap(adjustedQuestions);
+  const uniquenessValidation = validateExamQuestionsUniqueness(adjustedQuestions);
+
+  if (!uniquenessValidation.valid) {
+    const firstError = uniquenessValidation.errors[0];
+    throw buildHttpError(
+      502,
+      `El examen generado contiene preguntas duplicadas o demasiado parecidas. Pregunta ${firstError?.pregunta_numero || 'sin numero'}: ${firstError?.reason || 'duplicado detectado'}.`
+    );
+  }
 
   if (requestedCounts && typeof requestedCounts === 'object') {
     selectedTypes.forEach((tipo) => {
@@ -969,6 +1179,7 @@ function validateGeneratedQuestionStrict(question, expectedType) {
   const criterios = pickFirstString(question?.criterios_evaluacion, question?.criterios);
   const explicacion = pickFirstString(question?.explicacion, question?.retroalimentacion, question?.justificacion);
   const opciones = normalizeStringArray(question?.opciones);
+  const normalizedOptions = opciones.map((option) => normalizeQuestionText(option));
   const elementos = normalizeStringArray(question?.elementos);
 
   if (!tema) errors.push('El campo tema esta vacio');
@@ -979,9 +1190,12 @@ function validateGeneratedQuestionStrict(question, expectedType) {
 
   if (expectedType === 'opcion_multiple') {
     if (opciones.length !== 4) errors.push('La pregunta de opcion_multiple requiere exactamente 4 opciones (A, B, C, D)');
+    if (opciones.length === 4 && new Set(normalizedOptions).size !== normalizedOptions.length) {
+      errors.push('La pregunta de opcion_multiple contiene opciones duplicadas');
+    }
     if (!respuestaCorrectaText) {
       errors.push('El campo respuesta_correcta esta vacio');
-    } else if (!opciones.includes(respuestaCorrectaText)) {
+    } else if (!normalizedOptions.includes(normalizeQuestionText(respuestaCorrectaText))) {
       errors.push('La respuesta_correcta no existe dentro de opciones');
     }
   } else if (expectedType === 'verdadero_falso') {
@@ -1049,6 +1263,7 @@ function buildSingleQuestionPrompt({
   item,
   temasContexto,
   totalPreguntas,
+  existingQuestions,
   retryFeedback
 }) {
   const type = item.tipo_pregunta;
@@ -1056,6 +1271,9 @@ function buildSingleQuestionPrompt({
     .filter((tema) => !item.tema_id || tema.tema_id === item.tema_id)
     .slice(0, 1);
   const contextForPrompt = topicContext.length > 0 ? topicContext : (Array.isArray(temasContexto) ? temasContexto.slice(0, 3) : []);
+  const existingQuestionsBlock = (Array.isArray(existingQuestions) ? existingQuestions : [])
+    .map((entry) => summarizeQuestionPrompt(entry?.question || entry?.pregunta_ia || entry))
+    .join('\n');
 
   return `Genera una sola pregunta para un examen de unidad.
 
@@ -1081,7 +1299,11 @@ INSTRUCCIONES OBLIGATORIAS:
 - El campo "respuesta_correcta" es obligatorio.
 - El campo "criterios_evaluacion" es obligatorio.
 - El campo "tipo" debe coincidir exactamente con "${type}".
+- No repitas ni reformules una pregunta ya aceptada.
+- La pregunta debe evaluar un aprendizaje, dato, habilidad o concepto distinto de las preguntas ya aceptadas.
+- Evita preguntas genericas como "Cual es la importancia de...", "Que es..." o "Explica..." si no exigen una evidencia concreta.
 - Si el tipo es "opcion_multiple", incluye "opciones" con EXACTAMENTE 4 opciones (A, B, C y D) y asegurate de que "respuesta_correcta" exista dentro de "opciones".
+- Si el tipo es "opcion_multiple", las 4 opciones deben ser distintas entre si y solo una debe ser correcta.
 - Si el tipo es "verdadero_falso", usa "respuesta_correcta": "Verdadero" o "Falso".
 - Si el tipo es "emparejamiento", incluye "pares" como array de objetos con "lado_a" y "lado_b".
 - Si el tipo es "ordenacion_jerarquizacion", incluye "elementos" y "respuesta_correcta" como arrays con los mismos elementos.
@@ -1089,6 +1311,9 @@ INSTRUCCIONES OBLIGATORIAS:
 - Para tipos que no usan opciones, devuelve "opciones": [].
 - Para tipos que no usan elementos, devuelve "elementos": [].
 ${retryFeedback ? `- Corrige el intento anterior: ${retryFeedback}` : ''}
+
+PREGUNTAS YA ACEPTADAS QUE NO PUEDES REPETIR NI IMITAR:
+${existingQuestionsBlock || '- Ninguna pregunta aceptada aun.'}
 
 FORMATO ESPERADO:
 {
@@ -1158,6 +1383,7 @@ async function generateSingleQuestionWithIa({
   temasContexto,
   totalPreguntas,
   jobId,
+  existingQuestions = [],
   aiJobId = null,
   userId = null
 }) {
@@ -1169,6 +1395,7 @@ async function generateSingleQuestionWithIa({
       item,
       temasContexto,
       totalPreguntas,
+      existingQuestions,
       retryFeedback
     });
 
@@ -1183,6 +1410,10 @@ async function generateSingleQuestionWithIa({
     const rawText = completion.choices?.[0]?.message?.content?.trim() || '';
     const parsed = parseQuestionJson(rawText);
     const validation = validateGeneratedQuestionStrict(parsed, item.tipo_pregunta);
+    const uniquenessErrors = validation.valid
+      ? validateSingleQuestionUniqueness(validation.question, existingQuestions, item.pregunta_numero)
+      : [];
+    const validationOk = validation.valid && uniquenessErrors.length === 0;
 
     // Log each OpenAI call to metrics (fire-and-forget)
     if (aiJobId && userId) {
@@ -1194,9 +1425,9 @@ async function generateSingleQuestionWithIa({
         model:         'gpt-4o-mini',
         promptVersion: EXAM_PROMPT_VERSION,
         usage:         completion.usage,
-        status:        validation.valid ? 'success' : 'error',
+        status:        validationOk ? 'success' : 'error',
         jsonOk:        Boolean(parsed),
-        validationOk:  validation.valid,
+        validationOk,
         retryNumber:   attempt - 1,
         durationMs:    callDurationMs,
         metadata:      {
@@ -1207,7 +1438,7 @@ async function generateSingleQuestionWithIa({
       }).catch((err) => console.error('[aiMetrics] examenes logAiCall failed:', err?.message));
     }
 
-    if (validation.valid) {
+    if (validationOk) {
       return {
         question: validation.question,
         retryCount: attempt - 1,
@@ -1215,7 +1446,24 @@ async function generateSingleQuestionWithIa({
       };
     }
 
-    retryFeedback = validation.errors.join('; ');
+    const allErrors = validation.valid ? uniquenessErrors : validation.errors;
+    const duplicateError = uniquenessErrors.find((error) => error?.code?.includes('duplicado'));
+    if (duplicateError) {
+      console.warn('[examenes] pregunta duplicada detectada', {
+        jobId,
+        preguntaNumero: item.pregunta_numero,
+        tema: item.tema,
+        intento: attempt,
+        duplicateOf: duplicateError.duplicate_of,
+        similarity: duplicateError.similarity,
+        reason: duplicateError.reason,
+        preguntaComparada: duplicateError.compared_question
+      });
+    }
+
+    retryFeedback = allErrors
+      .map((error) => (typeof error === 'string' ? error : `${error.reason || error.code}${error.similarity != null ? ` (similarity ${error.similarity})` : ''}`))
+      .join('; ');
     if (attempt < EXAM_ITEM_MAX_RETRIES) {
       await updateGenerationJob(supabaseAdmin, jobId, {
         current_step: `Reintentando pregunta ${item.pregunta_numero}...`
@@ -1224,7 +1472,7 @@ async function generateSingleQuestionWithIa({
     await updateGenerationItem(supabaseAdmin, item.id, {
       status: attempt < EXAM_ITEM_MAX_RETRIES ? 'retrying' : 'failed',
       retry_count: attempt,
-      validation_errors: validation.errors,
+      validation_errors: allErrors,
       error_message: retryFeedback || 'La pregunta generada no paso validacion.'
     });
   }
@@ -1292,12 +1540,20 @@ async function processExamGenerationJob(jobId) {
         current_step: `Generando pregunta ${item.pregunta_numero} de ${total}...`
       });
 
+      const acceptedQuestions = (await fetchGenerationItems(client, jobId))
+        .filter((candidate) => candidate.status === 'completed' && candidate.pregunta_ia)
+        .map((candidate) => ({
+          pregunta_numero: candidate.pregunta_numero,
+          question: candidate.pregunta_ia
+        }));
+
       const result = await generateSingleQuestionWithIa({
         contexto,
         item,
         temasContexto,
         totalPreguntas: total,
         jobId,
+        existingQuestions: acceptedQuestions,
         aiJobId,
         userId: job.user_id
       });
@@ -1347,6 +1603,59 @@ async function processExamGenerationJob(jobId) {
 
     const freshJob = await fetchGenerationJob(client, jobId);
     const examenIa = buildFinalExamPayloadFromItems({ job: freshJob, items });
+    const finalUniquenessValidation = validateExamQuestionsUniqueness(examenIa);
+
+    if (!finalUniquenessValidation.valid) {
+      const errorsByQuestion = new Map();
+      for (const error of finalUniquenessValidation.errors) {
+        const preguntaNumero = Number(error?.pregunta_numero || 0);
+        if (!preguntaNumero) continue;
+        errorsByQuestion.set(preguntaNumero, [
+          ...(errorsByQuestion.get(preguntaNumero) || []),
+          error
+        ]);
+        console.warn('[examenes] duplicado detectado en validacion final', {
+          jobId,
+          preguntaNumero,
+          duplicateOf: error?.duplicate_of,
+          similarity: error?.similarity,
+          reason: error?.reason
+        });
+      }
+
+      await Promise.all(items.map((item) => {
+        const itemErrors = errorsByQuestion.get(Number(item.pregunta_numero));
+        if (!itemErrors) return Promise.resolve();
+
+        return updateGenerationItem(client, item.id, {
+          status: 'failed',
+          validation_errors: itemErrors,
+          error_message: 'Pregunta duplicada o demasiado parecida detectada en validacion final.'
+        });
+      }));
+
+      await updateGenerationJob(client, jobId, {
+        status: 'failed',
+        error_message: 'El examen contiene preguntas duplicadas o demasiado parecidas.',
+        current_step: 'No se pudo completar el examen por preguntas duplicadas.',
+        failed_at: new Date().toISOString()
+      });
+
+      if (aiJobId) {
+        failAiJob(aiJobId, {
+          status:           'failed',
+          errorType:        'duplicate_questions',
+          errorMessageSafe: 'El examen contiene preguntas duplicadas o demasiado parecidas.',
+          outputSummary:    {
+            preguntas_generadas: examenIa.preguntas.length,
+            preguntas_fallidas:  finalUniquenessValidation.errors.length
+          }
+        }).catch(() => {});
+      }
+
+      return { ok: false, validationErrors: finalUniquenessValidation.errors };
+    }
+
     const jobBatchId = freshJob.configuracion?.batch_id || null;
     const insertPayload = {
       user_id: freshJob.user_id,

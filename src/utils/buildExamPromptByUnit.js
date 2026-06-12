@@ -121,7 +121,12 @@ REGLAS ESTRICTAS:
 - Genera un examen breve, equilibrado y utilizable en una sola sesion.
 - No agregues tipos de pregunta que no fueron seleccionados por el usuario.
 ${exactCountRule}
-- Distribuye las preguntas entre los temas disponibles de la unidad.
+- Distribuye las preguntas entre los temas disponibles de la unidad de forma equilibrada.
+- No repitas preguntas.
+- No preguntes el mismo concepto con otra redaccion.
+- Cada pregunta debe evaluar un aprendizaje, dato, habilidad o concepto distinto.
+- No dupliques preguntas entre temas, aunque cambie el tema escrito.
+- Evita preguntas genericas repetidas como "Cual es la importancia de...", "Que es...", "Explica..." si no piden una habilidad o evidencia concreta.
 - Si existe planeacion, usala como apoyo para el contenido y nivel de profundidad.
 - En el campo "tipo" usa EXACTAMENTE una de estas claves internas, no uses labels amigables: opcion_multiple, verdadero_falso, respuesta_corta, emparejamiento, pregunta_abierta, calculo_numerico, ordenacion_jerarquizacion.
 - ${usesExactCounts ? 'Usa las cantidades por tipo indicadas abajo como conteo obligatorio.' : 'Usa las referencias por tipo indicadas abajo solo como orientacion pedagogica, no como conteo obligatorio.'}
@@ -129,6 +134,9 @@ ${exactCountRule}
 - Manten consistencia entre el tipo de pregunta y sus campos.
 - La redaccion de cada reactivo debe ser breve y directa para no extender innecesariamente el examen.
 - La explicacion debe ser corta, maximo una frase.
+- En opcion_multiple, cada pregunta debe tener exactamente 4 opciones: A, B, C y D.
+- En opcion_multiple, las opciones no deben repetirse entre si y solo una opcion puede ser correcta.
+- En opcion_multiple, no uses opciones vagas o equivalentes entre si.
 - ${coverageInstruction}
 
 ${usesExactCounts ? 'CANTIDADES SOLICITADAS POR TIPO:' : 'PLAN DE REACTIVOS:'}
