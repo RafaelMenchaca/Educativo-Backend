@@ -105,6 +105,7 @@ const QUESTION_TYPE_OUTPUT_WEIGHT = {
 const QUESTION_SIMILARITY_WARNING_THRESHOLD = 0.82;
 const QUESTION_SIMILARITY_DUPLICATE_THRESHOLD = 0.90;
 const QUESTION_MIN_NORMALIZED_WORDS = 5;
+const EXAM_GENERIC_FAILURE_MESSAGE = 'No se pudo completar la generacion del examen. Intenta nuevamente.';
 const GENERIC_QUESTION_PATTERNS = [
   /^cual es la importancia de\b/,
   /^que importancia tiene\b/,
@@ -554,6 +555,45 @@ function buildQuestionValidationError({
     pregunta,
     compared_question: comparedQuestion
   };
+}
+
+function formatQuestionValidationFeedback(errors) {
+  return (Array.isArray(errors) ? errors : [])
+    .map((error) => {
+      if (typeof error === 'string') return error;
+      const reason = error?.reason || error?.code || 'La pregunta no paso validacion.';
+      const similarity = error?.similarity != null ? ` (similarity ${error.similarity})` : '';
+      return `${reason}${similarity}`;
+    })
+    .filter(Boolean)
+    .join('; ');
+}
+
+function buildRetryFeedbackForPrompt(errors, attempt, maxRetries) {
+  const list = Array.isArray(errors) ? errors : [];
+  const hasDuplicate = list.some((error) => String(error?.code || '').includes('duplicado'));
+  const hasGeneric = list.some((error) => error?.code === 'pregunta_generica_o_corta');
+  const isFallback = attempt >= maxRetries;
+
+  const parts = [];
+
+  if (hasDuplicate) {
+    parts.push('La pregunta anterior fue rechazada porque era demasiado parecida a una pregunta ya aceptada. Genera una pregunta completamente diferente. No evalues el mismo concepto ni uses una redaccion equivalente. Debe evaluar otro subtema, habilidad, aplicacion, caso o nivel cognitivo del tema seleccionado.');
+  }
+
+  if (hasGeneric) {
+    parts.push('La pregunta anterior fue rechazada por ser demasiado corta o generica. Hazla mas especifica, verificable y ligada a una evidencia concreta del tema.');
+  }
+
+  if (isFallback) {
+    parts.push('Este es un intento de fallback: cambia el enfoque cognitivo, usa un subconcepto distinto del mismo tema y evita cualquier redaccion generica.');
+  }
+
+  if (parts.length === 0) {
+    parts.push(formatQuestionValidationFeedback(list) || 'La pregunta anterior no cumplio la validacion requerida.');
+  }
+
+  return parts.join(' ');
 }
 
 export function isDuplicateQuestion(newQuestion, existingQuestions) {
@@ -1110,6 +1150,38 @@ function validateQuestionListPayload(payload, selectedTypes) {
   return preguntas.map((question, index) => validateQuestion(question, index, selectedTypesSet));
 }
 
+function selectRelevantExistingQuestionsForPrompt(existingQuestions, item, limit = 12) {
+  const list = Array.isArray(existingQuestions) ? existingQuestions : [];
+  const normalizedTema = normalizeLooseKey(item?.tema || '');
+  const sameTopic = [];
+  const recent = [];
+
+  for (const entry of list) {
+    const question = entry?.question || entry?.pregunta_ia || entry;
+    const entryTema = normalizeLooseKey(question?.tema || entry?.tema || '');
+    if (normalizedTema && entryTema && entryTema === normalizedTema) {
+      sameTopic.push(entry);
+    }
+  }
+
+  for (let index = list.length - 1; index >= 0 && recent.length < limit; index -= 1) {
+    recent.push(list[index]);
+  }
+
+  const selected = [];
+  const seen = new Set();
+
+  for (const entry of [...sameTopic, ...recent]) {
+    const key = entry?.pregunta_numero || entry?.index || extractQuestionText(entry?.question || entry?.pregunta_ia || entry);
+    if (!key || seen.has(String(key))) continue;
+    seen.add(String(key));
+    selected.push(entry);
+    if (selected.length >= limit) break;
+  }
+
+  return selected.sort((a, b) => Number(a?.pregunta_numero || a?.index || 0) - Number(b?.pregunta_numero || b?.index || 0));
+}
+
 function buildExamQuestionItems({ temas, questionCounts }) {
   const counts = questionCounts && typeof questionCounts === 'object' ? questionCounts : {};
   const entries = Object.entries(counts).filter(([, count]) => Number(count || 0) > 0);
@@ -1271,7 +1343,8 @@ function buildSingleQuestionPrompt({
     .filter((tema) => !item.tema_id || tema.tema_id === item.tema_id)
     .slice(0, 1);
   const contextForPrompt = topicContext.length > 0 ? topicContext : (Array.isArray(temasContexto) ? temasContexto.slice(0, 3) : []);
-  const existingQuestionsBlock = (Array.isArray(existingQuestions) ? existingQuestions : [])
+  const relevantExistingQuestions = selectRelevantExistingQuestionsForPrompt(existingQuestions, item);
+  const existingQuestionsBlock = relevantExistingQuestions
     .map((entry) => summarizeQuestionPrompt(entry?.question || entry?.pregunta_ia || entry))
     .join('\n');
 
@@ -1388,8 +1461,11 @@ async function generateSingleQuestionWithIa({
   userId = null
 }) {
   let retryFeedback = '';
+  let lastValidationErrors = [];
+  const configuredMaxRetries = Number(item?.max_retries || EXAM_ITEM_MAX_RETRIES);
+  const totalAttempts = Math.max(configuredMaxRetries, EXAM_ITEM_MAX_RETRIES) + 1;
 
-  for (let attempt = 1; attempt <= EXAM_ITEM_MAX_RETRIES; attempt += 1) {
+  for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
     const prompt = buildSingleQuestionPrompt({
       contexto,
       item,
@@ -1447,37 +1523,43 @@ async function generateSingleQuestionWithIa({
     }
 
     const allErrors = validation.valid ? uniquenessErrors : validation.errors;
+    lastValidationErrors = allErrors;
     const duplicateError = uniquenessErrors.find((error) => error?.code?.includes('duplicado'));
     if (duplicateError) {
-      console.warn('[examenes] pregunta duplicada detectada', {
+      console.warn('[examenes] pregunta duplicada rechazada, reintentando', {
         jobId,
         preguntaNumero: item.pregunta_numero,
         tema: item.tema,
-        intento: attempt,
+        retryCount: attempt,
         duplicateOf: duplicateError.duplicate_of,
         similarity: duplicateError.similarity,
-        reason: duplicateError.reason,
-        preguntaComparada: duplicateError.compared_question
+        reason: duplicateError.reason
       });
     }
 
-    retryFeedback = allErrors
-      .map((error) => (typeof error === 'string' ? error : `${error.reason || error.code}${error.similarity != null ? ` (similarity ${error.similarity})` : ''}`))
-      .join('; ');
-    if (attempt < EXAM_ITEM_MAX_RETRIES) {
+    retryFeedback = buildRetryFeedbackForPrompt(allErrors, attempt, totalAttempts);
+    if (attempt < totalAttempts) {
       await updateGenerationJob(supabaseAdmin, jobId, {
         current_step: `Reintentando pregunta ${item.pregunta_numero}...`
       });
     }
     await updateGenerationItem(supabaseAdmin, item.id, {
-      status: attempt < EXAM_ITEM_MAX_RETRIES ? 'retrying' : 'failed',
+      status: attempt < totalAttempts ? 'retrying' : 'failed',
       retry_count: attempt,
       validation_errors: allErrors,
-      error_message: retryFeedback || 'La pregunta generada no paso validacion.'
+      error_message: attempt < totalAttempts ? null : EXAM_GENERIC_FAILURE_MESSAGE
     });
   }
 
-  throw buildHttpError(502, retryFeedback || 'No se pudo generar una pregunta valida.');
+  console.error('[examenes] no se pudo generar pregunta unica despues de reintentos', {
+    jobId,
+    preguntaNumero: item.pregunta_numero,
+    tema: item.tema,
+    retryCount: totalAttempts,
+    validationErrors: lastValidationErrors
+  });
+
+  throw buildHttpError(502, EXAM_GENERIC_FAILURE_MESSAGE);
 }
 
 function buildFinalExamPayloadFromItems({ job, items }) {
@@ -1494,6 +1576,27 @@ function buildFinalExamPayloadFromItems({ job, items }) {
     },
     instrucciones_generales: job.instrucciones || 'Lee cuidadosamente cada pregunta antes de responder.'
   };
+}
+
+function buildAcceptedQuestionsFromItems(items, excludePreguntaNumero = null) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => (
+      item.status === 'completed'
+      && item.pregunta_ia
+      && Number(item.pregunta_numero) !== Number(excludePreguntaNumero)
+    ))
+    .map((item) => ({
+      pregunta_numero: item.pregunta_numero,
+      question: item.pregunta_ia
+    }));
+}
+
+function getProblemQuestionNumbers(validationErrors) {
+  return [...new Set(
+    (Array.isArray(validationErrors) ? validationErrors : [])
+      .map((error) => Number(error?.pregunta_numero || 0))
+      .filter((value) => value > 0)
+  )];
 }
 
 async function processExamGenerationJob(jobId) {
@@ -1540,12 +1643,7 @@ async function processExamGenerationJob(jobId) {
         current_step: `Generando pregunta ${item.pregunta_numero} de ${total}...`
       });
 
-      const acceptedQuestions = (await fetchGenerationItems(client, jobId))
-        .filter((candidate) => candidate.status === 'completed' && candidate.pregunta_ia)
-        .map((candidate) => ({
-          pregunta_numero: candidate.pregunta_numero,
-          question: candidate.pregunta_ia
-        }));
+      const acceptedQuestions = buildAcceptedQuestionsFromItems(await fetchGenerationItems(client, jobId));
 
       const result = await generateSingleQuestionWithIa({
         contexto,
@@ -1583,7 +1681,7 @@ async function processExamGenerationJob(jobId) {
       ));
       await updateGenerationJob(client, jobId, {
         status: 'failed',
-        error_message: 'Una o mas preguntas no se generaron correctamente.',
+        error_message: EXAM_GENERIC_FAILURE_MESSAGE,
         current_step: 'No se pudo completar el examen.',
         failed_at: new Date().toISOString()
       });
@@ -1591,7 +1689,7 @@ async function processExamGenerationJob(jobId) {
         failAiJob(aiJobId, {
           status:           'partial',
           errorType:        'validation_failed',
-          errorMessageSafe: 'Una o mas preguntas no se generaron correctamente.',
+          errorMessageSafe: EXAM_GENERIC_FAILURE_MESSAGE,
           outputSummary:    {
             preguntas_generadas: items.length - failedItems.length,
             preguntas_fallidas:  failedItems.length
@@ -1602,8 +1700,62 @@ async function processExamGenerationJob(jobId) {
     }
 
     const freshJob = await fetchGenerationJob(client, jobId);
-    const examenIa = buildFinalExamPayloadFromItems({ job: freshJob, items });
-    const finalUniquenessValidation = validateExamQuestionsUniqueness(examenIa);
+    let examenIa = buildFinalExamPayloadFromItems({ job: freshJob, items });
+    let finalUniquenessValidation = validateExamQuestionsUniqueness(examenIa);
+
+    if (!finalUniquenessValidation.valid) {
+      const problemQuestionNumbers = getProblemQuestionNumbers(finalUniquenessValidation.errors);
+
+      for (const error of finalUniquenessValidation.errors) {
+        console.warn('[examenes] duplicado detectado en validacion final, regenerando pregunta', {
+          jobId,
+          preguntaNumero: error?.pregunta_numero,
+          duplicateOf: error?.duplicate_of,
+          similarity: error?.similarity,
+          reason: error?.reason
+        });
+      }
+
+      for (const preguntaNumero of problemQuestionNumbers) {
+        const item = items.find((candidate) => Number(candidate.pregunta_numero) === Number(preguntaNumero));
+        if (!item) continue;
+
+        await updateGenerationItem(client, item.id, {
+          status: 'processing',
+          validation_errors: finalUniquenessValidation.errors.filter((error) => Number(error?.pregunta_numero) === Number(preguntaNumero)),
+          error_message: null
+        });
+        await updateGenerationJob(client, jobId, {
+          status: 'processing',
+          current_step: `Ajustando pregunta ${preguntaNumero}...`
+        });
+
+        const latestItems = await fetchGenerationItems(client, jobId);
+        const acceptedQuestions = buildAcceptedQuestionsFromItems(latestItems, preguntaNumero);
+        const result = await generateSingleQuestionWithIa({
+          contexto,
+          item,
+          temasContexto,
+          totalPreguntas: total,
+          jobId,
+          existingQuestions: acceptedQuestions,
+          aiJobId,
+          userId: job.user_id
+        });
+
+        await updateGenerationItem(client, item.id, {
+          status: 'completed',
+          pregunta_ia: result.question,
+          validation_errors: [],
+          retry_count: Number(item.retry_count || 0) + Number(result.retryCount || 0) + 1,
+          error_message: null
+        });
+      }
+
+      items = await fetchGenerationItems(client, jobId);
+      examenIa = buildFinalExamPayloadFromItems({ job: freshJob, items });
+      finalUniquenessValidation = validateExamQuestionsUniqueness(examenIa);
+    }
 
     if (!finalUniquenessValidation.valid) {
       const errorsByQuestion = new Map();
@@ -1614,13 +1766,6 @@ async function processExamGenerationJob(jobId) {
           ...(errorsByQuestion.get(preguntaNumero) || []),
           error
         ]);
-        console.warn('[examenes] duplicado detectado en validacion final', {
-          jobId,
-          preguntaNumero,
-          duplicateOf: error?.duplicate_of,
-          similarity: error?.similarity,
-          reason: error?.reason
-        });
       }
 
       await Promise.all(items.map((item) => {
@@ -1630,14 +1775,14 @@ async function processExamGenerationJob(jobId) {
         return updateGenerationItem(client, item.id, {
           status: 'failed',
           validation_errors: itemErrors,
-          error_message: 'Pregunta duplicada o demasiado parecida detectada en validacion final.'
+          error_message: EXAM_GENERIC_FAILURE_MESSAGE
         });
       }));
 
       await updateGenerationJob(client, jobId, {
         status: 'failed',
-        error_message: 'El examen contiene preguntas duplicadas o demasiado parecidas.',
-        current_step: 'No se pudo completar el examen por preguntas duplicadas.',
+        error_message: EXAM_GENERIC_FAILURE_MESSAGE,
+        current_step: 'No se pudo completar el examen.',
         failed_at: new Date().toISOString()
       });
 
@@ -1645,7 +1790,7 @@ async function processExamGenerationJob(jobId) {
         failAiJob(aiJobId, {
           status:           'failed',
           errorType:        'duplicate_questions',
-          errorMessageSafe: 'El examen contiene preguntas duplicadas o demasiado parecidas.',
+          errorMessageSafe: EXAM_GENERIC_FAILURE_MESSAGE,
           outputSummary:    {
             preguntas_generadas: examenIa.preguntas.length,
             preguntas_fallidas:  finalUniquenessValidation.errors.length
@@ -1715,7 +1860,7 @@ async function processExamGenerationJob(jobId) {
 
     await updateGenerationJob(client, jobId, {
       status: 'failed',
-      error_message: error?.message || 'No se pudo completar el examen.',
+      error_message: EXAM_GENERIC_FAILURE_MESSAGE,
       current_step: 'No se pudo completar el examen.',
       failed_at: new Date().toISOString()
     }).catch(() => {});
@@ -1723,7 +1868,7 @@ async function processExamGenerationJob(jobId) {
     if (aiJobId) {
       failAiJob(aiJobId, {
         errorType:        error?.status ? `http_${error.status}` : 'generation_error',
-        errorMessageSafe: error?.message || 'No se pudo completar el examen.'
+        errorMessageSafe: EXAM_GENERIC_FAILURE_MESSAGE
       }).catch(() => {});
     }
 
@@ -2188,7 +2333,9 @@ export async function obtenerEstadoGeneracionExamen({
     progress_total: Number(job.progress_total || 0),
     current_step: job.current_step || '',
     examen_id: job.examen_id || null,
-    error_message: job.error_message || null
+    error_message: job.status === 'failed'
+      ? EXAM_GENERIC_FAILURE_MESSAGE
+      : (job.error_message || null)
   };
 }
 
