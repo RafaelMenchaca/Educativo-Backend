@@ -18,6 +18,22 @@ const EXAM_GENERATION_ATTEMPTS = 2;
 const EXAM_RETRY_TOKEN_STEP = 800;
 const EXAM_ATTEMPT_TIMEOUT_MS = 90000;
 const EXAM_ITEM_MAX_RETRIES = 3;
+// Enfoques cognitivos que se rotan en los intentos de fallback para forzar
+// preguntas distintas cuando la IA insiste en repetir el mismo concepto.
+const QUESTION_COGNITIVE_FOCUSES = [
+  'aplicacion practica del concepto',
+  'analisis critico de una situacion',
+  'caso practico o escenario concreto',
+  'comparacion o contraste entre dos elementos',
+  'relacion causa-consecuencia',
+  'interpretacion de informacion o datos',
+  'resolucion de un problema concreto',
+  'clasificacion o categorizacion'
+];
+// En los ultimos intentos de fallback se relaja la deteccion de "parecido"
+// (warning) y solo se rechazan duplicados reales, para garantizar que el
+// examen se complete en vez de fallar por una pregunta limitrofe.
+const EXAM_FALLBACK_RELAX_TAIL = 3;
 const VALID_TIPOS_PREGUNTA = new Set([
   'opcion_multiple',
   'verdadero_falso',
@@ -654,7 +670,11 @@ export function isDuplicateQuestion(newQuestion, existingQuestions) {
   };
 }
 
-function validateSingleQuestionUniqueness(question, existingQuestions, preguntaNumero = null) {
+function validateSingleQuestionUniqueness(question, existingQuestions, preguntaNumero = null, options = {}) {
+  // strict (por defecto) rechaza duplicados reales Y preguntas en rango de
+  // advertencia (muy parecidas). Con strict=false solo se rechazan duplicados
+  // reales, lo que se usa en los fallbacks finales para no quedarse atascado.
+  const strict = options.strict !== false;
   const pregunta = extractQuestionText(question);
   const errors = [];
 
@@ -668,7 +688,8 @@ function validateSingleQuestionUniqueness(question, existingQuestions, preguntaN
   }
 
   const duplicate = isDuplicateQuestion(question, existingQuestions);
-  if (duplicate.duplicate || duplicate.warning) {
+  const rejectAsDuplicate = duplicate.duplicate || (strict && duplicate.warning);
+  if (rejectAsDuplicate) {
     errors.push(buildQuestionValidationError({
       code: duplicate.reason,
       reason: duplicate.duplicate
@@ -694,7 +715,10 @@ export function validateExamQuestionsUniqueness(examOrQuestions) {
 
   questions.forEach((question, index) => {
     const preguntaNumero = index + 1;
-    const questionErrors = validateSingleQuestionUniqueness(question, accepted, preguntaNumero);
+    // La validacion final solo bloquea duplicados reales: las preguntas
+    // limitrofes (warning) ya fueron filtradas durante la generacion estricta
+    // por pregunta, y aceptarlas aqui evita ciclos de regeneracion infinitos.
+    const questionErrors = validateSingleQuestionUniqueness(question, accepted, preguntaNumero, { strict: false });
 
     if (questionErrors.length > 0) {
       errors.push(...questionErrors);
@@ -1336,7 +1360,9 @@ function buildSingleQuestionPrompt({
   temasContexto,
   totalPreguntas,
   existingQuestions,
-  retryFeedback
+  retryFeedback,
+  cognitiveFocus = '',
+  isFallback = false
 }) {
   const type = item.tipo_pregunta;
   const topicContext = (Array.isArray(temasContexto) ? temasContexto : [])
@@ -1383,6 +1409,8 @@ INSTRUCCIONES OBLIGATORIAS:
 - Si no puedes generar una pregunta valida, genera otra pregunta diferente.
 - Para tipos que no usan opciones, devuelve "opciones": [].
 - Para tipos que no usan elementos, devuelve "elementos": [].
+${cognitiveFocus ? `- Enfoca esta pregunta especificamente en: ${cognitiveFocus}. Usa un angulo distinto al de las preguntas ya aceptadas.` : ''}
+${isFallback ? '- Las preguntas anteriores para este reactivo salieron repetidas. Cambia de subtema, de evidencia y de enfoque cognitivo. Crea una pregunta claramente diferente, mas especifica y ligada a un caso o aplicacion concreta.' : ''}
 ${retryFeedback ? `- Corrige el intento anterior: ${retryFeedback}` : ''}
 
 PREGUNTAS YA ACEPTADAS QUE NO PUEDES REPETIR NI IMITAR:
@@ -1450,6 +1478,83 @@ async function fetchGenerationItems(client, jobId) {
   return data || [];
 }
 
+function countAcceptedQuestionsByTopic(existingQuestions) {
+  const counts = new Map();
+  for (const entry of Array.isArray(existingQuestions) ? existingQuestions : []) {
+    const question = entry?.question || entry?.pregunta_ia || entry;
+    const key = normalizeLooseKey(question?.tema || entry?.tema || '');
+    if (!key) continue;
+    counts.set(key, Number(counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
+// Construye el plan de intentos de fallback cuando los reintentos normales no
+// lograron una pregunta valida/unica. Escala de menos a mas agresivo:
+//   1) mismo tema y tipo, variando el enfoque cognitivo,
+//   2) otros temas disponibles (priorizando los menos usados), mismo tipo,
+//   3) otros tipos permitidos como ultimo recurso.
+// Cada plan se sigue validando contra las preguntas ya aceptadas.
+function buildExamFallbackPlans({ item, allowedTypes, availableTopics, existingQuestions }) {
+  const focuses = QUESTION_COGNITIVE_FOCUSES;
+  const usageByTopic = countAcceptedQuestionsByTopic(existingQuestions);
+  const topics = (Array.isArray(availableTopics) ? availableTopics : [])
+    .map((topic) => ({
+      tema_id: topic?.tema_id ?? topic?.id ?? null,
+      tema: normalizeString(topic?.tema || topic?.titulo || '')
+    }))
+    .filter((topic) => topic.tema);
+  const otherTopics = topics
+    .filter((topic) => String(topic.tema_id ?? '') !== String(item.tema_id ?? '') || topic.tema !== item.tema)
+    .sort((a, b) => (
+      Number(usageByTopic.get(normalizeLooseKey(a.tema)) || 0)
+      - Number(usageByTopic.get(normalizeLooseKey(b.tema)) || 0)
+    ));
+  const otherTypes = (Array.isArray(allowedTypes) ? allowedTypes : [])
+    .map((tipo) => normalizeQuestionTypeValue(tipo))
+    .filter((tipo) => tipo && tipo !== item.tipo_pregunta);
+
+  const plans = [];
+
+  // Stage 1: mismo tema/tipo, distintos enfoques cognitivos.
+  focuses.forEach((focus) => {
+    plans.push({
+      tema: item.tema,
+      tema_id: item.tema_id,
+      tipo_pregunta: item.tipo_pregunta,
+      cognitiveFocus: focus
+    });
+  });
+
+  // Stage 2: otros temas disponibles (menos usados primero), mismo tipo.
+  otherTopics.forEach((topic, index) => {
+    plans.push({
+      tema: topic.tema,
+      tema_id: topic.tema_id,
+      tipo_pregunta: item.tipo_pregunta,
+      cognitiveFocus: focuses[index % focuses.length]
+    });
+  });
+
+  // Stage 3: otros tipos permitidos, tema original (ultimo recurso).
+  otherTypes.forEach((tipo, index) => {
+    plans.push({
+      tema: item.tema,
+      tema_id: item.tema_id,
+      tipo_pregunta: tipo,
+      cognitiveFocus: focuses[index % focuses.length]
+    });
+  });
+
+  return plans;
+}
+
+// Genera UNA pregunta valida y unica para un reactivo del examen.
+// Nunca hace throw por duplicados o validacion de contenido: esos casos son
+// recuperables y se manejan con reintentos + fallbacks. Solo devuelve
+// { ok: false } cuando se agotan TODAS las estrategias. Los errores reales de
+// infraestructura (OpenAI/timeout) se reintentan y, si todas las llamadas
+// fallan, tambien terminan como { ok: false } con su detalle en logs.
 async function generateSingleQuestionWithIa({
   contexto,
   item,
@@ -1457,37 +1562,64 @@ async function generateSingleQuestionWithIa({
   totalPreguntas,
   jobId,
   existingQuestions = [],
+  allowedTypes = [],
+  availableTopics = [],
   aiJobId = null,
   userId = null
 }) {
   let retryFeedback = '';
   let lastValidationErrors = [];
+  let attemptIndex = 0;
   const configuredMaxRetries = Number(item?.max_retries || EXAM_ITEM_MAX_RETRIES);
-  const totalAttempts = Math.max(configuredMaxRetries, EXAM_ITEM_MAX_RETRIES) + 1;
+  const normalRetries = Math.max(configuredMaxRetries, EXAM_ITEM_MAX_RETRIES);
+  const fallbackPlans = buildExamFallbackPlans({ item, allowedTypes, availableTopics, existingQuestions });
 
-  for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
+  const runAttempt = async ({ effectiveItem, cognitiveFocus, isFallback, strictUniqueness }) => {
+    attemptIndex += 1;
+    const attemptNumber = attemptIndex;
     const prompt = buildSingleQuestionPrompt({
       contexto,
-      item,
+      item: effectiveItem,
       temasContexto,
       totalPreguntas,
       existingQuestions,
-      retryFeedback
+      retryFeedback,
+      cognitiveFocus,
+      isFallback
     });
 
+    let completion;
     const callStart = Date.now();
-    const completion = await requestExamCompletion({
-      prompt,
-      maxTokens: EXAM_SINGLE_QUESTION_MAX_TOKENS,
-      temperature: attempt === 1 ? 0.35 : 0.2
-    });
+    try {
+      completion = await requestExamCompletion({
+        prompt,
+        maxTokens: EXAM_SINGLE_QUESTION_MAX_TOKENS,
+        temperature: attemptNumber === 1 ? 0.35 : (isFallback ? 0.6 : 0.25)
+      });
+    } catch (apiError) {
+      // Error transitorio de OpenAI/timeout: lo tratamos como recuperable y
+      // dejamos que el siguiente intento/fallback lo reintente.
+      console.warn('[examenes] error al solicitar pregunta a la IA, reintentando', {
+        jobId,
+        preguntaNumero: item.pregunta_numero,
+        attempt: attemptNumber,
+        isFallback,
+        motivo: apiError?.message || 'Error desconocido de OpenAI'
+      });
+      lastValidationErrors = [buildQuestionValidationError({
+        code: 'error_api',
+        reason: apiError?.message || 'Error al solicitar la pregunta a la IA.',
+        preguntaNumero: item.pregunta_numero
+      })];
+      return { ok: false, apiError };
+    }
     const callDurationMs = Date.now() - callStart;
 
     const rawText = completion.choices?.[0]?.message?.content?.trim() || '';
     const parsed = parseQuestionJson(rawText);
-    const validation = validateGeneratedQuestionStrict(parsed, item.tipo_pregunta);
+    const validation = validateGeneratedQuestionStrict(parsed, effectiveItem.tipo_pregunta);
     const uniquenessErrors = validation.valid
-      ? validateSingleQuestionUniqueness(validation.question, existingQuestions, item.pregunta_numero)
+      ? validateSingleQuestionUniqueness(validation.question, existingQuestions, item.pregunta_numero, { strict: strictUniqueness })
       : [];
     const validationOk = validation.valid && uniquenessErrors.length === 0;
 
@@ -1497,69 +1629,127 @@ async function generateSingleQuestionWithIa({
         jobId:         aiJobId,
         userId,
         artifactType:  'examen',
-        callPurpose:   `question_${item.tipo_pregunta}`,
+        callPurpose:   `question_${effectiveItem.tipo_pregunta}`,
         model:         'gpt-4o-mini',
         promptVersion: EXAM_PROMPT_VERSION,
         usage:         completion.usage,
         status:        validationOk ? 'success' : 'error',
         jsonOk:        Boolean(parsed),
         validationOk,
-        retryNumber:   attempt - 1,
+        retryNumber:   attemptNumber - 1,
         durationMs:    callDurationMs,
         metadata:      {
           pregunta_numero: item.pregunta_numero,
-          tipo_pregunta:   item.tipo_pregunta,
+          tipo_pregunta:   effectiveItem.tipo_pregunta,
+          is_fallback:     isFallback,
           finish_reason:   completion.choices?.[0]?.finish_reason || null
         }
       }).catch((err) => console.error('[aiMetrics] examenes logAiCall failed:', err?.message));
     }
 
     if (validationOk) {
-      return {
-        question: validation.question,
-        retryCount: attempt - 1,
-        validationErrors: []
-      };
+      console.info('[examenes] pregunta aceptada', {
+        jobId,
+        preguntaNumero: item.pregunta_numero,
+        tema: effectiveItem.tema,
+        tipoPregunta: effectiveItem.tipo_pregunta,
+        attempt: attemptNumber,
+        usedFallback: isFallback
+      });
+      return { ok: true, question: validation.question };
     }
 
     const allErrors = validation.valid ? uniquenessErrors : validation.errors;
     lastValidationErrors = allErrors;
     const duplicateError = uniquenessErrors.find((error) => error?.code?.includes('duplicado'));
     if (duplicateError) {
-      console.warn('[examenes] pregunta duplicada rechazada, reintentando', {
+      console.warn('[examenes] pregunta rechazada, reintentando', {
         jobId,
         preguntaNumero: item.pregunta_numero,
-        tema: item.tema,
-        retryCount: attempt,
-        duplicateOf: duplicateError.duplicate_of,
+        tema: effectiveItem.tema,
+        tipoPregunta: effectiveItem.tipo_pregunta,
+        attempt: attemptNumber,
+        isFallback,
+        reason: duplicateError.reason,
         similarity: duplicateError.similarity,
-        reason: duplicateError.reason
+        duplicateOf: duplicateError.duplicate_of
       });
     }
 
-    retryFeedback = buildRetryFeedbackForPrompt(allErrors, attempt, totalAttempts);
-    if (attempt < totalAttempts) {
-      await updateGenerationJob(supabaseAdmin, jobId, {
-        current_step: `Reintentando pregunta ${item.pregunta_numero}...`
-      });
-    }
-    await updateGenerationItem(supabaseAdmin, item.id, {
-      status: attempt < totalAttempts ? 'retrying' : 'failed',
-      retry_count: attempt,
-      validation_errors: allErrors,
-      error_message: attempt < totalAttempts ? null : EXAM_GENERIC_FAILURE_MESSAGE
+    retryFeedback = buildRetryFeedbackForPrompt(allErrors, attemptNumber, normalRetries);
+    return { ok: false, errors: allErrors };
+  };
+
+  // Fase 1: reintentos normales con el tema/tipo solicitados.
+  for (let i = 0; i <= normalRetries; i += 1) {
+    const result = await runAttempt({
+      effectiveItem: item,
+      cognitiveFocus: '',
+      isFallback: false,
+      strictUniqueness: true
     });
+
+    if (result.ok) {
+      return { ok: true, question: result.question, retryCount: attemptIndex - 1, validationErrors: [], usedFallback: false };
+    }
+
+    await updateGenerationJob(supabaseAdmin, jobId, {
+      current_step: `Reintentando pregunta ${item.pregunta_numero}...`
+    }).catch(() => {});
+    await updateGenerationItem(supabaseAdmin, item.id, {
+      status: 'retrying',
+      retry_count: attemptIndex,
+      validation_errors: lastValidationErrors,
+      error_message: null
+    }).catch(() => {});
   }
 
-  console.error('[examenes] no se pudo generar pregunta unica despues de reintentos', {
+  // Fase 2: fallbacks (enfoque cognitivo -> otro tema -> otro tipo).
+  for (let p = 0; p < fallbackPlans.length; p += 1) {
+    const plan = fallbackPlans[p];
+    const effectiveItem = {
+      ...item,
+      tema: plan.tema || item.tema,
+      tema_id: plan.tema_id ?? item.tema_id,
+      tipo_pregunta: plan.tipo_pregunta || item.tipo_pregunta
+    };
+    // En los ultimos planes relajamos la unicidad (solo duplicados reales) para
+    // garantizar que el examen se complete en vez de fallar por una pregunta
+    // limitrofe.
+    const strictUniqueness = p < (fallbackPlans.length - EXAM_FALLBACK_RELAX_TAIL);
+
+    const result = await runAttempt({
+      effectiveItem,
+      cognitiveFocus: plan.cognitiveFocus,
+      isFallback: true,
+      strictUniqueness
+    });
+
+    if (result.ok) {
+      return { ok: true, question: result.question, retryCount: attemptIndex - 1, validationErrors: [], usedFallback: true };
+    }
+
+    await updateGenerationJob(supabaseAdmin, jobId, {
+      current_step: `Buscando otra pregunta para el reactivo ${item.pregunta_numero}...`
+    }).catch(() => {});
+    await updateGenerationItem(supabaseAdmin, item.id, {
+      status: 'retrying',
+      retry_count: attemptIndex,
+      validation_errors: lastValidationErrors,
+      error_message: null
+    }).catch(() => {});
+  }
+
+  console.error('[examenes] no se pudo generar pregunta unica despues de reintentos y fallbacks', {
     jobId,
     preguntaNumero: item.pregunta_numero,
     tema: item.tema,
-    retryCount: totalAttempts,
+    tipoPregunta: item.tipo_pregunta,
+    totalAttempts: attemptIndex,
     validationErrors: lastValidationErrors
   });
 
-  throw buildHttpError(502, EXAM_GENERIC_FAILURE_MESSAGE);
+  return { ok: false, question: null, retryCount: attemptIndex, validationErrors: lastValidationErrors };
 }
 
 function buildFinalExamPayloadFromItems({ job, items }) {
@@ -1607,6 +1797,13 @@ async function processExamGenerationJob(jobId) {
   const temasContexto = buildPromptTopicsContext(temas);
   let items = await fetchGenerationItems(client, jobId);
   const total = Number(job.progress_total || items.length || 0);
+  // Tipos permitidos y temas seleccionados, usados por los fallbacks por
+  // pregunta (cambiar de tema o de tipo cuando una pregunta sale duplicada).
+  const allowedTypes = Array.isArray(job.tipos_pregunta) ? job.tipos_pregunta : [];
+  const availableTopics = [...new Map(
+    items
+      .map((it) => [String(it.tema_id ?? it.tema ?? ''), { tema_id: it.tema_id ?? null, tema: it.tema || '' }])
+  ).values()].filter((topic) => topic.tema);
 
   // Create AI metrics job for this exam generation
   let aiJobId = null;
@@ -1652,9 +1849,24 @@ async function processExamGenerationJob(jobId) {
         totalPreguntas: total,
         jobId,
         existingQuestions: acceptedQuestions,
+        allowedTypes,
+        availableTopics,
         aiJobId,
         userId: job.user_id
       });
+
+      // Un duplicado/validacion recuperable NO cancela el examen: la pregunta
+      // se marca como failed y se continua. El job solo fallara al final si
+      // realmente quedaron reactivos sin completar.
+      if (!result.ok) {
+        await updateGenerationItem(client, item.id, {
+          status: 'failed',
+          validation_errors: Array.isArray(result.validationErrors) ? result.validationErrors : [],
+          retry_count: result.retryCount,
+          error_message: EXAM_GENERIC_FAILURE_MESSAGE
+        });
+        continue;
+      }
 
       await updateGenerationItem(client, item.id, {
         status: 'completed',
@@ -1679,6 +1891,15 @@ async function processExamGenerationJob(jobId) {
       const validationErrors = failedItems.flatMap((item) => (
         Array.isArray(item.validation_errors) ? item.validation_errors : []
       ));
+      // Solo se llega aqui si, tras reintentos + fallbacks por pregunta, algun
+      // reactivo quedo realmente sin completar (caso extremo / infra).
+      console.error('[examenes] fallo al completar examen', {
+        jobId,
+        requestedTotal: total,
+        generatedTotal: items.length - failedItems.length,
+        failedQuestions: failedItems.map((item) => item.pregunta_numero),
+        errors: validationErrors
+      });
       await updateGenerationJob(client, jobId, {
         status: 'failed',
         error_message: EXAM_GENERIC_FAILURE_MESSAGE,
@@ -1739,9 +1960,24 @@ async function processExamGenerationJob(jobId) {
           totalPreguntas: total,
           jobId,
           existingQuestions: acceptedQuestions,
+          allowedTypes,
+          availableTopics,
           aiJobId,
           userId: job.user_id
         });
+
+        if (!result.ok) {
+          // No se pudo reemplazar la pregunta duplicada ni con fallbacks. Se
+          // marca el reactivo como failed; el bloque de validacion final
+          // posterior decidira si el examen completo falla.
+          await updateGenerationItem(client, item.id, {
+            status: 'failed',
+            validation_errors: Array.isArray(result.validationErrors) ? result.validationErrors : [],
+            retry_count: Number(item.retry_count || 0) + Number(result.retryCount || 0) + 1,
+            error_message: EXAM_GENERIC_FAILURE_MESSAGE
+          });
+          continue;
+        }
 
         await updateGenerationItem(client, item.id, {
           status: 'completed',
