@@ -32,6 +32,7 @@ function parseGeneratePayload(body) {
     ? body.cantidades_pregunta
     : null;
   const temaIds = Array.isArray(body?.tema_ids) && body.tema_ids.length > 0 ? body.tema_ids : null;
+  const planeacionIds = Array.isArray(body?.planeacion_ids) && body.planeacion_ids.length > 0 ? body.planeacion_ids : null;
   const batchId = typeof body?.batch_id === 'string' && body.batch_id.trim() ? body.batch_id.trim() : null;
 
   if (!unidadId || tiposPregunta.length === 0) {
@@ -43,6 +44,7 @@ function parseGeneratePayload(body) {
     tiposPregunta,
     cantidadesPregunta,
     temaIds,
+    planeacionIds,
     batchId
   };
 }
@@ -56,6 +58,16 @@ export async function postGenerateExamen(req, res) {
     });
   }
 
+  console.info('[examenes] generar examen recibido', {
+    userId: req.user?.id,
+    unidadId: payload.unidadId,
+    totalTemas: Array.isArray(payload.temaIds) ? payload.temaIds.length : 0,
+    totalPlaneaciones: Array.isArray(payload.planeacionIds) ? payload.planeacionIds.length : 0,
+    temaIds: payload.temaIds || [],
+    planeacionIds: payload.planeacionIds || [],
+    batchId: payload.batchId || null
+  });
+
   try {
     const job = await generarExamenUnidad({
       supabaseClient: userClientFromReq(req),
@@ -64,6 +76,7 @@ export async function postGenerateExamen(req, res) {
       tiposPregunta: payload.tiposPregunta,
       cantidadesPregunta: payload.cantidadesPregunta,
       temaIds: payload.temaIds,
+      planeacionIds: payload.planeacionIds,
       batchId: payload.batchId
     });
 
