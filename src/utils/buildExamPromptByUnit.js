@@ -117,6 +117,7 @@ Devuelve EXCLUSIVAMENTE un objeto JSON valido con esta estructura base:
 
 REGLAS ESTRICTAS:
 - No escribas texto fuera del JSON.
+- Genera el examen EXCLUSIVAMENTE con los temas listados en "TEMAS Y PLANEACIONES DISPONIBLES". No uses temas externos, temas anteriores ni informacion de otras unidades.
 - Usa SOLO los temas de esta unidad. No inventes temas externos.
 - Genera un examen breve, equilibrado y utilizable en una sola sesion.
 - No agregues tipos de pregunta que no fueron seleccionados por el usuario.

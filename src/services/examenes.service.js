@@ -1793,8 +1793,23 @@ async function processExamGenerationJob(jobId) {
   const client = supabaseAdmin;
   const job = await fetchGenerationJob(client, jobId);
   const contexto = await obtenerContextoUnidad(client, job.unidad_id);
-  const temas = await fetchUnitTopics(client, job.unidad_id, job.user_id);
+  const allUnitTemas = await fetchUnitTopics(client, job.unidad_id, job.user_id);
+  // El contexto del prompt debe limitarse a los temas seleccionados al crear el
+  // job, no a todos los temas de la unidad. Asi el examen nunca incluye temas
+  // que el usuario no eligio (defensa contra contexto cruzado/viejo).
+  const selectedTemaIds = Array.isArray(job.configuracion?.tema_ids)
+    ? job.configuracion.tema_ids.map(String).filter(Boolean)
+    : [];
+  const scopedTemas = selectedTemaIds.length > 0
+    ? allUnitTemas.filter((tema) => selectedTemaIds.includes(String(tema.id)))
+    : allUnitTemas;
+  const temas = scopedTemas.length > 0 ? scopedTemas : allUnitTemas;
   const temasContexto = buildPromptTopicsContext(temas);
+  console.info('[examenes] contexto final para prompt', {
+    unidadId: job.unidad_id,
+    totalTemas: temasContexto.length,
+    temas: temasContexto.map((tema) => tema.tema)
+  });
   let items = await fetchGenerationItems(client, jobId);
   const total = Number(job.progress_total || items.length || 0);
   // Tipos permitidos y temas seleccionados, usados por los fallbacks por
@@ -2425,6 +2440,45 @@ function detectBatchIdFromTemas(temas) {
   return null;
 }
 
+// Resuelve una lista de IDs de planeacion a los IDs de tema asociados.
+// Se usa porque la biblioteca selecciona por planeacion, no por tema.
+async function resolveTemaIdsFromPlaneaciones(client, planeacionIds, userId) {
+  const ids = Array.isArray(planeacionIds)
+    ? [...new Set(planeacionIds.map(String).filter(Boolean))]
+    : [];
+  if (ids.length === 0) return [];
+
+  const query = client
+    .from('planeaciones')
+    .select('id, tema_id')
+    .in('id', ids);
+  if (userId) query.eq('user_id', userId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return [...new Set((data || []).map((p) => p.tema_id).filter(Boolean).map(String))];
+}
+
+// Resuelve, desde la tabla temas, a que unidad(es) pertenecen los IDs de tema
+// recibidos. Es la defensa principal contra contexto cruzado entre unidades.
+async function resolveUnidadIdsForTemas(client, temaIds) {
+  const ids = Array.isArray(temaIds)
+    ? [...new Set(temaIds.map(String).filter(Boolean))]
+    : [];
+  if (ids.length === 0) return { unidadIds: [], foundTemaIds: [] };
+
+  const { data, error } = await client
+    .from('temas')
+    .select('id, unidad_id')
+    .in('id', ids);
+  if (error) throw error;
+
+  const unidadIds = [...new Set((data || []).map((t) => t.unidad_id).filter(Boolean).map(String))];
+  const foundTemaIds = (data || []).map((t) => String(t.id));
+  return { unidadIds, foundTemaIds };
+}
+
 export async function generarExamenUnidad({
   supabaseClient,
   userId,
@@ -2432,6 +2486,7 @@ export async function generarExamenUnidad({
   tiposPregunta,
   cantidadesPregunta,
   temaIds,
+  planeacionIds,
   batchId
 }) {
   const client = getClient(supabaseClient);
@@ -2448,14 +2503,47 @@ export async function generarExamenUnidad({
       throw buildHttpError(400, 'Debes indicar una cantidad mayor a 0 para cada tipo de pregunta.');
     }
 
-    const contexto = await obtenerContextoUnidad(client, normalizedUnidadId);
-    const allTemas = await fetchUnitTopics(client, normalizedUnidadId, userId);
-    const normalizedTemaIds = Array.isArray(temaIds) && temaIds.length > 0 ? temaIds.map(String) : null;
-    const temas = normalizedTemaIds
-      ? allTemas.filter((tema) => normalizedTemaIds.includes(String(tema.id)))
+    // 1) Reunir los IDs de tema seleccionados: directos (dashboard) y/o
+    //    derivados de las planeaciones seleccionadas (biblioteca).
+    const directTemaIds = Array.isArray(temaIds) && temaIds.length > 0 ? temaIds.map(String) : [];
+    const temaIdsFromPlaneaciones = await resolveTemaIdsFromPlaneaciones(client, planeacionIds, userId);
+    const candidateTemaIds = [...new Set([...directTemaIds, ...temaIdsFromPlaneaciones])];
+
+    // 2) Determinar la unidad real de la seleccion. El backend NO confia en el
+    //    unidad_id del payload: si la seleccion pertenece a otra unidad (p. ej.
+    //    el unidad_id viejo del batch), se autocorrige hacia la unidad real.
+    let effectiveUnidadId = normalizedUnidadId;
+    if (candidateTemaIds.length > 0) {
+      const { unidadIds } = await resolveUnidadIdsForTemas(client, candidateTemaIds);
+
+      if (unidadIds.length > 1) {
+        throw buildHttpError(400, 'No se puede generar un examen mezclando temas de diferentes unidades.');
+      }
+
+      if (unidadIds.length === 1 && unidadIds[0] !== normalizedUnidadId) {
+        console.warn('[examenes] unidad_id corregido: la seleccion pertenece a otra unidad', {
+          expectedUnidadId: normalizedUnidadId,
+          realUnidadId: unidadIds[0],
+          candidateTemaIds
+        });
+        effectiveUnidadId = unidadIds[0];
+      }
+    }
+
+    const contexto = await obtenerContextoUnidad(client, effectiveUnidadId);
+    const allTemas = await fetchUnitTopics(client, effectiveUnidadId, userId);
+    const temas = candidateTemaIds.length > 0
+      ? allTemas.filter((tema) => candidateTemaIds.includes(String(tema.id)))
       : allTemas;
+
+    // 3) Si hubo seleccion pero ningun tema pertenece a esta unidad, abortar en
+    //    vez de caer silenciosamente a "todos los temas" (origen del bug).
+    if (candidateTemaIds.length > 0 && temas.length === 0) {
+      throw buildHttpError(400, 'Los temas seleccionados no pertenecen a esta unidad. Vuelve a seleccionarlos.');
+    }
+
     console.info('[exam-debug] generarExamenUnidad.input', {
-      unidadId: normalizedUnidadId,
+      unidadId: effectiveUnidadId,
       tiposPregunta: normalizedTypes,
       cantidadesPregunta: normalizedQuestionCounts,
       totalRequested: getRequestedQuestionCountTotal(normalizedQuestionCounts),
@@ -2481,7 +2569,7 @@ export async function generarExamenUnidad({
       plantel_id: contexto.plantel?.id || null,
       grado_id: contexto.grado?.id || null,
       materia_id: contexto.materia?.id || null,
-      unidad_id: normalizedUnidadId,
+      unidad_id: effectiveUnidadId,
       titulo: `Examen de ${contexto.unidad?.nombre || 'unidad'}`,
       instrucciones: 'Lee cuidadosamente cada pregunta antes de responder.',
       tipos_pregunta: normalizedTypes,
