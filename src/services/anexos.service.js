@@ -237,12 +237,15 @@ async function generateAnexosWithIa({ nivel, materia, tema, duracion, tablaIa, a
 }
 
 export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
+  const startedAt = Date.now();
   const client = getClient(supabaseClient);
   const normalizedPlaneacionId = String(planeacionId || '').trim();
 
   if (!normalizedPlaneacionId) {
     throw buildHttpError(400, 'planeacion_id es requerido.');
   }
+
+  console.info('[anexos] generate:start', { planeacionId: normalizedPlaneacionId });
 
   // Fetch planeacion validando que pertenezca al usuario
   const planeacionQuery = client
@@ -329,6 +332,12 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
         errorMessageSafe: err?.message || 'Error generando anexo'
       }).catch(() => {});
     }
+    console.error('[anexos] generate:error', {
+      planeacionId: planeacion.id,
+      errorType: err?.status ? `http_${err.status}` : 'generation_error',
+      message: err?.message || 'Error generando anexo',
+      durationMs: Date.now() - startedAt
+    });
     throw err;
   }
 
@@ -392,21 +401,25 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
     }).catch(() => {});
   }
 
-  console.info('[anexos] generado', {
+  console.info('[anexos] generate:success', {
     anexoId: nuevoAnexo?.id,
     planeacionId: planeacion.id,
     promptVersion: ANEXOS_PROMPT_VERSION,
-    tokensTotal
+    tokensTotal,
+    durationMs: Date.now() - startedAt
   });
 
   return { ok: true, anexo_id: nuevoAnexo.id, status: 'generated' };
 }
 
 export async function regenerarAnexo({ supabaseClient, userId, id }) {
+  const startedAt = Date.now();
   const client = getClient(supabaseClient);
   const normalizedId = normalizeString(id);
 
   if (!normalizedId) throw buildHttpError(400, 'id es requerido.');
+
+  console.info('[anexos] regenerate:start', { anexoId: normalizedId });
 
   // Obtener el anexo existente para saber su planeacion_id
   const anexoQuery = client.from('anexos').select('*').eq('id', normalizedId);
@@ -466,6 +479,12 @@ export async function regenerarAnexo({ supabaseClient, userId, id }) {
         errorMessageSafe: err?.message || 'Error regenerando anexo'
       }).catch(() => {});
     }
+    console.error('[anexos] regenerate:error', {
+      anexoId: normalizedId,
+      errorType: err?.status ? `http_${err.status}` : 'generation_error',
+      message: err?.message || 'Error regenerando anexo',
+      durationMs: Date.now() - startedAt
+    });
     throw err;
   }
 
@@ -506,11 +525,12 @@ export async function regenerarAnexo({ supabaseClient, userId, id }) {
     }).catch(() => {});
   }
 
-  console.info('[anexos] regenerado', {
+  console.info('[anexos] regenerate:success', {
     anexoId: updated?.id,
     planeacionId: planeacion.id,
     promptVersion: ANEXOS_PROMPT_VERSION,
-    tokensTotal
+    tokensTotal,
+    durationMs: Date.now() - startedAt
   });
 
   return { ok: true, anexo: updated };
@@ -573,6 +593,8 @@ export async function eliminarAnexo({ supabaseClient, userId, id }) {
     .eq('id', normalizedId)
     .eq('user_id', userId);
   if (deleteError) throw deleteError;
+
+  console.info('[anexos] delete:success', { anexoId: normalizedId });
 
   return { ok: true };
 }

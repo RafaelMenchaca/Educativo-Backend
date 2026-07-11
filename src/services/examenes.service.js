@@ -1790,8 +1790,14 @@ function getProblemQuestionNumbers(validationErrors) {
 }
 
 async function processExamGenerationJob(jobId) {
+  const startedAt = Date.now();
   const client = supabaseAdmin;
   const job = await fetchGenerationJob(client, jobId);
+  console.info('[examenes] worker:start', {
+    jobId,
+    unidadId: job.unidad_id,
+    totalPreguntas: Number(job.progress_total || 0)
+  });
   const contexto = await obtenerContextoUnidad(client, job.unidad_id);
   const allUnitTemas = await fetchUnitTopics(client, job.unidad_id, job.user_id);
   // El contexto del prompt debe limitarse a los temas seleccionados al crear el
@@ -1913,7 +1919,8 @@ async function processExamGenerationJob(jobId) {
         requestedTotal: total,
         generatedTotal: items.length - failedItems.length,
         failedQuestions: failedItems.map((item) => item.pregunta_numero),
-        errors: validationErrors
+        errors: validationErrors,
+        durationMs: Date.now() - startedAt
       });
       await updateGenerationJob(client, jobId, {
         status: 'failed',
@@ -2049,6 +2056,13 @@ async function processExamGenerationJob(jobId) {
         }).catch(() => {});
       }
 
+      console.error('[examenes] generate:error', {
+        jobId,
+        errorType: 'duplicate_questions',
+        preguntasFallidas: finalUniquenessValidation.errors.length,
+        durationMs: Date.now() - startedAt
+      });
+
       return { ok: false, validationErrors: finalUniquenessValidation.errors };
     }
 
@@ -2081,6 +2095,12 @@ async function processExamGenerationJob(jobId) {
 
     if (examenError) throw examenError;
 
+    console.info('[examenes] exam:saved', {
+      jobId,
+      examenId: examen.id,
+      totalPreguntas: examenIa.preguntas.length
+    });
+
     await updateGenerationJob(client, jobId, {
       status: 'completed',
       progress_current: total,
@@ -2091,16 +2111,26 @@ async function processExamGenerationJob(jobId) {
       error_message: null
     });
 
+    const totalRetries = items.reduce((sum, it) => sum + Number(it.retry_count || 0), 0);
+
     if (aiJobId) {
       finishAiJob(aiJobId, {
         examenId:     examen.id,
         outputSummary: {
           preguntas_generadas: examenIa.preguntas.length,
           preguntas_fallidas:  0,
-          retries:             items.reduce((sum, it) => sum + Number(it.retry_count || 0), 0)
+          retries:             totalRetries
         }
       }).catch(() => {});
     }
+
+    console.info('[examenes] generate:success', {
+      jobId,
+      examenId: examen.id,
+      totalPreguntas: examenIa.preguntas.length,
+      retries: totalRetries,
+      durationMs: Date.now() - startedAt
+    });
 
     return { ok: true, examenId: examen.id };
   } catch (error) {
@@ -2126,7 +2156,8 @@ async function processExamGenerationJob(jobId) {
     console.error('[exam-debug] processExamGenerationJob.fallo', {
       jobId,
       motivo: error?.message || 'Error desconocido',
-      validationErrors
+      validationErrors,
+      durationMs: Date.now() - startedAt
     });
     return { ok: false, error };
   }
@@ -2185,7 +2216,7 @@ async function generateMissingQuestionsWithIa({
     console.warn('[exam-debug] generateMissingQuestionsWithIa.fallo', {
       motivo: 'La IA no devolvio preguntas de complemento en JSON valido.',
       missingCounts,
-      rawResponse: rawText
+      rawLength: rawText.length
     });
     throw buildHttpError(502, 'La IA no devolvio preguntas de complemento en JSON valido.');
   }
@@ -2320,8 +2351,7 @@ async function generateExamWithIa({
         motivo: lastValidationMessage,
         finishReason,
         usage: completionUsage,
-        rawLength: rawText.length,
-        rawResponse: rawText
+        rawLength: rawText.length
       });
       continue;
     }
@@ -2404,7 +2434,7 @@ async function generateExamWithIa({
         returnedTotal: Array.isArray(parsed?.preguntas) ? parsed.preguntas.length : 0,
         returnedDistribution: buildQuestionTypeCountObject(parsed?.preguntas || []),
         usage: completionUsage,
-        rawResponse: rawText
+        rawLength: rawText.length
       });
       if (index === attempts.length - 1) {
         throw error;
@@ -2412,7 +2442,7 @@ async function generateExamWithIa({
     }
   }
 
-  console.error('[exam-debug] respuesta IA invalida', lastMessage);
+  console.error('[exam-debug] respuesta IA invalida', { rawLength: lastMessage?.length || 0 });
   console.error('[exam-debug] generateExamWithIa.fallo', {
     etapa: 'final',
     motivo: 'La IA no devolvio un examen valido.',
@@ -2714,6 +2744,8 @@ export async function eliminarExamen({ supabaseClient, userId, id }) {
     .eq('id', normalizedId)
     .eq('user_id', userId);
   if (deleteError) throw deleteError;
+
+  console.info('[examenes] delete:success', { examenId: normalizedId });
 
   return { ok: true };
 }

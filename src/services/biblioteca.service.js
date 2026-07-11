@@ -223,11 +223,14 @@ function groupById(items, key) {
 }
 
 export async function deleteBibliotecaBloque({ supabaseClient, userId, batchId }) {
+  const startedAt = Date.now();
   const client = getClient(supabaseClient);
   const normalizedBatchId = normalizeString(batchId);
 
   if (!userId) throw buildHttpError(401, 'Usuario requerido.');
   if (!normalizedBatchId) throw buildHttpError(400, 'batchId es requerido.');
+
+  console.info('[biblioteca] delete:start', { batchId: normalizedBatchId });
 
   const { data: batch, error: batchError } = await client
     .from('planeacion_batches')
@@ -279,6 +282,12 @@ export async function deleteBibliotecaBloque({ supabaseClient, userId, batchId }
   } else {
     deletedBatch = true;
   }
+
+  console.info('[biblioteca] delete:success', {
+    batchId: normalizedBatchId,
+    deletedBatch,
+    durationMs: Date.now() - startedAt
+  });
 
   return { ok: true, deleted: { batch: deletedBatch } };
 }

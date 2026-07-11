@@ -375,7 +375,12 @@ export async function generarPlaneacionesPorUnidad(req, res) {
     forceNewBatch: req.body?.force_new_batch === true || req.body?.mode === 'create'
   };
 
-  logPlaneacionDebug('backend request /api/unidades/:unidadId/generar', payload);
+  logPlaneacionDebug('backend request /api/unidades/:unidadId/generar', {
+    unidadId: payload.unidadId,
+    materia: payload.materia,
+    nivel: payload.nivel,
+    temasCount: Array.isArray(payload.temas) ? payload.temas.length : 0
+  });
 
   if (!wantsStream(req)) {
     try {
@@ -384,7 +389,12 @@ export async function generarPlaneacionesPorUnidad(req, res) {
         ...payload
       });
 
-      logPlaneacionDebug('backend response /api/unidades/:unidadId/generar', result);
+      logPlaneacionDebug('backend response /api/unidades/:unidadId/generar', {
+        batch_id: result?.batch_id,
+        success_count: result?.success_count,
+        error_count: result?.error_count,
+        skipped_count: result?.skipped_count
+      });
 
       return res.json(result);
     } catch (error) {
@@ -420,7 +430,12 @@ export async function generarPlaneacionesPorUnidad(req, res) {
     );
 
     if (!closed) {
-      logPlaneacionDebug('backend response /api/unidades/:unidadId/generar?stream=1', result);
+      logPlaneacionDebug('backend response /api/unidades/:unidadId/generar?stream=1', {
+        batch_id: result?.batch_id,
+        success_count: result?.success_count,
+        error_count: result?.error_count,
+        skipped_count: result?.skipped_count
+      });
       writeSse(res, { type: 'done', data: result });
       res.write('data: [DONE]\n\n');
       res.end();

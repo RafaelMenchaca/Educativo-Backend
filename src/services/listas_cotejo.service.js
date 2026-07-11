@@ -270,6 +270,7 @@ async function fetchTemasConPlaneaciones(client, unidadId, userId) {
 }
 
 export async function generarListasCotejoPorIds({ supabaseClient, userId, planeacionIds, unidadId }) {
+  const startedAt = Date.now();
   const client = getClient(supabaseClient);
 
   if (!Array.isArray(planeacionIds) || planeacionIds.length === 0) {
@@ -280,6 +281,8 @@ export async function generarListasCotejoPorIds({ supabaseClient, userId, planea
   if (normalizedIds.length === 0) {
     throw buildHttpError(400, 'planeacion_ids no contiene IDs validos.');
   }
+
+  console.info('[listas-cotejo] generate:start', { planeacionesCount: normalizedIds.length });
 
   // Fetch planeaciones validando pertenencia al usuario
   let planeacionesQuery = client
@@ -436,16 +439,25 @@ export async function generarListasCotejoPorIds({ supabaseClient, userId, planea
     }).catch(() => {});
   }
 
+  console.info('[listas-cotejo] generate:success', {
+    created: listas.length,
+    skipped: skipped.length,
+    durationMs: Date.now() - startedAt
+  });
+
   return { created: listas.length, skipped, listas };
 }
 
 export async function generarListasCotejoUnidad({ supabaseClient, userId, unidadId }) {
+  const startedAt = Date.now();
   const client = getClient(supabaseClient);
   const normalizedUnidadId = normalizeString(unidadId);
 
   if (!normalizedUnidadId) {
     throw buildHttpError(400, 'unidad_id es requerido.');
   }
+
+  console.info('[listas-cotejo] generate:start', { unidadId: normalizedUnidadId });
 
   const contexto = await obtenerContextoUnidad(client, normalizedUnidadId);
   const temas = await fetchTemasConPlaneaciones(client, normalizedUnidadId, userId);
@@ -554,6 +566,13 @@ export async function generarListasCotejoUnidad({ supabaseClient, userId, unidad
     }).catch(() => {});
   }
 
+  console.info('[listas-cotejo] generate:success', {
+    unidadId: normalizedUnidadId,
+    createdOrUpdated: listas.length,
+    skipped: skipped.length,
+    durationMs: Date.now() - startedAt
+  });
+
   return {
     created_or_updated: listas.length,
     skipped,
@@ -630,6 +649,8 @@ export async function eliminarListaCotejo({ supabaseClient, userId, id }) {
     .eq('id', normalizedId)
     .eq('user_id', userId);
   if (deleteError) throw deleteError;
+
+  console.info('[listas-cotejo] delete:success', { listaId: normalizedId });
 
   return { ok: true };
 }
