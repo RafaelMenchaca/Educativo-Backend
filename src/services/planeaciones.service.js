@@ -569,37 +569,15 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
 
   for (let index = 0; index < attempts.length; index += 1) {
     const attempt = attempts[index];
-    console.log(
-      '[planeacion-debug] openai prompt / tabla_ia',
-      JSON.stringify(
-        {
-          intento: index + 1,
-          model: 'gpt-4o-mini',
-          materia,
-          nivel,
-          unidad,
-          tema,
-          duracion,
-          actividad_cierre,
-          actividades_momentos: actividadesMomentosNormalizadas,
-          response_format: { type: 'json_object' },
-          temperature: attempt.temperature,
-          max_tokens: attempt.maxTokens,
-          messages: [
-            {
-              role: 'system',
-              content: OPENAI_TABLA_SYSTEM_PROMPT
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ]
-        },
-        null,
-        2
-      )
-    );
+    console.info('[planeaciones] generate:ai-request', {
+      intento: index + 1,
+      model: 'gpt-4o-mini',
+      materia,
+      nivel,
+      tema,
+      maxTokens: attempt.maxTokens,
+      temperature: attempt.temperature
+    });
 
     const callStart = Date.now();
     const completion = await solicitarTablaIaCompletion({
@@ -639,6 +617,12 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
     }
 
     if (parsed.jsonOk) {
+      console.info('[planeaciones] generate:ai-response', {
+        tema,
+        intento: index + 1,
+        tokensTotal: usage.total_tokens || 0,
+        durationMs: callDurationMs
+      });
       return {
         tablaIa: parsed.tablaIa,
         metrics: {
@@ -865,6 +849,8 @@ export async function eliminarPlaneacion({ supabaseClient, id, userId }) {
 
   if (error) throw error;
   if (!data) throw buildHttpError(404, 'Planeacion no encontrada');
+
+  console.info('[planeaciones] delete:success', { planeacionId: data.id });
 }
 
 export async function archivarPlaneacion({ supabaseClient, id, userId }) {
@@ -1050,6 +1036,12 @@ export async function eliminarPlaneacionPermanentemente({
   if (error) throw error;
   if (!data) throw buildHttpError(404, 'Planeacion no encontrada');
 
+  console.info('[planeaciones] delete:success', {
+    planeacionId: data.id,
+    batchId: data.batch_id || null,
+    permanent: true
+  });
+
   return {
     ok: true,
     deleted: {
@@ -1090,6 +1082,12 @@ export async function eliminarBatchPermanentemente({
       'No hay planeaciones archivadas para eliminar definitivamente en este batch'
     );
   }
+
+  console.info('[planeaciones] delete:success', {
+    batchId,
+    permanent: true,
+    totalPlaneaciones: data.length
+  });
 
   return {
     ok: true,
@@ -1182,6 +1180,7 @@ async function generarPlaneacionesIAInternal({
   materiaId,
   unidadId
 }) {
+  const startedAt = Date.now();
   const client = getClient(supabaseClient);
   const batchTitulo = buildBatchTitulo({ titulo, materia, unidad });
   const batch_id = await crearPlaneacionBatch({
@@ -1189,6 +1188,13 @@ async function generarPlaneacionesIAInternal({
   });
   const planeacionesCreadas = [];
   const normalizedTemas = temas.map(normalizeTemaGeneracionInput);
+
+  console.info('[planeaciones] generate:start', {
+    batchId: batch_id,
+    totalTemas: normalizedTemas.length,
+    materia,
+    nivel
+  });
 
   for (let i = 0; i < normalizedTemas.length; i += 1) {
     const t = normalizedTemas[i];
@@ -1266,6 +1272,12 @@ async function generarPlaneacionesIAInternal({
 
       planeacionesCreadas.push(data);
 
+      console.info('[planeaciones] generate:saved', {
+        planeacionId: data.id,
+        batchId: batch_id,
+        tema: temaNombre
+      });
+
       // Legacy metrics table (keep for compatibility)
       await guardarMetricasIa(client, metrics);
 
@@ -1297,6 +1309,14 @@ async function generarPlaneacionesIAInternal({
         }).catch(() => {});
       }
 
+      console.error('[planeaciones] generate:error', {
+        batchId: batch_id,
+        tema: temaNombre,
+        errorType: error?.status ? `http_${error.status}` : 'generation_error',
+        message: error?.message || 'Error generando planeacion',
+        durationMs: Date.now() - startedAt
+      });
+
       if (typeof onEvent === 'function') {
         onEvent({
           type: 'item_error',
@@ -1311,6 +1331,13 @@ async function generarPlaneacionesIAInternal({
       }
     }
   }
+
+  console.info('[planeaciones] generate:success', {
+    batchId: batch_id,
+    totalCreadas: planeacionesCreadas.length,
+    totalSolicitadas: normalizedTemas.length,
+    durationMs: Date.now() - startedAt
+  });
 
   return {
     batch_id,
@@ -1489,6 +1516,20 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
         message
       });
 
+      if (isDuplicate) {
+        console.warn('[planeaciones] tema:skipped', {
+          batchId: batch_id,
+          titulo: temaInput.titulo,
+          reason: 'duplicate_tema'
+        });
+      } else {
+        console.error('[planeaciones] generate:error', {
+          batchId: batch_id,
+          titulo: temaInput.titulo,
+          message
+        });
+      }
+
       if (typeof onEvent === 'function') {
         onEvent({
           type: isDuplicate ? 'item_skipped' : 'item_error',
@@ -1658,6 +1699,13 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
         message: error?.message || 'No se pudo generar la planeacion'
       });
 
+      console.error('[planeaciones] generate:error', {
+        batchId: batch_id,
+        planeacionId: planeacion?.id || null,
+        tema: tema.titulo,
+        message: error?.message || 'No se pudo generar la planeacion'
+      });
+
       if (typeof onEvent === 'function') {
         onEvent({
           type: 'item_error',
@@ -1688,6 +1736,14 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
   const success_count = results.filter((result) => result.status === 'ready').length;
   const error_count = results.filter((result) => result.status === 'error').length;
   const skipped_count = results.filter((result) => result.status === 'skipped').length;
+
+  console.info('[planeaciones] generate:success', {
+    batchId: batch_id,
+    unidadId,
+    successCount: success_count,
+    errorCount: error_count,
+    skippedCount: skipped_count
+  });
 
   return {
     batch_id,
@@ -1745,6 +1801,8 @@ export async function eliminarPlaneacionDirecta({ supabaseClient, userId, id }) 
   if (!userId) throw buildHttpError(401, 'Usuario requerido.');
   if (!normalizedId) throw buildHttpError(400, 'id es requerido.');
 
+  console.info('[planeaciones] delete:start', { planeacionId: normalizedId });
+
   const { data: planeacion, error: fetchError } = await client
     .from('planeaciones')
     .select('id')
@@ -1775,6 +1833,8 @@ export async function eliminarPlaneacionDirecta({ supabaseClient, userId, id }) 
     .eq('id', normalizedId)
     .eq('user_id', userId);
   if (deleteError) throw deleteError;
+
+  console.info('[planeaciones] delete:success', { planeacionId: normalizedId });
 
   return { ok: true };
 }

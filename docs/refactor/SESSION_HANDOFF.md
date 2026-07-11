@@ -68,3 +68,27 @@ Ningún archivo JavaScript, HTML, CSS, backend, SQL ni de configuración funcion
 ## Próxima sesión recomendada
 
 **Etapa 1 del backlog** (`docs/refactor/REFACTOR_BACKLOG.md`): confirmar en navegador real (DevTools, no solo lectura estática) los 4 fragmentos de código sin consumidores detectados en `biblioteca.page.js` y las 3 páginas/flujos muertos, antes de tocar cualquier línea de código. Es la validación de menor riesgo posible y desbloquea con evidencia sólida las etapas 2 en adelante.
+
+---
+
+# Sesión 3 (backend) — Auditoría y refuerzo de observabilidad (logs)
+
+## Fecha
+
+2026-07-10
+
+## Objetivo
+
+Esta copia del `SESSION_HANDOFF.md` es idéntica a la del frontend (ver nota de la Sesión 2 en "Riesgos que siguen abiertos"). Esta sesión sí modificó archivos de `src/` de este repositorio backend — auditoría y refuerzo de logs (`console.*`) en controllers y services, sin cambiar lógica, endpoints, payloads ni SQL. El reporte completo de esta sesión (metodología, inventario, matriz de cobertura, clasificación KEEP/IMPROVE/SENSITIVE/MISSING) vive en `docs/observability/LOG_AUDIT.md` y `docs/observability/LOG_CONVENTIONS.md` en la raíz del proyecto (`educativo_ia/docs/observability/`, no dentro de este repo backend, porque el encargo cubría frontend y backend a la vez). Ver también la entrada equivalente en el `SESSION_HANDOFF.md` del frontend.
+
+## Archivos modificados en este repositorio
+
+`src/services/anexos.service.js`, `src/services/listas_cotejo.service.js`, `src/services/examenes.service.js`, `src/services/biblioteca.service.js`, `src/services/planeaciones.service.js`, `src/services/aiMetrics.service.js`, `src/controllers/planeaciones.controller.js`, `src/controllers/jerarquia.controller.js`. Todos los cambios son adiciones o correcciones de sentencias `console.*`; ningún `throw`, `return`, condición ni payload fue alterado (confirmado con `node --check` en los 8 archivos y revisión manual del `git diff`).
+
+## Hallazgo relevante
+
+`generarTablaIa` (`src/services/planeaciones.service.js`) y el helper `logPlaneacionDebug` en `planeaciones.controller.js`/`jerarquia.controller.js` imprimían el prompt completo enviado a OpenAI y la respuesta completa generada en cada llamada. Corregido: ahora se loguean solo resúmenes (materia/nivel/tema/conteos). También se recortaron 4 sitios en `examenes.service.js` que logueaban la respuesta cruda completa de IA ante fallos de parseo (`rawResponse` → `rawLength`).
+
+## Pendientes / riesgos
+
+No existe manejador global de errores en Express (`app.js`) — documentado como hueco abierto, no implementado porque agregarlo cambiaría el comportamiento de respuesta ante errores no capturados (fuera del alcance de una sesión de solo-logs). `generateExamWithIa`/`generateMissingQuestionsWithIa` en `examenes.service.js` parecen no tener consumidores (posible código legado); no se tocó su lógica. Ver detalle completo en `docs/observability/LOG_AUDIT.md` sección 8.

@@ -271,7 +271,12 @@ export async function generarPlaneaciones(req, res) {
     return res.status(400).json({ error: 'Datos invalidos' });
   }
 
-  logPlaneacionDebug('backend request /api/planeaciones/generate', payload);
+  logPlaneacionDebug('backend request /api/planeaciones/generate', {
+    materia: payload.materia,
+    nivel: payload.nivel,
+    unidad: payload.unidad,
+    temasCount: Array.isArray(payload.temas) ? payload.temas.length : 0
+  });
 
   if (!wantsStream(req)) {
     try {
@@ -281,7 +286,10 @@ export async function generarPlaneaciones(req, res) {
         supabaseClient: userClientFromReq(req)
       });
 
-      logPlaneacionDebug('backend response /api/planeaciones/generate', result);
+      logPlaneacionDebug('backend response /api/planeaciones/generate', {
+        batch_id: result?.batch_id,
+        total: result?.total
+      });
 
       return res.json(result);
     } catch (err) {
@@ -318,7 +326,10 @@ export async function generarPlaneaciones(req, res) {
     );
 
     if (!closed) {
-      logPlaneacionDebug('backend response /api/planeaciones/generate?stream=1', result);
+      logPlaneacionDebug('backend response /api/planeaciones/generate?stream=1', {
+        batch_id: result?.batch_id,
+        total: result?.total
+      });
       writeSse(res, { type: 'done', data: result });
       res.write('data: [DONE]\n\n');
       res.end();

@@ -163,6 +163,8 @@ export async function finishAiJob(jobId, payload = {}) {
 
   if (error) {
     console.error('[aiMetrics] finishAiJob error:', error.message || error);
+  } else {
+    console.info('[aiMetrics] job:finished', { jobId, status, outputSummary });
   }
 }
 
