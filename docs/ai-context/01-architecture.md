@@ -6,7 +6,7 @@ El workspace contiene varias areas:
 
 - `educativo_frontend/planeacion-docente-ia`: frontend estatico.
 - `educativo_backend/Educativo-Backend`: API REST.
-- `sql/migrations`: migraciones SQL visibles en este workspace.
+- No hay migraciones SQL visibles dentro de este repositorio al 2026-07-20; no asumir su ruta ni contenido.
 - `docs`: consultas y documentacion.
 - `bitacora`: notas historicas del proyecto.
 

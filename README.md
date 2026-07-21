@@ -2,6 +2,8 @@
 
 Backend de Educativo IA. Expone una API REST en Node.js y Express para autenticacion con Supabase, administracion de jerarquia academica y generacion de planeaciones didacticas, examenes, anexos y listas de cotejo con IA.
 
+> Este README ofrece una introducción. Las reglas obligatorias están en [`AGENTS.md`](AGENTS.md), la arquitectura descriptiva en [`docs/03-backend-guide.md`](docs/03-backend-guide.md), el schema documental en [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md) y los contratos IA en [`docs/AI_GENERATION_CONTRACTS.md`](docs/AI_GENERATION_CONTRACTS.md). El código y las migraciones SQL son la fuente técnica real.
+
 La **Biblioteca** actua como hub de documentos: agrupa todos los documentos generados de una unidad academica bajo un `batch_id` comun y los expone a traves de sus propios endpoints.
 
 ## Alcance del repositorio
@@ -200,7 +202,7 @@ El servicio esta integrado en planeaciones, examenes, listas de cotejo y anexos.
 | `listas_cotejo` | Listas de cotejo por planeacion o actividad |
 | `anexos` | Anexos generados para cada planeacion (max 1 por planeacion) |
 
-Todas las tablas tienen RLS habilitado. El `user_id` se deriva del token de Supabase, nunca del cuerpo del request.
+El backend está diseñado para operar con RLS mediante clientes ligados al token. Este repositorio no contiene las migraciones ni policies necesarias para confirmar que todas las tablas tengan RLS; consultar `docs/DATABASE_SCHEMA.md`. El `user_id` se deriva del token de Supabase, nunca del cuerpo del request.
 
 ## Variables de entorno
 
@@ -258,8 +260,6 @@ Educativo-Backend/
 |-- CHANGELOG.md
 |-- package.json
 |-- README.md
-|-- supabase/
-|   `-- migrations/
 |-- supabaseClient.js
 `-- src/
     |-- app.js
@@ -317,7 +317,7 @@ CORS esta configurado en `src/app.js`; la variable `CORS_ORIGIN` define los orig
 - `imageEnrichment.service.js` y `imageSearch.service.js` son servicios de busqueda de imagenes por Pixabay. La generacion automatica de imagenes por momento fue desactivada definitivamente (v2.0); estos servicios quedan disponibles pero sin uso activo en el flujo principal.
 - La tabla legacy `ia_metrics` se mantiene; `planeaciones.service.js` sigue escribiendo en ella junto con el nuevo sistema de `aiMetrics.service.js`.
 - No hay suite de tests configurada mas alla del placeholder en `package.json`.
-- El archivo `.env` con credenciales reales esta versionado en el repo; conviene rotarlo y agregar solo `.env.example` al control de versiones.
+- No documentar ni versionar credenciales reales. Mantener los valores de entorno fuera de la documentación y del control de versiones.
 
 ## Licencia
 

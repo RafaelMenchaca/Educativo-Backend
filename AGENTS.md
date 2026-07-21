@@ -10,6 +10,72 @@ Estas reglas tienen prioridad sobre cualquier interpretación libre del código.
 
 ---
 
+## Fuentes de verdad obligatorias
+
+Las migraciones SQL y el código ejecutable son la fuente técnica real. La documentación explica y protege los contratos observados, pero no autoriza a inventar tablas, columnas, relaciones, constraints, endpoints ni contratos que no existan en esas fuentes.
+
+| Tema | Fuente obligatoria |
+| --- | --- |
+| Reglas para agentes | `AGENTS.md` |
+| Tablas y relaciones | `docs/DATABASE_SCHEMA.md` |
+| Prompts y contratos IA | `docs/AI_GENERATION_CONTRACTS.md` |
+| Arquitectura y rutas | `docs/03-backend-guide.md` |
+| Convenciones de logs | `docs/observability/LOG_CONVENTIONS.md` |
+| Auditoría actual de logs | `docs/observability/LOG_AUDIT.md` |
+| Implementación real | código y migraciones SQL |
+
+Si un documento contradice el código o las migraciones, detener el cambio, documentar la contradicción y pedir autorización. No elegir silenciosamente una versión ni “corregir” el contrato por conveniencia.
+
+### Código y migraciones
+
+- Las migraciones SQL y el código ejecutable son la fuente técnica real.
+- No inventar tablas, columnas, relaciones, constraints, endpoints ni contratos.
+- No crear columnas o tablas desde código.
+
+### Base de datos
+
+Antes de cambiar tablas, columnas, PK, FK, relaciones, cascadas, constraints, índices, RLS, `user_id`, `batch_id`, `unidad_id`, `tema_id`, `tema_ids` o `planeacion_ids`, leer obligatoriamente `docs/DATABASE_SCHEMA.md`.
+
+- No reinterpretar IDs ni cambiar relaciones sin autorización explícita.
+- No cambiar relaciones del schema para facilitar un refactor.
+- No cambiar `unidad_id`, `planeacion_ids`, `tema_id` o `tema_ids` sin autorización explícita.
+- No tratar IDs de planeaciones como IDs de temas.
+- No usar `unidad_id` como única fuente de verdad para seleccionar temas de examen cuando el contrato vigente usa `planeacion_ids`.
+
+### Generación con IA
+
+Antes de cambiar prompts, mensajes system/user, schemas de salida, nombres de campos, parsing, normalización, validación, modelos, `temperature`, retries, detección de duplicados, jobs, polling backend o métricas de IA, leer obligatoriamente `docs/AI_GENERATION_CONTRACTS.md`.
+
+- No modificar estas áreas durante refactors estructurales, logging, documentación o limpieza, salvo autorización explícita.
+- No modificar prompts durante refactors.
+- No modificar `prompt_version` sin documentar la nueva versión.
+- No cambiar retries ni detección o sustitución de duplicados como parte de una extracción.
+- No alterar métricas IA accidentalmente.
+
+### Observabilidad
+
+Antes de agregar o cambiar logs, leer obligatoriamente:
+
+- `docs/observability/LOG_CONVENTIONS.md`
+- `docs/observability/LOG_AUDIT.md`
+
+No duplicar eventos ni registrar información sensible. No ocultar errores ni eliminar un `throw` al agregar logs. No registrar prompts, respuestas completas, tokens, headers de autorización, access tokens, API keys ni credenciales en logs.
+
+### Arquitectura
+
+Para entender rutas, capas y servicios, leer `docs/03-backend-guide.md`. Ese archivo es descriptivo: no sustituye los contratos específicos, el schema documental, estas reglas ni la implementación real.
+
+### Autenticación, RLS y contratos públicos
+
+- No asumir que el body es una fuente confiable de `user_id`; `user_id` siempre debe provenir de `req.user.id`.
+- No usar service role en flujos sujetos a RLS salvo que el diseño actual lo autorice explícitamente.
+- No cambiar `createUserClient(req.accessToken)` por un cliente admin por conveniencia.
+- No renombrar campos públicos sin revisar frontend, backend, schema y contratos IA.
+- Todo cambio debe conservar los contratos existentes salvo que el alcance autorice modificarlos.
+- Toda sesión debe actualizar `docs/refactor/SESSION_HANDOFF.md`.
+
+---
+
 ## 2. Contexto actual del proyecto
 
 Educativo IA es una aplicación web para generar recursos educativos con IA.
@@ -56,7 +122,7 @@ Nunca invertir este orden.
 
 La IA no debe realizar ninguno de los siguientes cambios sin autorización explícita:
 
-- Modificar el backend.
+- Modificar el backend fuera del alcance autorizado para la sesión.
 - Modificar Supabase.
 - Crear o alterar migraciones SQL.
 - Cambiar endpoints.
@@ -543,14 +609,16 @@ Antes de iniciar una modificación grande, leer cuando existan:
 
 - `README.md`
 - `AGENTS.md`
+- `docs/03-backend-guide.md`
+- `docs/DATABASE_SCHEMA.md` cuando el cambio toque datos, IDs, relaciones, RLS o persistencia
+- `docs/AI_GENERATION_CONTRACTS.md` cuando el cambio toque generación IA o sus métricas
+- `docs/observability/LOG_CONVENTIONS.md` y `docs/observability/LOG_AUDIT.md` cuando el cambio toque logs
 - `docs/ARCHITECTURE.md`
 - `docs/FRONTEND_MAP.md`
 - `docs/refactor/FRONTEND_AUDIT.md`
 - `docs/refactor/CURRENT_BEHAVIOR.md`
-- `docs/refactor/REFACTOR_RULES.md`
 - `docs/refactor/LEGACY_HIERARCHY.md`
 - `docs/refactor/TEST_MATRIX.md`
-- `docs/refactor/DECISIONS.md`
 - `docs/refactor/SESSION_HANDOFF.md`
 
 Si alguno no existe, no inventar su contenido.

@@ -9,12 +9,14 @@ Antes de cambiar el proyecto, leer primero la documentacion interna en `docs/ai-
 1. `docs/ai-context/00-project-overview.md`
 2. `docs/ai-context/01-architecture.md`
 3. `docs/ai-context/02-frontend-guide.md`
-4. `docs/ai-context/03-backend-guide.md`
-5. `docs/ai-context/04-database-guide.md`
-6. `docs/ai-context/05-ai-generation-flow.md`
+4. `docs/03-backend-guide.md`
+5. `docs/DATABASE_SCHEMA.md` cuando el cambio toque datos o persistencia
+6. `docs/AI_GENERATION_CONTRACTS.md` cuando el cambio toque generación IA
 7. `docs/ai-context/06-ui-rules.md`
 8. `docs/ai-context/07-known-bugs-and-decisions.md`
 9. `docs/ai-context/08-codex-working-rules.md`
+
+Las reglas obligatorias para agentes están en `AGENTS.md`. Los archivos de `docs/ai-context/` que apuntan a fuentes canónicas se conservan únicamente por compatibilidad histórica.
 
 ## Regla principal
 
