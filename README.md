@@ -4,7 +4,9 @@ Backend de Educativo IA. Expone una API REST en Node.js y Express para autentica
 
 > Este README ofrece una introducción. Las reglas obligatorias están en [`AGENTS.md`](AGENTS.md), la arquitectura descriptiva en [`docs/03-backend-guide.md`](docs/03-backend-guide.md), el schema documental en [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md) y los contratos IA en [`docs/AI_GENERATION_CONTRACTS.md`](docs/AI_GENERATION_CONTRACTS.md). El código y las migraciones SQL son la fuente técnica real.
 
-La **Biblioteca** actua como hub de documentos: agrupa todos los documentos generados de una unidad academica bajo un `batch_id` comun y los expone a traves de sus propios endpoints.
+La **Biblioteca** actua como hub de documentos: agrupa recursos mediante `batch_id` y los expone a traves de sus propios endpoints. Un bloque puede conservar metadata o relaciones jerárquicas, pero “bloque” y “unidad” no deben asumirse equivalentes sin revisar el contrato real.
+
+Biblioteca es el consumidor visual principal vigente del frontend. El backend conserva una jerarquía técnica de planteles, grados, materias, unidades y temas, pero esos datos y endpoints no implican que el explorador visual jerárquico antiguo del dashboard siga soportado. Archivados puede conservar dependencias jerárquicas como flujo separado.
 
 ## Alcance del repositorio
 
@@ -308,7 +310,7 @@ CORS esta configurado en `src/app.js`; la variable `CORS_ORIGIN` define los orig
 
 - Todas las rutas bajo `/api` requieren `Authorization: Bearer <supabase_access_token>`.
 - El backend valida el token con `supabaseAdmin.auth.getUser(token)` antes de procesar cualquier request.
-- RLS en Supabase garantiza que cada usuario solo accede a sus propios datos.
+- El backend está diseñado para respetar RLS mediante clientes ligados al token; las policies no pueden confirmarse sin migraciones o un export de schema.
 - `user_id` se extrae del token validado, nunca del cuerpo del request.
 - Los logs de metricas sanitizan API keys y tokens antes de persistir errores.
 

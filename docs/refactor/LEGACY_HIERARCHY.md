@@ -1,5 +1,9 @@
 # LEGACY_HIERARCHY.md — Inventario de código relacionado con jerarquías
 
+> Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca.
+>
+> “Activo” en este inventario puede significar dependencia técnica o de Archivados, no un segundo flujo visual principal. El explorador jerárquico del dashboard es legacy para nuevas implementaciones.
+
 > Clasificación según `AGENTS.md`: `ACTIVE` (participa del flujo vigente), `COMPATIBILITY` (puente temporal necesario), `LEGACY_CONFIRMED` (evidencia clara de que no tiene consumidores actuales), `UNKNOWN` (evidencia insuficiente). No se elimina nada en esta sesión, incluso lo marcado `LEGACY_CONFIRMED`.
 
 ## Advertencia importante encontrada durante la auditoría
@@ -7,7 +11,7 @@
 `Hecho:` El vocabulario "jerarquía" (plantel/grado/materia/unidad/tema, árbol, explorador) aparece en **dos contextos completamente distintos** que no deben confundirse:
 
 1. **Dentro de `dashboard.page.js`**: un sistema de navegación jerárquica que, por la bifurcación de `initDashboardPage()` (ver `ARCHITECTURE.md` sección 6), es mayormente inalcanzable en producción porque `window.BIBLIOTECA_MODE` es siempre `true`.
-2. **Dentro de `js/api/jerarquia.api.js`, `js/services/jerarquia.service.js` y `js/pages/archivados.page.js`**: el mismo vocabulario de jerarquía, pero **activo y consumido en runtime** — es el sistema que sostiene el árbol de restauración/eliminación de `pages/archivados.html`.
+2. **Dentro de `js/api/jerarquia.api.js`, `js/services/jerarquia.service.js` y `js/pages/archivados.page.js`**: jerarquía técnica **activa y consumida en runtime** para datos y el flujo separado de Archivados. No constituye un explorador alternativo del dashboard.
 
 No se debe clasificar código como legado solo por usar las palabras "plantel/grado/materia/unidad". Cada bloque se evalúa por evidencia de alcanzabilidad real.
 
@@ -35,7 +39,7 @@ No se debe clasificar código como legado solo por usar las palabras "plantel/gr
 
 | Elemento | Archivo | Clasificación | Evidencia | Consumidores | Acción futura sugerida |
 |---|---|---|---|---|---|
-| CRUD completo planteles→grados→materias→unidades→temas | `jerarquia.api.js` (todo el archivo), `jerarquia.service.js` (todo) | **ACTIVE** | Consumido en runtime por `archivados.page.js` (líneas 350-414: `obtenerUnidadesPorMateria`, `obtenerMateriasPorGrado`, `obtenerGradosPorPlantel`, `eliminarPlantel/Grado/Materia/Unidad`) y por las partes activas de `dashboard.page.js` descritas en la sección A | `archivados.page.js`, `dashboard.page.js` (parcial) | Mantener — es el sistema de jerarquía vigente, no debe tocarse como si fuera legado |
+| CRUD completo planteles→grados→materias→unidades→temas | `jerarquia.api.js` (todo el archivo), `jerarquia.service.js` (todo) | **ACTIVE técnico** | Consumido en runtime por `archivados.page.js` y por partes activas de creación/compatibilidad en `dashboard.page.js` | `archivados.page.js`, `dashboard.page.js` (parcial) | Mantener como jerarquía técnica; no implica vigencia del explorador visual antiguo |
 
 ## C. Código en `js/pages/archivados.page.js`
 
@@ -49,7 +53,7 @@ No se debe clasificar código como legado solo por usar las palabras "plantel/gr
 | Término | Archivo:línea | Clasificación | Evidencia |
 |---|---|---|---|
 | `grado`/`materia`/`unidad` en formulario de registro | `pages/registro.html:62-70, 75-77` | **ACTIVE (contexto distinto)** | Es "nivel educativo"/"materia principal" del perfil de usuario, no jerarquía de contenidos. El formulario no tiene submit handler conectado (ver `FRONTEND_MAP.md`) — activo como maqueta de UI, no como lógica funcional |
-| `explorer` (clases CSS `explorer-sidebar`, `explorer-tree`, `explorer-hero`) | `components/sidebar.html`, `components/layout.html`, `pages/archivados.html` | **ACTIVE** | Es el nombre de la feature "explorador" tal cual existe hoy — no es un residuo de un sistema anterior, es el sistema de navegación jerárquica vigente para Archivados y (parcialmente) Dashboard |
+| `explorer` (clases CSS `explorer-sidebar`, `explorer-tree`, `explorer-hero`) | `components/sidebar.html`, `components/layout.html`, `pages/archivados.html` | **MIXTO** | En Archivados puede seguir activo; en el dashboard principal el explorador visual es legacy. Clasificar por consumidor, no por clase o nombre. |
 | `breadcrumb` (`#explorer-breadcrumbs`) | `components/layout.html:41` | **LEGACY_CONFIRMED (probable)** | Contenedor poblado por las funciones de breadcrumb de `dashboard.page.js` clasificadas como legado en la sección A | Ver sección A |
 
 ## Resumen cuantitativo

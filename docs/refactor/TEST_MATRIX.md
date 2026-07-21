@@ -1,5 +1,9 @@
 # TEST_MATRIX.md — Matriz manual de pruebas para proteger comportamiento durante el refactor
 
+> Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca.
+>
+> La matriz canónica vive en `../../../../educativo_frontend/planeacion-docente-ia/docs/refactor/TEST_MATRIX.md`. Archivados se prueba como flujo separado; cualquier prueba del explorador antiguo es únicamente compatibilidad/no regresión temporal.
+
 > Ejecutar esta matriz completa (o el subconjunto relevante a la etapa en curso, ver `REFACTOR_BACKLOG.md`) antes y después de cada cambio. Todas las casillas deben pasar antes de considerar una extracción terminada.
 
 ## Carga y navegación

@@ -1,5 +1,9 @@
 # REFACTOR_BACKLOG.md — Backlog propuesto de sesiones futuras
 
+> Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca.
+>
+> No ejecutar este backlog como plan vigente. La dirección canónica está en `../../../../educativo_frontend/planeacion-docente-ia/docs/refactor/REFACTOR_PLAYBOOK.md`: modularizar Biblioteca, no restaurar ni modularizar el explorador jerárquico como segunda interfaz.
+
 > Propuesta de orden de extracción. No se implementó nada de esto en esta sesión. Filosofía obligatoria (de `AGENTS.md`): documentar → crear pruebas/validaciones → extraer literalmente → mantener compatibilidad → validar → eliminar duplicados después → eliminar legado al final.
 
 Cada etapa está pensada para caber en una sola sesión de refactor (regla 19 de `AGENTS.md`: alcance concreto, no "refactorizar todo").

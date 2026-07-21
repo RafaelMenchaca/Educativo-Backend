@@ -1,5 +1,7 @@
 # SESSION_HANDOFF.md
 
+> Registro cronológico. El estado vigente se encuentra en la sesión más reciente al final del documento; los hallazgos anteriores no convierten al explorador visual jerárquico en un flujo soportado.
+
 ## Fecha
 
 2026-07-07
@@ -149,3 +151,50 @@ Se conservó `docs/ai-context/03-backend-guide.md` como enlace a la ruta canóni
 ## Próximo paso recomendado
 
 Localizar o exportar las migraciones SQL y policies RLS reales en una sesión autorizada de documentación/schema, y contrastarlas con `docs/DATABASE_SCHEMA.md` antes de proponer cualquier cambio de base de datos.
+
+---
+
+# Sesión 5 — Alineación Biblioteca como único flujo visual
+
+## Fecha
+
+2026-07-21
+
+## Estado funcional actual
+
+**Biblioteca es el flujo principal vigente y el único objetivo de nuevas implementaciones frontend.**
+
+- Explorador visual jerárquico: legacy/obsoleto para funciones nuevas.
+- Jerarquía técnica: puede seguir activa en datos, APIs, selectores, creación y persistencia; no eliminar sin auditoría.
+- Archivados: flujo separado con posibles dependencias jerárquicas.
+- `explorerState`: mixto; contiene consumidores activos de Biblioteca y partes visuales legacy.
+- Wrappers `window.*`: compatibilidad mientras existan consumidores.
+
+## Objetivo del refactor
+
+Modularizar Biblioteca y separar dependencias activas del código visual legacy sin cambiar comportamiento, payloads, IDs, generación, polling, schema ni contratos backend.
+
+## Cambios documentales
+
+- Se actualizó `docs/DOCUMENTATION_AUDIT.md` con el inventario completo de ambos repositorios, contradicciones y matriz funcional.
+- Las fuentes canónicas frontend declaran un único flujo visual y una dirección de refactor hacia Biblioteca modular.
+- La documentación backend separa UI, jerarquía técnica y Archivados.
+- Los snapshots y planes anteriores se conservaron con avisos históricos o de compatibilidad.
+
+## Zonas protegidas
+
+- `unidad_id`, `tema_id`, `tema_ids`, `planeacion_ids` y `batch_id`;
+- schema, relaciones, cascadas y RLS;
+- prompts, modelos, retries, métricas, jobs y polling;
+- autenticación y clientes Supabase;
+- wrappers y estado compartido con consumidores activos.
+
+## Validaciones pendientes
+
+- Línea base manual completa de la matriz frontend antes del primer refactor.
+- Clasificación función por función antes de separar `explorerState`.
+- Confirmación en navegador de cualquier candidato a eliminación legacy.
+
+## Próxima sesión recomendada
+
+Elegir una función inequívocamente clasificada como Biblioteca activa y ejecutar una extracción literal de bajo riesgo siguiendo el playbook frontend.
