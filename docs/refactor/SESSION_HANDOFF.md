@@ -92,3 +92,60 @@ Esta copia del `SESSION_HANDOFF.md` es idéntica a la del frontend (ver nota de 
 ## Pendientes / riesgos
 
 No existe manejador global de errores en Express (`app.js`) — documentado como hueco abierto, no implementado porque agregarlo cambiaría el comportamiento de respuesta ante errores no capturados (fuera del alcance de una sesión de solo-logs). `generateExamWithIa`/`generateMissingQuestionsWithIa` en `examenes.service.js` parecen no tener consumidores (posible código legado); no se tocó su lógica. Ver detalle completo en `docs/observability/LOG_AUDIT.md` sección 8.
+
+---
+
+# Sesión 4 (backend) — Consolidación de reglas y fuentes de verdad
+
+## Fecha
+
+2026-07-20
+
+## Objetivo
+
+Consolidar la autoridad documental del backend sin modificar código funcional, SQL, rutas, controllers, services, workers, prompts, schemas JSON, modelos, parámetros, payloads, base de datos, RLS ni logs funcionales.
+
+## Auditoría previa
+
+Se leyeron completamente `AGENTS.md` y todos los Markdown del repositorio. Se revisaron de forma solo lectora `package.json`, rutas, middleware, controllers, services, utilities de prompts y `supabaseClient.js` para confirmar nombres y contratos. No hay archivos `.sql` en este repositorio ni en el workspace `educativo_ia` al momento de la revisión.
+
+Las contradicciones iniciales y su resolución están en `docs/DOCUMENTATION_AUDIT.md`. Los puntos principales fueron rutas inexistentes de migraciones/logs, afirmaciones de RLS no verificables, reglas IA dispersas, confusión entre `planeacion_ids` y `tema_ids`, y reglas frontend copiadas dentro de `AGENTS.md` del backend.
+
+## Cambios documentales
+
+- `AGENTS.md`: tabla de autoridad, lecturas obligatorias y reglas de DB, IA, observabilidad, auth/RLS y contratos públicos.
+- `docs/03-backend-guide.md`: nueva guía canónica, exclusivamente descriptiva.
+- `docs/AI_GENERATION_CONTRACTS.md`: contratos de planeaciones, anexos, listas y exámenes, más zona protegida.
+- `docs/DATABASE_SCHEMA.md`: encabezado de autoridad, reglas para agentes y limitación explícita sobre RLS/migraciones.
+- `docs/observability/LOG_CONVENTIONS.md` y `LOG_AUDIT.md`: convenciones e inventario local para eliminar referencias rotas.
+- `docs/DOCUMENTATION_AUDIT.md`: contradicciones encontradas antes de corregir documentación.
+- Archivos históricos de `docs/ai-context/` y `docs/ai_rules/anexos.md`: convertidos o alineados como referencias de compatibilidad sin duplicar contratos.
+- `AI_CONTEXT.md`, `README.md` y `docs/ai-context/01-architecture.md`: enlaces y afirmaciones alineados.
+
+## Estado previo relevante
+
+Antes de esta sesión, `docs/DATABASE_SCHEMA.md` ya existía en el filesystem como archivo no rastreado (`??`). Se conservó todo su snapshot de tablas y solo se agregó contexto documental al encabezado.
+
+## Compatibilidad
+
+Se conservó `docs/ai-context/03-backend-guide.md` como enlace a la ruta canónica para no romper el índice histórico. Lo mismo aplica a las guías históricas de base de datos, generación IA y reglas Codex. No se cambiaron rutas de API ni archivos ejecutables.
+
+## Riesgos y pendientes
+
+- Las políticas RLS no pueden verificarse hasta disponer de migraciones o un export de schema que incluya policies.
+- El reason legacy `missing_closing_activity` no describe exactamente el fallback vigente de listas; no se renombró porque sería un cambio de contrato.
+- El worker de exámenes usa service role de forma explícita y los flujos de usuario usan clientes ligados al token; no generalizar la excepción.
+- Los prefijos de logs siguen mezclados y algunos controllers imprimen objetos de error completos; se documentó, no se cambió.
+
+## Validaciones
+
+- `git status --short`: solo Markdown modificado/creado; `docs/DATABASE_SCHEMA.md` permanece no rastreado como ya estaba al inicio.
+- `git diff --stat`: 10 archivos Markdown rastreados cambiados; los archivos nuevos aparecen por separado como no rastreados.
+- `git diff --check`: sin errores; Git solo advierte la conversión futura LF→CRLF configurada en el entorno.
+- Verificador de enlaces: 28 archivos Markdown propios revisados, sin enlaces relativos rotos.
+- Escaneo documental: sin rutas absolutas de Windows, secretos, emails, UUID de datos ni connection strings.
+- Alcance: ninguna extensión distinta de `.md` aparece modificada o creada.
+
+## Próximo paso recomendado
+
+Localizar o exportar las migraciones SQL y policies RLS reales en una sesión autorizada de documentación/schema, y contrastarlas con `docs/DATABASE_SCHEMA.md` antes de proponer cualquier cambio de base de datos.
