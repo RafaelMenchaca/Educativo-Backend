@@ -20,6 +20,14 @@ Este repositorio implementa la API REST de Educativo IA. Autentica requests con 
 
 Los recursos principales son planeaciones, anexos, listas de cotejo y exámenes. Biblioteca los agrupa por `batch_id`.
 
+## Relación con el flujo visual
+
+Biblioteca es el consumidor visual principal vigente del frontend. El backend no define la navegación de UI y puede conservar jerarquía técnica —tablas, relaciones, IDs y endpoints de planteles, grados, materias, unidades y temas— aunque el explorador visual jerárquico antiguo esté obsoleto.
+
+Los endpoints jerárquicos no deben interpretarse como obligación de mantener o reactivar esa interfaz. Tampoco debe eliminarse `unidad_id`, `tema_id` ni una relación persistente por una decisión de frontend. Archivados es un consumidor separado que puede conservar esas dependencias.
+
+Durante un refactor frontend se conservan los contratos backend, incluida la selección explícita por `planeacion_ids` cuando corresponde. No se modifican prompts, generación, jobs, polling ni métricas IA para acomodar código visual legacy.
+
 ## Tecnologías
 
 - Node.js con ES Modules.

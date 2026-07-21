@@ -14,6 +14,8 @@ La raiz del workspace no aparece como repo Git unico. Puede haber repos separado
 
 ## Frontend
 
+Biblioteca es el único flujo visual principal vigente. El explorador jerárquico antiguo del dashboard es legacy; los módulos jerárquicos que sigan consumidos por datos, creación o Archivados se consideran soporte técnico, no una segunda UI.
+
 Organizacion principal:
 
 - `index.html` y `pages/`: paginas publicas y privadas.

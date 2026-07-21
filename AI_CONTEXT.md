@@ -2,13 +2,15 @@
 
 Este archivo es el punto de entrada para cualquier IA/Codex que vaya a modificar Educativo IA / Planea.
 
-Antes de cambiar el proyecto, leer primero la documentacion interna en `docs/ai-context/`. El objetivo es entender el producto, la arquitectura y las reglas de seguridad para no romper flujos existentes.
+La UI vigente tiene un solo flujo visual principal: Biblioteca. Para trabajo frontend, leer primero `../../educativo_frontend/planeacion-docente-ia/AGENTS.md` y `../../educativo_frontend/planeacion-docente-ia/docs/ARCHITECTURE.md`. Los documentos frontend históricos conservados en este backend no son arquitectura objetivo.
+
+Antes de cambiar el proyecto, leer primero `AGENTS.md` y después usar `docs/ai-context/` como índice. El objetivo es entender el producto, la arquitectura y las reglas de seguridad sin convertir rutas históricas en fuentes canónicas.
 
 ## Orden recomendado de lectura
 
 1. `docs/ai-context/00-project-overview.md`
 2. `docs/ai-context/01-architecture.md`
-3. `docs/ai-context/02-frontend-guide.md`
+3. `docs/ai-context/02-frontend-guide.md` como ruta de compatibilidad hacia la documentación frontend vigente
 4. `docs/03-backend-guide.md`
 5. `docs/DATABASE_SCHEMA.md` cuando el cambio toque datos o persistencia
 6. `docs/AI_GENERATION_CONTRACTS.md` cuando el cambio toque generación IA

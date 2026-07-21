@@ -1,3 +1,7 @@
+# Changelog del backend
+
+> Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca. Las referencias a jerarquía documentan cambios backend o versiones anteriores y no habilitan el explorador visual antiguo.
+
 ## [v2.0-backend-biblioteca-documents] - 2026-06-06
 
 ### 🚀 Novedades
@@ -6,7 +10,7 @@
 - **Listas de cotejo** generadas en base a la actividad de cierre del tema.
 - **Exámenes resilientes**: generación con sistema de jobs y validación por pregunta; creación basada en lista de planeaciones por unidad; flujo estabilizado tras corrección de `countRange` y `tiempoMin`.
 - **Sistema de archivado soft**: archive, restore y eliminación permanente; archivado jerárquico en batch.
-- **Eliminación de jerarquía**: endpoints para eliminar cada nivel (plantel, grado, materia, unidad, tema) con eliminación en cascada.
+- **Eliminación de entidades jerárquicas**: endpoints para eliminar cada nivel técnico (plantel, grado, materia, unidad, tema) con eliminación en cascada; no significa que el modelo jerárquico completo haya sido eliminado.
 - **Métricas de IA para beta testers**: nuevas tablas `user_profiles`, `ai_generation_jobs`, `ai_generation_calls`, `ai_model_prices`. Servicio central `aiMetrics.service.js` integrado en planeaciones, exámenes, listas de cotejo y anexos. Consultas de análisis disponibles en `docs/ai-metrics-queries.sql`.
 - **Generación de Anexos desde Biblioteca**: soporte en endpoint para generación de anexos seleccionados desde el modal.
 - **Delete de bloques y documentos** individuales desde la Biblioteca.

@@ -1,5 +1,9 @@
 # FRONTEND_AUDIT.md — Reporte técnico principal
 
+> Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca.
+>
+> Esta auditoría conserva evidencia de dependencias. No autoriza funciones nuevas para el explorador antiguo; la arquitectura vigente está en el repositorio frontend.
+
 > Auditoría de solo lectura. No se modificó código funcional. Fuentes: lectura completa de `dashboard.page.js` (6066 líneas), `biblioteca.page.js` (3244 líneas), y del resto de `js/`, `pages/*.html`, `components/*.html`. Ver `SESSION_HANDOFF.md` para metodología y limitaciones.
 
 Etiquetas: `Hecho:` evidencia directa · `Inferencia:` deducción razonable · `Pendiente de confirmar:` falta evidencia · `Riesgo:` impacto si se toca sin cuidado.

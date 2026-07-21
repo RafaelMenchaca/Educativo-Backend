@@ -1,5 +1,9 @@
 # CURRENT_BEHAVIOR.md — Comportamiento actual (no ideal) del frontend
 
+> Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca.
+>
+> Se conserva como snapshot técnico. El explorador visual antiguo no es una segunda experiencia soportada; las referencias a Dashboard documentan compatibilidad consumida por Biblioteca.
+
 > Describe lo que el código actual **intenta hacer**, con evidencia de archivo:línea. No es una especificación de comportamiento deseado.
 
 ## 1. Flujo Biblioteca — árbol de llamadas reconstruido

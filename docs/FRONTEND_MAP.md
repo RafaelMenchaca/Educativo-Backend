@@ -1,5 +1,9 @@
 # FRONTEND_MAP.md — Inventario de archivos
 
+> Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca.
+>
+> Este inventario conserva evidencia técnica de una auditoría anterior. No presenta Biblioteca y el explorador jerárquico como modos equivalentes. Para arquitectura vigente consultar `../../educativo_frontend/planeacion-docente-ia/docs/ARCHITECTURE.md`.
+
 > Generado por auditoría de solo lectura. Líneas aproximadas contadas con `wc -l` el día de la auditoría (ver `SESSION_HANDOFF.md` para fecha exacta).
 
 ## Criterio de riesgo

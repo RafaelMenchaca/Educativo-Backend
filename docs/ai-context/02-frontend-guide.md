@@ -1,66 +1,14 @@
-# 02 - Frontend Guide
+# 02 - Frontend Guide (ruta de compatibilidad)
 
-## Aplica
+> Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca.
 
-Este workspace si contiene frontend: `educativo_frontend/planeacion-docente-ia`.
+La documentación frontend canónica vive en el repositorio `educativo_frontend/planeacion-docente-ia`:
 
-## Tecnologias
+- [reglas para agentes](../../../../educativo_frontend/planeacion-docente-ia/AGENTS.md);
+- [arquitectura frontend](../../../../educativo_frontend/planeacion-docente-ia/docs/ARCHITECTURE.md);
+- [playbook de refactor](../../../../educativo_frontend/planeacion-docente-ia/docs/refactor/REFACTOR_PLAYBOOK.md);
+- [matriz de pruebas](../../../../educativo_frontend/planeacion-docente-ia/docs/refactor/TEST_MATRIX.md).
 
-- HTML estatico.
-- JavaScript vanilla.
-- Tailwind CSS para area privada y estilos base.
-- Bootstrap 5 en experiencia publica segun README.
-- Supabase JS para autenticacion.
-- Jest/JSDOM para pruebas unitarias.
+Biblioteca es el único flujo visual principal vigente. El explorador jerárquico antiguo es legacy visual. La jerarquía técnica y Archivados pueden seguir activos sin constituir un segundo modo de UI.
 
-## Paginas principales
-
-- `index.html`: landing publica.
-- `pages/login.html`, `registro.html`, `recuperar.html`: autenticacion.
-- `pages/dashboard.html`: explorador academico y flujo principal privado.
-- `pages/archivados.html`: restore y eliminacion permanente.
-- `pages/detalle.html`: edicion/detalle de planeacion.
-- `pages/batch.html`: vista legacy de lote.
-- La Biblioteca vive como vista controlada por `js/pages/biblioteca.page.js`.
-
-## Flujo general UI
-
-1. `js/main.js` protege rutas privadas y carga el controlador de pagina.
-2. El dashboard muestra jerarquia academica.
-3. El usuario agrega temas y genera planeaciones.
-4. La Biblioteca agrupa documentos por bloque/batch.
-5. Tabs de Biblioteca: planeaciones, examenes, listas y anexos.
-6. Las descargas pasan por modal de nombre de archivo cuando aplica.
-
-## APIs frontend
-
-- `js/api/planeaciones.api.js`
-- `js/api/biblioteca.api.js`
-- `js/api/anexos.api.js`
-- `js/api/examenes.api.js`
-- `js/api/listas_cotejo.api.js`
-- `js/api/jerarquia.api.js`
-
-Todas deben enviar Bearer token cuando llaman endpoints privados.
-
-## Reglas de estilos
-
-- Mantener Tailwind y clases existentes en area privada.
-- Mantener Bootstrap/estilos existentes en paginas publicas.
-- Reutilizar helpers de `js/ui/shared.ui.js` para toasts, pills y modal de descarga.
-- No introducir frameworks ni librerias UI sin permiso.
-- No cambiar estilos globales si el cambio es local a una pagina.
-
-## Modales, cards, botones, tabs y descargas
-
-- Biblioteca usa modales inyectados desde `biblioteca.page.js`.
-- El progreso de generacion debe mostrarse en la card/lista donde aparecera el resultado, no solo dentro de un modal.
-- Mantener tabs por conjunto en `bibliotecaState.activeTab`.
-- Las descargas Word dependen de `js/ui/wordExport.js`; las zonas marcadas como protegidas no deben tocarse sin permiso.
-- Preferir confirmar eliminaciones con el modal existente `showBibConfirm`.
-
-## Responsive/mobile
-
-- Tailwind config define colores, radios y sombras base.
-- Varias paginas usan clases responsive `sm:`, `lg:` y CSS especifico por pagina.
-- Antes de cambiar layouts privados, revisar `dashboard.css`, `archivados.css`, `batch.css` y la pagina afectada.
+Este archivo se conserva para no romper el índice histórico de `AI_CONTEXT.md`; no define arquitectura ni reglas frontend.

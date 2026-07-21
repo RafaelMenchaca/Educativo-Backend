@@ -13,7 +13,7 @@ El producto combina:
 
 ## Problema que resuelve
 
-Ayuda a docentes a preparar materiales de clase desde una jerarquia academica organizada: planteles, grados, materias, unidades y temas. La Biblioteca agrupa los documentos generados por unidad/batch para que puedan consultarse, editarse, descargarse o eliminarse desde un solo lugar.
+Ayuda a docentes a preparar materiales desde Biblioteca, el único flujo visual principal vigente. El backend conserva una jerarquía técnica de planteles, grados, materias, unidades y temas para datos, contratos y compatibilidad; no debe confundirse con el explorador visual antiguo.
 
 ## Recursos que genera
 
@@ -39,6 +39,8 @@ Docentes y equipos educativos que necesitan crear materiales editables y exporta
 - `planeacion`: documento principal generado por tema.
 - `batch` o `planeacion_batches`: agrupa planeaciones generadas juntas y funciona como base de la Biblioteca.
 - `Biblioteca`: vista principal privada que agrupa planeaciones, anexos, listas de cotejo y examenes por bloque.
+- `explorador visual jerarquico`: interfaz antigua por niveles; legacy y no apta para nuevas implementaciones.
+- `jerarquia tecnica`: modelo de datos y endpoints que pueden seguir activos, incluido el soporte de Archivados.
 - `artifact_type`: tipo usado por metricas de IA: `planeacion`, `examen`, `lista_cotejo`, `anexo`.
 - `RLS`: las consultas de usuario deben ejecutarse con cliente Supabase ligado al access token.
 

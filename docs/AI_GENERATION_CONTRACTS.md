@@ -16,6 +16,8 @@ Si este documento contradice el código, detenerse y reportar la contradicción.
 - `createAiJob`, `logAiCall`, `finishAiJob` y `failAiJob` forman el sistema central de métricas. Sus fallos no deben cambiar el resultado principal cuando hoy se manejan como no bloqueantes.
 - `ia_metrics` sigue recibiendo métricas de planeaciones por compatibilidad legacy.
 - No se registran prompts ni respuestas completas. Los errores que ve el usuario deben permanecer sanitizados.
+- Biblioteca es el consumidor visual principal actual. El explorador visual jerárquico antiguo no define contratos alternativos de generación.
+- Un refactor frontend debe conservar payloads, jobs, polling backend, prompts y métricas; no se modifica generación para acomodar código visual legacy.
 
 ## Planeaciones
 

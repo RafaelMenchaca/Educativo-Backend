@@ -1,5 +1,9 @@
 # ARCHITECTURE.md — Educativo IA Frontend
 
+> Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca.
+>
+> Este snapshot técnico se conserva por compatibilidad. La arquitectura canónica está en `../../educativo_frontend/planeacion-docente-ia/docs/ARCHITECTURE.md`. Solo Biblioteca es objetivo de nuevas implementaciones; el explorador visual jerárquico es legacy, aunque la jerarquía técnica y Archivados sigan activos.
+
 > Generado por auditoría de solo lectura. No se modificó código funcional. Ver metodología y limitaciones en `docs/refactor/SESSION_HANDOFF.md`.
 
 Etiquetas usadas: `Hecho:` (evidencia directa en código), `Inferencia:` (deducción razonable no 100% confirmada), `Pendiente de confirmar:` (falta evidencia).
@@ -60,7 +64,7 @@ if (hasBiblioteca) { window.BIBLIOTECA_MODE = true; }
 
 Como `biblioteca.page.js` siempre se carga antes en el mismo HTML, `window.initBiblioteca` siempre existe, por lo que **`window.BIBLIOTECA_MODE` es siempre `true` en producción**, y `initDashboardPage` termina en `await window.initBiblioteca()` (línea 6044) sin llegar nunca a `hydrateExplorerData()` (rama alcanzable solo si `BIBLIOTECA_MODE` fuera `false`).
 
-Consecuencia directa: dentro de `dashboard.page.js` coexisten dos sistemas:
+Consecuencia directa: dentro de `dashboard.page.js` coexisten código de dos épocas, no dos flujos visuales soportados:
 
 1. **Un sistema de navegación jerárquica completo y autocontenido** (árbol planteles→grados→materias→unidades, breadcrumbs, render por nivel, modal CRUD de entidades) que, según esta bifurcación, **no se activa nunca en el flujo real de carga**. Ver clasificación detallada en `docs/refactor/LEGACY_HIERARCHY.md`.
 2. **Un sub-estado (`explorerState`) y un conjunto de funciones que SÍ siguen activos** porque Biblioteca los consume vía `window`: `explorerState.progress`, `.examPreview`, `.listaCotejoPreview`, `.confirmDelete`; funciones como `ensureExamenes`, `ensureListasCotejo`, `ensureDefaultPlantel`, `generatePlaneacionesFromStaging`; y los wrappers `window.renderExamPreviewModal`, `window.closeExamPreviewModal`, `window.renderListaCotejoPreviewModal`, `window.closeListaCotejoPreview`, `window.downloadExamWord`.

@@ -82,6 +82,18 @@ Educativo IA es una aplicación web para generar recursos educativos con IA.
 
 El flujo vigente del producto está basado en **Biblioteca**.
 
+### Separación obligatoria entre UI y jerarquía técnica
+
+**Biblioteca es el único flujo visual principal vigente y el único objetivo de nuevas implementaciones frontend.** El explorador visual jerárquico antiguo del dashboard (`plantel → grado → materia → unidad → tema`) es legacy visual: no debe recibir funcionalidad nueva, mezclarse con Biblioteca ni tratarse como un modo paralelo.
+
+Esto no elimina la jerarquía técnica. Tablas, IDs, relaciones, endpoints, selectores, helpers y el flujo separado de Archivados pueden seguir activos. Su presencia no obliga a mantener la interfaz antigua y una decisión de frontend no autoriza a cambiar schema o contratos backend.
+
+- No crear un “modo dual” ni flags para alternar Biblioteca y el explorador antiguo.
+- No modificar endpoints, payloads o relaciones para adaptar Biblioteca a código visual legacy.
+- No eliminar piezas jerárquicas por su nombre; confirmar consumidores técnicos y de Archivados.
+- `explorerState` y wrappers `window.*` son dependencias frontend mixtas mientras tengan consumidores, no arquitectura objetivo backend.
+- La arquitectura frontend vigente se documenta en `../../educativo_frontend/planeacion-docente-ia/docs/ARCHITECTURE.md`.
+
 Biblioteca organiza y muestra:
 
 - Planeaciones
@@ -161,9 +173,9 @@ Incluye:
 - Estados de generación asociados a cards.
 - Flujos actuales usados por usuarios reales.
 
-### Sistema legado
+### Sistema visual legado
 
-El sistema de jerarquías anterior puede incluir:
+El explorador visual anterior puede incluir representaciones de:
 
 - Planteles.
 - Grados.
@@ -173,6 +185,8 @@ El sistema de jerarquías anterior puede incluir:
 - Selectores o modales anteriores.
 - Estados globales antiguos.
 - Funciones de navegación que ya no aparecen en la UI actual.
+
+Los nombres plantel, grado, materia, unidad o tema no bastan para clasificar una pieza como legacy: también pertenecen a la jerarquía técnica activa.
 
 Toda referencia a jerarquías debe clasificarse antes de tocarse:
 
@@ -367,7 +381,7 @@ Prioridad recomendada:
 7. Planeaciones.
 8. Contenedor de Biblioteca.
 9. Inicialización de páginas.
-10. Eliminación de jerarquías confirmadas.
+10. Eliminación de código visual jerárquico legacy confirmado.
 
 No refactorizar todos estos puntos en una sola sesión.
 

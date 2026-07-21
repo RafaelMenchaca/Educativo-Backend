@@ -28,6 +28,12 @@ El backend usa `createUserClient(req.accessToken)` para operaciones de usuario y
 
 Este snapshot incluye tablas, columnas, constraints, cascadas e índices, pero no contiene sentencias de creación de policies ni `enable row level security`. Por tanto, no permite confirmar documentalmente que todas las tablas tengan RLS ni enumerar sus políticas. Esa verificación requiere las migraciones o el schema exportado con policies. No asumir policies a partir del patrón del código.
 
+## Relación con Biblioteca y la jerarquía técnica
+
+Las tablas y relaciones jerárquicas documentadas aquí son parte del modelo técnico. Su existencia no define la interfaz principal ni significa que el explorador visual jerárquico antiguo siga vigente. Biblioteca es la UI principal actual, mientras Archivados y otros contratos pueden seguir usando `unidad_id`, `tema_id`, `batch_id` y relaciones jerárquicas.
+
+Una decisión de refactor frontend no autoriza a eliminar, cambiar de tipo ni reinterpretar esos IDs o relaciones.
+
 ## Definiciones de tablas
 
 Las sentencias siguientes se conservan como snapshot documental. No deben ejecutarse como sustituto de una migración revisada.

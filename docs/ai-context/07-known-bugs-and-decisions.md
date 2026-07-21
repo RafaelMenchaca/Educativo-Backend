@@ -1,5 +1,7 @@
 # 07 - Known Bugs And Decisions
 
+> Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca. Confirmar decisiones actuales en los documentos canónicos antes de actuar.
+
 ## Decisiones actuales
 
 - La Biblioteca es el hub principal para documentos generados.
