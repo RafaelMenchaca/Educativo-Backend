@@ -2,6 +2,26 @@
 
 > Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca. Las referencias a jerarquía documentan cambios backend o versiones anteriores y no habilitan el explorador visual antiguo.
 
+## [pre-biblioteca-modular-refactor] - 2026-07-22
+
+### 🏷️ Línea base
+- **Baseline estable del backend antes del refactor modular de Biblioteca**, registrado con el tag anotado `pre-biblioteca-modular-refactor`.
+- Este punto preserva los contratos vigentes de API, generación IA, persistencia y métricas como referencia de retorno previa al refactor.
+
+### 🛠️ Mejoras
+- Lista de orígenes CORS de producción actualizada con los dominios autorizados y soporte para orígenes adicionales configurados por entorno.
+- Observabilidad estructurada incorporada en controladores y servicios de jerarquía, planeaciones, Biblioteca, anexos, listas de cotejo, exámenes y métricas de IA.
+- Documentación consolidada para arquitectura, esquema de base de datos, contratos de generación IA, convenciones de logs y reglas de refactor.
+
+### 🐛 Correcciones
+- Validación de preguntas duplicadas en exámenes reforzada entre tipos de pregunta y entre reintentos de generación.
+- Recuperación de exámenes mejorada mediante reintentos y sustitución de preguntas duplicadas, sin exponer detalles internos de validación al frontend.
+- Contexto de generación de exámenes limitado a las planeaciones de la unidad seleccionada para evitar mezclar contenido de otros conjuntos.
+
+### 🔒 Seguridad / Compatibilidad
+- Logs de observabilidad sanitizados para excluir tokens, credenciales, prompts y respuestas completas.
+- Sin cambios intencionales en endpoints públicos, payloads, relaciones de base de datos, RLS ni modelos de IA en esta línea base.
+
 ## [v2.0-backend-biblioteca-documents] - 2026-06-06
 
 ### 🚀 Novedades
