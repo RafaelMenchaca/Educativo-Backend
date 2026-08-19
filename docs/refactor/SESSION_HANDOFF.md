@@ -198,3 +198,76 @@ Modularizar Biblioteca y separar dependencias activas del código visual legacy 
 ## Próxima sesión recomendada
 
 Elegir una función inequívocamente clasificada como Biblioteca activa y ejecutar una extracción literal de bajo riesgo siguiendo el playbook frontend.
+
+---
+
+# Hotfix preexistente — `duplicate_tema`
+
+## Fecha y estado
+
+2026-08-17. Root cause confirmado y cambio de schema realizado directamente en
+Supabase, fuente real actual de la base. `docs/DATABASE_SCHEMA.md` fue
+actualizado para reflejar el schema resultante. La validación manual queda
+pendiente. No se modificó código JS, datos, frontend, API, SSE, batch ni IA.
+
+## Cadena confirmada
+
+`POST /api/unidades/:unidadId/generar` llama
+`generarPlaneacionesIAPorUnidad()`. El batch se crea/reutiliza antes de procesar
+los items. Cada item llama `crearTemas()`, que intenta insertar en `temas` el
+par exacto `(unidad_id, titulo)`. PostgreSQL devuelve `23505` por
+`temas_unidad_id_titulo_key`; `isTemaDuplicateError()` lo convierte en
+`item_skipped`, log `reason: duplicate_tema` y `skipped_count: 1`. No se llama a
+OpenAI ni se crea la planeación.
+
+El check fue introducido en `8db1bbd` como feedback amistoso para la unicidad
+del tema, no como idempotencia basada en request/replay. No existe request ID ni
+otra protección de replay para este endpoint.
+
+## Evidencia de datos, solo lectura
+
+En `Matematicas`/unidad `3814711b-8f85-412f-a5aa-8138a9e284a6`, el tema
+`70c58a95-d619-4c25-91c6-3bf7cf397fa6` tiene título `Fracciones 1` y no posee
+planeación asociada. Los batches posteriores
+`4e763d52-755b-4b53-98d4-de4045207c5c` (`Pruebas 1`) y
+`46b8192d-b1c7-4edb-ac90-7e23d9c477cd` (`Pruebas 2`) están vacíos: se crearon
+antes de que el insert duplicado fuera omitido. No se borró ni alteró ningún
+registro.
+
+Existe otro `Fracciones 1`, `a1b14e14-5037-4642-be7d-5a2bf8f24d99`, en otra
+unidad; esto confirma que el alcance de la constraint es la misma unidad, no
+todos los batches ni todos los usuarios.
+
+## Delete y segunda constraint
+
+`eliminarPlaneacionDirecta()` y `deleteBibliotecaBloque()` eliminan recursos y
+planeaciones, pero no eliminan temas. Por tanto dejan temas huérfanos capaces de
+activar la constraint textual: hay deuda de cleanup, aunque no se corrige en
+este hotfix.
+
+Reutilizar el tema huérfano no satisface el requisito completo. El schema
+documenta además `planeaciones_unq_tema`, índice único parcial sobre
+`planeaciones.tema_id`; con una planeación existente, el mismo tema técnico no
+puede recibir una segunda planeación. Usar `tema_id = null`, alterar el título o
+mover el tema de unidad rompería relaciones protegidas y consumidores de
+Exámenes/Listas.
+
+## Decisión y cambio de schema
+
+Root cause: `UNIQUE (temas.unidad_id, temas.titulo)`. La decisión de dominio es
+que el título es contenido, no identidad. Para que cada solicitud explícita cree
+un tema con UUID propio y una planeación con ID propio, manteniendo `unidad_id`,
+`tema_id`, batch y Exámenes, se retiró directamente en Supabase únicamente la
+constraint `temas_unidad_id_titulo_key` de `public.temas`.
+
+`docs/DATABASE_SCHEMA.md` se actualizó para reflejar el schema resultante.
+`planeaciones_unq_tema` permanece intacto porque cada solicitud tendrá un
+`tema_id` diferente. El código actual continúa creando tema y planeación; la
+rama histórica `duplicate_tema` deja de representar una regla de dominio y ya
+no se activa por igualdad textual.
+
+No se añadió migración local, versionado, columnas, tablas, índices ni cleanup
+de datos. No se borraron ni modificaron temas históricos. El lifecycle y cleanup
+de temas huérfanos sigue como follow-up separado para después del refactor o un
+hotfix independiente. La implementación frontend de Fase 8.2 permanece intacta
+y con su validación manual pendiente.

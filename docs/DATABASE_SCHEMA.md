@@ -590,7 +590,6 @@ create table public.temas (
   created_at timestamp with time zone not null default now(),
   updated_at timestamp with time zone not null default now(),
   constraint temas_pkey primary key (id),
-  constraint temas_unidad_id_titulo_key unique (unidad_id, titulo),
   constraint temas_unidad_id_fkey foreign KEY (unidad_id) references unidades (id) on delete CASCADE,
   constraint temas_user_id_fkey foreign KEY (user_id) references auth.users (id) on delete CASCADE
 ) TABLESPACE pg_default;
