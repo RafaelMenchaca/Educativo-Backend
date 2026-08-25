@@ -2,6 +2,22 @@
 
 > Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca. Las referencias a jerarquía documentan cambios backend o versiones anteriores y no habilitan el explorador visual antiguo.
 
+## [v3.0-backend-modular-biblioteca-refactor] - 2026-08-24
+
+### 🐛 Correcciones
+- Snapshot documental del schema sincronizado con el hotfix aplicado en Supabase para retirar `temas_unidad_id_titulo_key`; títulos de tema iguales dentro de una unidad dejan de actuar como identidad y cada solicitud puede conservar un `tema_id` propio.
+- El índice parcial `planeaciones_unq_tema` permanece intacto: una planeación existente continúa vinculada de forma única a su tema técnico.
+
+### 🔒 Seguridad / Compatibilidad
+- Release coordinado con el frontend v3.0 sobre la API vigente de Biblioteca, batches, Planeaciones, Anexos, Listas de cotejo y Exámenes.
+- Desde `pre-biblioteca-modular-refactor` no hubo refactor funcional backend ni cambios de código en endpoints, payloads, Auth, RLS, generación IA, jobs, polling, métricas o configuración de producción.
+- El hotfix no modificó código JS, datos históricos, SSE ni relaciones `batch_id` / `unidad_id` / `tema_id` / `planeacion_ids`.
+
+### ⚙️ Pendientes conocidos
+- La validación manual del hotfix `duplicate_tema` permanece pendiente y no se declara completada en este release documental.
+- El lifecycle y cleanup de temas huérfanos sigue como deuda separada; no se borraron ni alteraron registros históricos.
+- `public.ia_metrics` no forma parte del cambio auditado ni se declara corregida; sin migraciones o export de schema en el repositorio, su estado runtime y de schema cache no puede verificarse desde Git.
+
 ## [pre-biblioteca-modular-refactor] - 2026-07-22
 
 ### 🏷️ Línea base
