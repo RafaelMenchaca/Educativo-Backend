@@ -68,4 +68,4 @@ Para generación IA se permiten resúmenes como modelo, versión, número de int
 3. Reducir el payload a IDs/conteos necesarios.
 4. Verificar que no contenga secretos ni datos personales.
 5. Conservar `throw`, retorno, status, fallback y mensaje de usuario.
-6. Actualizar [`LOG_AUDIT.md`](LOG_AUDIT.md) y el handoff si cambia la cobertura.
+6. Actualizar [`LOG_AUDIT.md`](LOG_AUDIT.md) si cambia la cobertura.

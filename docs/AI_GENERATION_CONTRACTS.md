@@ -164,4 +164,4 @@ En sesiones no dedicadas explícitamente a generación IA está prohibido modifi
 - eventos SSE;
 - métricas IA o compatibilidad con `ia_metrics`.
 
-Una extracción estructural debe conservar literalmente estos contratos. Cualquier cambio intencional requiere alcance explícito, revisión cruzada de frontend/backend/schema, actualización de este documento y del handoff.
+Una extracción estructural debe conservar literalmente estos contratos. Cualquier cambio intencional requiere alcance explícito, revisión cruzada de frontend/backend/schema y actualización de este documento.

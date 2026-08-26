@@ -8,7 +8,7 @@ La **Biblioteca** actua como hub de documentos: agrupa recursos mediante `batch_
 
 Biblioteca es el consumidor visual principal vigente del frontend. El backend conserva una jerarquía técnica de planteles, grados, materias, unidades y temas, pero esos datos y endpoints no implican que el explorador visual jerárquico antiguo del dashboard siga soportado. Archivados puede conservar dependencias jerárquicas como flujo separado.
 
-La API y los contratos actuales soportan el workflow Biblioteca del frontend v3.0. El cierre del roadmap modular Fases 0–10 corresponde al frontend y no representa un refactor equivalente de este backend: se conservan su arquitectura por capas, endpoints, payloads, jobs, polling y persistencia vigentes.
+La API y los contratos actuales soportan el workflow Biblioteca del frontend v3.0. La evolución interna del frontend no representa un cambio equivalente de este backend: se conservan su arquitectura por capas, endpoints, payloads, jobs, polling y persistencia vigentes.
 
 ## Alcance del repositorio
 

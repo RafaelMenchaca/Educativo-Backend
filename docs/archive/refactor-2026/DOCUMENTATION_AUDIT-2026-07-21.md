@@ -1,5 +1,7 @@
 # Auditoría final de documentación
 
+> **ARCHIVED / COMPLETED:** auditoría histórica del 2026-07-21, supersedida por la documentación post-refactor.
+
 ## Alcance y autoridad
 
 Auditoría realizada el 2026-07-21 sobre todos los Markdown existentes de frontend y backend, contrastados con el código relevante en modo solo lectura.

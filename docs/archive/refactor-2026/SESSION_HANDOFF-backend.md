@@ -1,5 +1,7 @@
 # SESSION_HANDOFF.md
 
+> **ARCHIVED / COMPLETED:** bitácora histórica backend/frontend. Sus próximos pasos no son instrucciones vigentes.
+
 > Registro cronológico. El estado vigente se encuentra en la sesión más reciente al final del documento; los hallazgos anteriores no convierten al explorador visual jerárquico en un flujo soportado.
 
 ## Fecha

@@ -1,5 +1,7 @@
 # LEGACY_HIERARCHY.md — Inventario de código relacionado con jerarquías
 
+> **ARCHIVED / COMPLETED:** clasificación previa al retiro del Explorer visual. No es una lista de trabajo actual.
+
 > Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca.
 >
 > “Activo” en este inventario puede significar dependencia técnica o de Archivados, no un segundo flujo visual principal. El explorador jerárquico del dashboard es legacy para nuevas implementaciones.

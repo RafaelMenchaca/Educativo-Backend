@@ -1,8 +1,10 @@
 # ARCHITECTURE.md — Educativo IA Frontend
 
+> **ARCHIVED / COMPLETED:** snapshot frontend anterior a v3.0. No describe la arquitectura vigente.
+
 > Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca.
 >
-> Este snapshot técnico se conserva por compatibilidad. La arquitectura canónica está en `../../educativo_frontend/planeacion-docente-ia/docs/ARCHITECTURE.md`. Solo Biblioteca es objetivo de nuevas implementaciones; el explorador visual jerárquico es legacy, aunque la jerarquía técnica y Archivados sigan activos.
+> Este snapshot técnico se conserva por compatibilidad. La arquitectura canónica está en `../../../../../educativo_frontend/planeacion-docente-ia/docs/ARCHITECTURE.md`. Solo Biblioteca es objetivo de nuevas implementaciones; el explorador visual jerárquico es legacy, aunque la jerarquía técnica y Archivados sigan activos.
 
 > Generado por auditoría de solo lectura. No se modificó código funcional. Ver metodología y limitaciones en `docs/refactor/SESSION_HANDOFF.md`.
 

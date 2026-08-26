@@ -6,7 +6,7 @@ Este archivo documenta el schema conocido de Educativo IA. No contiene credencia
 
 Las migraciones SQL son la fuente ejecutable del schema. El código ejecutable confirma cómo se consumen tablas y campos, pero no crea relaciones que no existan en la base. Al 2026-07-20 no hay archivos `.sql` presentes en este repositorio, por lo que las definiciones siguientes son un snapshot documental y no permiten verificar por sí solas el historial de migraciones ni todas las políticas RLS.
 
-Cualquier cambio de tablas, columnas, tipos, relaciones, constraints, índices, cascadas o RLS debe actualizar este documento en la misma sesión. Todos los ejemplos deben usar datos ficticios.
+Cualquier cambio de tablas, columnas, tipos, relaciones, constraints, índices, cascadas o RLS debe actualizar este documento en el mismo cambio. Todos los ejemplos deben usar datos ficticios.
 
 Para reglas generales de trabajo, consultar [`../AGENTS.md`](../AGENTS.md). Para arquitectura descriptiva, consultar [`03-backend-guide.md`](03-backend-guide.md).
 

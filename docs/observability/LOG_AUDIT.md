@@ -2,7 +2,7 @@
 
 ## Estado de la auditoría
 
-Inventario documental actualizado el 2026-07-20 a partir de búsquedas de `console.log`, `console.info`, `console.warn` y `console.error` en `src/` y `supabaseClient.js`. No se modificaron logs funcionales durante esta sesión.
+Inventario documental actualizado el 2026-07-20 a partir de búsquedas de `console.log`, `console.info`, `console.warn` y `console.error` en `src/` y `supabaseClient.js`. La auditoría no modificó logs funcionales.
 
 Consultar las reglas en [`LOG_CONVENTIONS.md`](LOG_CONVENTIONS.md) y las reglas generales en [`../../AGENTS.md`](../../AGENTS.md).
 
@@ -22,13 +22,13 @@ Consultar las reglas en [`LOG_CONVENTIONS.md`](LOG_CONVENTIONS.md) y las reglas 
 ## Hallazgos vigentes
 
 - Existen prefijos históricos mezclados: `[planeacion-debug]`, `[exam-debug]`, `[batch]`, `[lista-cotejo]` y `[listas-cotejo]`. No renombrarlos como limpieza incidental.
-- Algunos controllers registran el error resumido y luego el objeto `error`, lo que puede duplicar eventos y exponer detalles del proveedor. Requiere una sesión dedicada antes de cambiarlo.
+- Algunos controllers registran el error resumido y luego el objeto `error`, lo que puede duplicar eventos y exponer detalles del proveedor. Requiere un cambio dedicado antes de modificarlo.
 - `biblioteca.controller.js` registra el objeto de error completo.
 - Los errores SSE de planeaciones y jerarquía registran el error completo. No se cambian aquí porque podría afectar diagnóstico y requiere revisión específica.
 - El flujo de exámenes conserva helpers aparentemente no usados que también emiten logs. No se eliminan ni reclasifican sin confirmar consumidores.
 - Los logs de generación ya resumen respuestas IA mediante conteos/longitudes en los puntos auditados; no deben volver a imprimir contenido crudo.
 - Hay eventos que incluyen `userId`. Es un identificador técnico, pero debe conservarse solo cuando sea necesario para correlación y nunca combinarse con email u otros datos personales.
-- No existe middleware global de errores en `src/app.js`; es una observación arquitectónica, no autorización para agregarlo en una sesión de logs.
+- No existe middleware global de errores en `src/app.js`; es una observación arquitectónica, no autorización para agregarlo incidentalmente al cambiar logs.
 
 ## Zonas sensibles
 

@@ -1,5 +1,7 @@
 # FRONTEND_AUDIT.md — Reporte técnico principal
 
+> **ARCHIVED / COMPLETED:** auditoría frontend pre-refactor. Sus candidatos y riesgos no forman un backlog vigente.
+
 > Estado: histórico. No describe el flujo visual vigente. El flujo actual es Biblioteca.
 >
 > Esta auditoría conserva evidencia de dependencias. No autoriza funciones nuevas para el explorador antiguo; la arquitectura vigente está en el repositorio frontend.
