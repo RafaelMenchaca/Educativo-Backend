@@ -63,7 +63,15 @@ export function buildPromptByLevel({
     'Investigación documental',
     'Feria científica o tecnológica',
     'Escape room educativo',
-    'Dinámicas rompehielo'
+    'Dinámicas rompehielo',
+    'Elaboración de resúmenes',
+    'Análisis de textos',
+    'Ensayo académico',
+    'Traducción de textos',
+    'Concurso de preguntas',
+    'Dinámica de preguntas con pelota',
+    'Dinámica de preguntas con globos',
+    'Juegos y dinámicas de movimiento'
   ];
   const enfoqueActividadSeleccionada = {
     'Estudio de caso': 'centrate en analizar un caso, identificar problema, causas, consecuencias, alternativas, soluciones y justificar decisiones a partir del caso',
