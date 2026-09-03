@@ -33,6 +33,8 @@ El flujo `/api/planeaciones/generate` recibe `materia`, `nivel`, `unidad` numér
 
 El flujo por unidad recibe `unidadId` desde la ruta, temas con título/duración y datos opcionales de batch/contexto. Puede crear temas y una planeación pending antes de generar.
 
+La generación por unidad continúa creando una llamada IA independiente por tema. Dentro del mismo request, el servicio conserva temporalmente las actividades de hasta los últimos tres temas generados correctamente y las entrega como contexto breve al prompt del tema siguiente. Este contexto solo orienta la variedad en momentos sin actividad específica; una selección explícita del docente siempre tiene prioridad. El historial no se persiste, no se consulta entre requests y no cambia el payload público.
+
 ### Salida, normalización y validación
 
 La salida IA esperada es un objeto con `tabla`, exactamente tres momentos: Conocimientos previos, Desarrollo y Cierre. Cada fila conserva los campos contractuales de tiempo de sesión, actividades, minutos, producto, instrumento y evaluación.
@@ -43,7 +45,7 @@ Las actividades seleccionadas se validan contra el catálogo actual y se asignan
 
 ### Retries, eventos y métricas
 
-- Versión vigente: `v3_actividades_momentos`.
+- Versión vigente: `v4_variedad_entre_temas`.
 - Modelo y parámetros exactos: definidos en `planeaciones.service.js`; no se repiten aquí para evitar una segunda configuración editable.
 - Hay dos intentos de generación de tabla con parámetros distintos y fallback posterior.
 - SSE puede emitir `item_started`, `item_completed`, `item_error` y, en el flujo por unidad, `item_skipped`; el controller cierra con `done`.

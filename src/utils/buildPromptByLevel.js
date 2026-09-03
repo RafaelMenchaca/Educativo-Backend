@@ -5,8 +5,16 @@ export function buildPromptByLevel({
   tema,
   duracion,
   actividad_cierre,
-  actividades_momentos = {}
+  actividades_momentos = {},
+  contextoVariedad = []
 }) {
+  const CONTEXTO_VARIEDAD_MAX_TEMAS = 3;
+  const CONTEXTO_VARIEDAD_MAX_ACTIVIDADES_POR_TEMA = 3;
+  const CONTEXTO_VARIEDAD_MAX_CARACTERES = 240;
+  const normalizeContextoText = (value, maxLength) => {
+    const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+    return text.length > maxLength ? `${text.slice(0, maxLength - 1).trimEnd()}…` : text;
+  };
   const momentosActividades = [
     { key: 'conocimientos_previos', label: 'Conocimientos previos' },
     { key: 'desarrollo', label: 'Desarrollo' },
@@ -128,6 +136,46 @@ ${enfoqueLines.length > 0 ? `\nEnfoque especifico para las actividades seleccion
 - Cierre: Sin actividad especifica
 
 Regla: como no hay actividades seleccionadas, genera las actividades normalmente segun el tema, nivel, materia y duracion.`;
+  const contextoVariedadLines = (Array.isArray(contextoVariedad) ? contextoVariedad : [])
+    .slice(-CONTEXTO_VARIEDAD_MAX_TEMAS)
+    .flatMap((temaPrevio) => {
+      const temaPrevioNombre = normalizeContextoText(temaPrevio?.tema, 100);
+      const actividadesPrevias = Array.isArray(temaPrevio?.actividades)
+        ? temaPrevio.actividades.slice(0, CONTEXTO_VARIEDAD_MAX_ACTIVIDADES_POR_TEMA)
+        : [];
+
+      return actividadesPrevias
+        .map((referencia) => {
+          const momento = normalizeContextoText(referencia?.momento, 60);
+          const actividad = normalizeContextoText(
+            referencia?.actividad,
+            CONTEXTO_VARIEDAD_MAX_CARACTERES
+          );
+          if (!actividad) return '';
+          return `- ${temaPrevioNombre ? `Tema "${temaPrevioNombre}" · ` : ''}${momento ? `${momento}: ` : ''}${actividad}`;
+        })
+        .filter(Boolean);
+    });
+  const contextoVariedadPrompt = contextoVariedadLines.length > 0
+    ? `
+========================
+VARIEDAD ENTRE TEMAS
+========================
+En temas anteriores de esta misma generacion ya se utilizaron estrategias como:
+${contextoVariedadLines.join('\n')}
+
+Para los momentos donde el docente NO selecciono una actividad especifica:
+- Evita repetir innecesariamente estas estrategias cuando otra dinamica sea pedagogicamente coherente.
+- Prioriza variedad real; cambiar solo la redaccion de la misma dinamica no cuenta como variedad.
+- Si el docente selecciono explicitamente una actividad para un momento, respeta esa seleccion aunque aparezca en esta lista.`
+    : '';
+  const variedadMomentosPrompt = `
+========================
+VARIEDAD ENTRE MOMENTOS
+========================
+- En los momentos sin actividad seleccionada, procura que Conocimientos previos, Desarrollo y Cierre utilicen dinamicas claramente diferenciadas entre si.
+- No consideres variedad cambiar solamente la redaccion mientras mantienes exactamente la misma dinamica.
+- Esta regla no sustituye una seleccion explicita del docente: respetala aunque se repita entre momentos o respecto de temas anteriores.`;
   const base = `
 Actúa como un DOCENTE EXPERTO en diseño de planeaciones didácticas para educación media superior.
 No generes formatos genéricos. Diseña la clase como si fuera aplicada en un aula real.
@@ -218,6 +266,8 @@ Ajusta la actividad al tema y al nivel educativo.
 ACTIVIDADES DIDACTICAS OPCIONALES
 ========================
 ${actividadesMomentosPrompt}
+${variedadMomentosPrompt}
+${contextoVariedadPrompt}
 
 ========================
 CRITERIOS GENERALES

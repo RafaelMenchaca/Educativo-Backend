@@ -15,6 +15,10 @@ const openai = new OpenAI({
 
 const TABLA_IA_PRIMARY_MAX_TOKENS = 2200;
 const TABLA_IA_RETRY_MAX_TOKENS = 3600;
+const CONTEXTO_VARIEDAD_MAX_TEMAS = 3;
+const CONTEXTO_VARIEDAD_MAX_ACTIVIDADES_POR_TEMA = 3;
+const CONTEXTO_VARIEDAD_MAX_CARACTERES = 240;
+const PLANEACION_PROMPT_VERSION = 'v4_variedad_entre_temas';
 const OPENAI_TABLA_SYSTEM_PROMPT =
   'Actua como un docente experto en diseno de planeaciones didacticas, con experiencia en primaria, secundaria, bachillerato y nivel superior. Responde solo con JSON valido, sin markdown, sin backticks y sin texto adicional.';
 const TEMA_DUPLICATE_CONSTRAINT = 'temas_unidad_id_titulo_key';
@@ -442,6 +446,24 @@ function buildFallbackTablaIa(duracion) {
   ];
 }
 
+function buildContextoVariedadTema(tema, tablaIa) {
+  const normalizeText = (value, maxLength) => {
+    const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+    return text.length > maxLength ? `${text.slice(0, maxLength - 1).trimEnd()}…` : text;
+  };
+  const actividades = (Array.isArray(tablaIa) ? tablaIa : [])
+    .slice(0, CONTEXTO_VARIEDAD_MAX_ACTIVIDADES_POR_TEMA)
+    .map((fila) => ({
+      momento: normalizeText(fila?.tiempo_sesion, 60),
+      actividad: normalizeText(fila?.actividades, CONTEXTO_VARIEDAD_MAX_CARACTERES)
+    }))
+    .filter((referencia) => referencia.actividad);
+
+  return actividades.length > 0
+    ? { tema: normalizeText(tema, 100), actividades }
+    : null;
+}
+
 function normalizeTablaIaPayload(payload) {
   if (Array.isArray(payload)) {
     return payload;
@@ -532,6 +554,7 @@ async function generarTablaIa({
   duracion,
   actividad_cierre,
   actividades_momentos,
+  contextoVariedad = [],
   jobId = null,
   userId = null
 }) {
@@ -546,7 +569,8 @@ async function generarTablaIa({
     tema,
     duracion,
     actividad_cierre,
-    actividades_momentos: actividadesMomentosNormalizadas
+    actividades_momentos: actividadesMomentosNormalizadas,
+    contextoVariedad
   });
 
   const prompt = `${basePrompt}
@@ -614,7 +638,7 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
         artifactType:  'planeacion',
         callPurpose:   'main_generation',
         model:         'gpt-4o-mini',
-        promptVersion: 'v3_actividades_momentos',
+        promptVersion: PLANEACION_PROMPT_VERSION,
         usage,
         status:        parsed.jsonOk ? 'success' : 'error',
         jsonOk:        parsed.jsonOk,
@@ -641,7 +665,7 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
           error_tipo: parsed.errorTipo,
           nivel,
           materia,
-          prompt_version: 'v3_actividades_momentos'
+          prompt_version: PLANEACION_PROMPT_VERSION
         }
       };
     }
@@ -677,7 +701,7 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
       error_tipo: lastAttempt?.parsed?.errorTipo || 'fallback_used',
       nivel,
       materia,
-      prompt_version: 'v3_actividades_momentos'
+      prompt_version: PLANEACION_PROMPT_VERSION
     }
   };
 }
@@ -1491,6 +1515,7 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
 
   const results = [];
   const planeacionIds = [];
+  const contextoVariedad = [];
 
   for (let i = 0; i < normalizedTemas.length; i += 1) {
     const temaInput = normalizedTemas[i];
@@ -1597,7 +1622,8 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
         tema: tema.titulo,
         duracion: tema.duracion,
         actividad_cierre: temaInput.actividad_cierre,
-        actividades_momentos: temaInput.actividades_momentos
+        actividades_momentos: temaInput.actividades_momentos,
+        contextoVariedad
       });
 
       const { data: updatedPlaneacion, error: readyError } = await client
@@ -1688,6 +1714,16 @@ export async function generarPlaneacionesIAPorUnidad(payload, onEvent) {
           planeacion_id: planeacionId,
           status: 'ready'
         });
+      }
+
+      if (metrics.json_ok) {
+        const contextoTema = buildContextoVariedadTema(tema.titulo, tablaIa);
+        if (contextoTema) {
+          contextoVariedad.push(contextoTema);
+          if (contextoVariedad.length > CONTEXTO_VARIEDAD_MAX_TEMAS) {
+            contextoVariedad.splice(0, contextoVariedad.length - CONTEXTO_VARIEDAD_MAX_TEMAS);
+          }
+        }
       }
     } catch (error) {
       if (planeacion?.id) {
