@@ -33,7 +33,7 @@ El flujo `/api/planeaciones/generate` recibe `materia`, `nivel`, `unidad` numér
 
 El flujo por unidad recibe `unidadId` desde la ruta, temas con título/duración y datos opcionales de batch/contexto. Puede crear temas y una planeación pending antes de generar.
 
-La generación por unidad continúa creando una llamada IA independiente por tema. Dentro del mismo request, el servicio conserva temporalmente las actividades de hasta los últimos tres temas generados correctamente y las entrega como contexto breve al prompt del tema siguiente. Este contexto solo orienta la variedad en momentos sin actividad específica; una selección explícita del docente siempre tiene prioridad. El historial no se persiste, no se consulta entre requests y no cambia el payload público.
+La generación por unidad continúa creando una llamada IA independiente por tema. Dentro del mismo request, el servicio conserva temporalmente las actividades de hasta los últimos cinco temas generados correctamente y las entrega como contexto breve al prompt del tema siguiente. Este contexto solo orienta la variedad en momentos sin actividad específica; una selección explícita del docente siempre tiene prioridad. El historial no se persiste, no se consulta entre requests y no cambia el payload público.
 
 ### Salida, normalización y validación
 

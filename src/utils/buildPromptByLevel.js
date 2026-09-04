@@ -8,7 +8,7 @@ export function buildPromptByLevel({
   actividades_momentos = {},
   contextoVariedad = []
 }) {
-  const CONTEXTO_VARIEDAD_MAX_TEMAS = 3;
+  const CONTEXTO_VARIEDAD_MAX_TEMAS = 5;
   const CONTEXTO_VARIEDAD_MAX_ACTIVIDADES_POR_TEMA = 3;
   const CONTEXTO_VARIEDAD_MAX_CARACTERES = 240;
   const normalizeContextoText = (value, maxLength) => {
