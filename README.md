@@ -14,6 +14,8 @@ La API y los contratos actuales soportan el workflow Biblioteca del frontend v3.
 
 Las reglas comerciales confirmadas, propuestas y decisiones pendientes están en el [contrato canónico de planes y consumo](docs/PRODUCT_PLANS_CONSUMPTION.md). Su documentación no implica que planes o cuotas estén implementados.
 
+El [inventario de entornos y evidencia de esquema](docs/ENVIRONMENT_SCHEMA_READINESS.md) recoge la selección local de servicios y la verificación externa pendiente; no acredita ambientes aislados ni esquema desplegado verificado.
+
 - API REST para planeaciones y todos los documentos derivados (examenes, anexos, listas de cotejo).
 - Validacion de tokens Bearer emitidos por Supabase en todas las rutas privadas.
 - Generacion de contenido educativo con OpenAI (planeaciones, examenes, anexos, listas de cotejo).
