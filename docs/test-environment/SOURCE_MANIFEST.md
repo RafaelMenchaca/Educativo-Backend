@@ -2,6 +2,10 @@
 
 CSV aportados por el usuario; PostgreSQL 15.8 comunicado. No se incorporan los CSV al repositorio. SHA-256 identifica los archivos revisados, no certifica integridad/completitud del export ni estado remoto actual.
 
+## Evidencia complementaria pegada por el usuario
+
+El usuario ejecutó la consulta acotada `docs/diagnostics/identity_sequence_metadata_readonly.sql` en el Supabase actual y comunicó el resultado para `public.planeaciones.id`: identity kind `d` (BY DEFAULT), secuencia `public.planeaciones_id_seq`, propietario `postgres`, tipo `bigint`, START 1, INCREMENT 1, MINVALUE 1, MAXVALUE 9223372036854775807, CACHE 1, CYCLE false y dependencia `i`. Esta evidencia no llegó como archivo: no se inventa nombre, hash ni verificación remota. No incluyó ni se solicita `last_value`.
+
 | Archivo | Filas | SHA-256 |
 | --- | ---: | --- |
 | bloque_01.csv | 257 | c0a759b4dea3fe7f59d0cc8de65762307a93cf2989cb0ff37514dae9955a5482 |
