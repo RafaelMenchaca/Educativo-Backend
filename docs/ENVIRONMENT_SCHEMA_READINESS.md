@@ -2,6 +2,36 @@
 
 Fecha: 2026-09-23. Estado: inspección local y propuesta documental. **Ambientes no declarados aislados; esquema desplegado no verificado.**
 
+## Actualización 02C — 2026-09-24
+
+Se recibieron y revisaron localmente los once CSV de `supabase_metadata/` (PostgreSQL de origen 15.8 comunicado). Sustituyen al snapshot histórico como evidencia de los objetos exportados: **19 tablas public con RLS habilitado**, 257 columnas, 76 constraints, 69 índices, seis funciones propias, 16 triggers, 49 policies public y ocho policies sobre storage.objects. Esto no certifica el estado remoto actual, la configuración de Auth/buckets, la completitud de todos los objetos ni el aislamiento de ambientes.
+
+Preparados [script inicial de pruebas y guía](test-environment/README.md), fuera de migraciones/deploy automático, con precondiciones y ejecución transaccional, y [consulta adicional de secuencia](diagnostics/identity_sequence_metadata_readonly.sql). **No se ejecutó ninguno.** Los parámetros de la secuencia identity no están exportados: queda bloqueada la afirmación de reproducción exacta; el borrador exige resolver o aceptar expresamente esa diferencia antes de ejecutarse. Los CSV permanecen fuera de Git; el [manifiesto](test-environment/SOURCE_MANIFEST.md) identifica los archivos revisados.
+
+Hallazgos contrastados: profiles y user_profiles son distintas; el único trigger personalizado de auth.users llama handle_new_user y crea profiles + user_settings. user_profiles es editable por su propietario y no acredita privilegios comerciales. Hay escrituras permitidas en métricas/jobs, grants amplios y relaciones sin comprobación general de propietario común. `ia_metrics_legacy` existe en el export, pero el consumidor guardarMetricasIa aún escribe en `ia_metrics`, ausente. Los cambios de seguridad y esa incompatibilidad quedan separados de la reproducción; no se crea un alias ni se endurecen policies silenciosamente. Ver evidencia y pendientes en la guía.
+
+Se preserva el estado pendiente de 02B: frontend limpio en `work/features` / `c58a282249dd12b66dcf6ce3787fdda4d8e3722a`; backend `work/features` / `47b8ab7534452a910cdd4fe98422de0eef0b7d09` con este inventario modificado y `docs/diagnostics/` sin seguimiento al comenzar 02C. No se asume commit de esos cambios. Las reglas y dominios de 02B siguen vigentes; las verificaciones antiguas de policies pendientes quedan ahora parcialmente resueltas por los CSV, no por pruebas de autorización. **No se declara esquema ejecutable validado ni ambientes aislados. Prueba manual de 00.1 pendiente.**
+
+## Actualización 02B — 2026-09-24
+
+Hechos comunicados por el usuario (no consultados externamente por el agente):
+
+| Servicio | Evidencia aportada |
+| --- | --- |
+| Supabase | Existe un único proyecto, `educativo-backend`, con los datos actuales. No hay un proyecto de pruebas separado confirmado. |
+| Vercel producción | Rama `main`, commit mostrado `a5e2e16`; dominios `educativoia.com`, `www.educativoia.com` y `planeacion-docente-ia.vercel.app`. |
+| Render | Servicio `Educativo-Backend`, rama `main`, commit mostrado `976fc5e`; accesible por `api.educativoia.com` y `educativo-backend.onrender.com`. |
+| Previews | Hay previews de otras ramas; `work/features` no está acreditada como preview aislada ni como versión desplegada. |
+| Esquema aportado | Sigue siendo un snapshot documental, no export reciente ni evidencia de policies actuales. |
+
+Estos hechos resuelven la existencia de los servicios y las ramas/commits mostrados que en 02A estaban pendientes; no certifican correspondencia entre variables, proyecto o código servido. **El destino efectivo de variables locales/Render sigue sin contrastar**, así como el vínculo comprobado de los literales frontend con el proyecto identificado. No inferir el rol efectivo de claves por su nombre. Auth, buckets, grants, funciones y policies reales permanecen sin verificar.
+
+Propuesta de trabajo actual, no provisionada: producción conserva sus servicios; primeras pruebas con frontend/backend **locales y un proyecto Supabase separado**. Un backend de pruebas publicado se resolverá después. Esta propuesta precisa la alternativa general de la sección C; no autoriza creación de recursos, costes, copia de datos ni cambios externos.
+
+Línea base 02B: ambos repositorios en `work/features`, limpios al inicio. Frontend `c58a282249dd12b66dcf6ce3787fdda4d8e3722a`; backend `47b8ab7534452a910cdd4fe98422de0eef0b7d09`. Revisados los archivos reales `frontend/js/core/config.js`, `frontend/js/core/supabase.client.js`, `backend/supabaseClient.js` y `backend/src/app.js`, omitiendo valores secretos. No se leyeron `.env` ni se usó código pegado en chat como sustituto del repo.
+
+Preparados [SQL diagnóstico de solo lectura](diagnostics/supabase_metadata_readonly.sql) y [guía por bloques](diagnostics/README.md), fuera de migraciones. **No ejecutados**. La ausencia de SQL versionado descrita en 02A correspondía a ese momento; ahora hay SQL de diagnóstico, no migraciones. Las secciones siguientes conservan el inventario y pendientes de 02A con esta actualización como referencia vigente. El contrato comercial no se modifica; **la prueba manual de 00.1 sigue pendiente**.
+
 ## Alcance y línea base
 
 Se leyeron los AGENTS de ambos repositorios, README, arquitectura/mapa frontend, guía backend, [schema documental](DATABASE_SCHEMA.md) y [contrato de producto](PRODUCT_PLANS_CONSUMPTION.md). Este inventario no duplica ni cambia las reglas comerciales. Se preservan Biblioteca, scripts clásicos y su orden, `explorerState`, contratos de IDs, generación, Auth y RLS.
@@ -53,6 +83,8 @@ En este documento `SB-F` identifica el proyecto del literal `SUPABASE_URL` en `f
 Variables relevantes, sin valores: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_KEY`, `NODE_ENV`, `CORS_ORIGIN`, `PORT`, `OPENAI_API_KEY`. La última también requiere separación antes de pruebas de generación; esta sesión no realiza llamadas IA. Correo y pagos aún no tienen configuración funcional identificada.
 
 ### Storage
+
+**Confirmación visual comunicada por el usuario en 02C:** `planeacion-actividades` existe y es **PRIVADO** (`Public bucket` desactivado), con **10 MB por archivo** y MIME permitido **`image/*`**. Se utiliza actualmente para subir imágenes manualmente a las actividades de cada momento de una sesión y acceder mediante URLs firmadas. Queda resuelto el pendiente público/privado mediante esta evidencia aportada. Se preservan el flujo y sus consumidores; la generación de imágenes con IA está pausada y fuera de alcance. **`avatars` no existe**: sus policies exportadas no acreditan un bucket ni autorizan crearlo o implementar avatares. Estos hechos actualizan los pendientes históricos de Storage de 02A/02B, sin consulta o modificación de producción por el agente. La [preparación de pruebas](test-environment/README.md) requiere los mismos parámetros en el futuro proyecto separado, sin crear buckets en esta sesión.
 
 [detalle.page.js](../../frontend/js/pages/detalle.page.js): `DETALLE_STORAGE_BUCKET='planeacion-actividades'`, `DETALLE_SIGNED_URL_TTL_SECONDS` (una hora), `crearSignedUrlActividad`, `subirImagenActividad`, `eliminarImagenesStorage`.
 
@@ -109,7 +141,7 @@ CORS gobierna acceso desde navegadores a Express; no es autorización, aislamien
 
 Entregar una tabla breve por ambiente: origen frontend, servicio/API, alias o referencia pública de proyecto Supabase, ambiente declarado, HEAD desplegado y fecha de revisión. Para claves, solo indicar que el operador verificó tipo/emisión y proyecto; **no compartir valores, tokens, cadenas de conexión ni capturas con secretos**.
 
-- **Supabase:** confirmar si SB-F es producción y qué proyectos no productivos existen. En Auth, revisar únicamente Site URL, redirecciones permitidas, disponibilidad del login por email y estado de confirmación de correo necesario para futuras cuentas sintéticas. No abrir/listar usuarios ni probar envío ahora. En Storage, confirmar existencia/configuración del bucket `planeacion-actividades`, público/privado, límites de tamaño/tipos y disponibilidad de policies; no abrir objetos.
+- **Supabase:** confirmar si SB-F es producción y qué proyectos no productivos existen. En Auth, revisar únicamente Site URL, redirecciones permitidas, disponibilidad del login por email y estado de confirmación de correo necesario para futuras cuentas sintéticas. No abrir/listar usuarios ni probar envío ahora. Storage de origen confirmado visualmente por el usuario en 02C: `planeacion-actividades` privado, 10 MB y `image/*`. Queda pendiente configurar y validar esos parámetros en el futuro destino de pruebas y contrastar policies/URLs firmadas con datos sintéticos. No pedir configuración ni creación de `avatars`: no existe y está fuera de alcance.
 - **Vercel, si es el hosting real:** proyecto/repo conectado, Production Branch, HEAD y dominios de Production/Preview, Root Directory, build/output y mecanismo real de configuración. Consultar nombres y alcance Production/Preview/Development de variables, sin mostrar valores secretos. Determinar si hay inyección de configuración fuera del repo.
 - **Render, si se usa:** servicio/repo/rama/HEAD y URL pública/custom domain, root/build/start, existencia de servicio preview separado. Confirmar presencia y ámbito de `NODE_ENV`, `CORS_ORIGIN`, `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, `PORT`, y si se heredan grupos de entorno. Compartir solo clasificación de destino y validación de tipo de credencial; no valores secretos.
 - **Dominio/DNS:** únicamente destinos de apex/www/API, redirects y TLS de `educativoia.com`, y relación con `educativo-ia.com`. No hace falta exportar toda la zona ni pedir configuración SMTP/pagos todavía.

@@ -2,6 +2,8 @@
 
 ## Naturaleza de este documento
 
+**Actualización 02C (2026-09-24):** las definiciones históricas de abajo no son un export actual completo. Los CSV aportados por el usuario acreditan 19 tablas public, incluidas `profiles` e `ia_metrics_legacy`, ausentes de este snapshot, y permiten enumerar RLS, policies y cuerpos de funciones. `profiles` no es `user_profiles`; `handle_new_user` aprovisiona únicamente profiles + user_settings. El código todavía escribe en `ia_metrics`, que no aparece en ese export. Consultar [correspondencia, diferencias y límites](test-environment/README.md) y [SQL inicial revisable de pruebas](test-environment/initialize_application.sql). Se conservan las definiciones históricas sin rellenar huecos por inferencia. Este nuevo SQL no se ha ejecutado, no es migración de producción ni reproducción exacta de parámetros de secuencia/globales; no acredita seguridad de lanzamiento. La sección histórica «Estado de RLS» describe la limitación del snapshot, ahora complementada por los CSV.
+
 Este archivo documenta el schema conocido de Educativo IA. No contiene credenciales ni debe contener datos reales de usuarios.
 
 Las migraciones SQL son la fuente ejecutable del schema. El código ejecutable confirma cómo se consumen tablas y campos, pero no crea relaciones que no existan en la base. Al 2026-07-20 no hay archivos `.sql` presentes en este repositorio, por lo que las definiciones siguientes son un snapshot documental y no permiten verificar por sí solas el historial de migraciones ni todas las políticas RLS.
