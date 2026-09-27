@@ -1,8 +1,11 @@
 -- SESSION 02C: REVIEW DRAFT. NEW EMPTY SUPABASE TEST PROJECT ONLY.
 -- NOT a migration, production repair, backup, or automatic deployment input.
 -- Source: user CSV blocks 01-11, PostgreSQL 15.8; no application rows.
--- Read README.md first. This script deliberately refuses to run until the
--- target-project acknowledgement below is changed. It does not detect a project.
+-- AUTHORIZED MANUAL TARGET: educativo-backend-test / gwdtlbisykzzplgzczzq / us-east-2.
+-- FORBIDDEN TARGET: educativo-backend / bfnkaqmhcsyxdxoqnahk / us-east-2.
+-- PostgreSQL cannot verify a Supabase Project ID from a trusted catalog value.
+-- The Project ID/region check remains a mandatory visual precondition; the
+-- technical guard below relies on the confirmed-empty target state.
 -- Identity sequence parameters were supplied by the user from the bounded
 -- source metadata query; no last_value or production rows are reproduced.
 -- Broad observed ACL/RLS are reproduced, NOT endorsed for launch.
@@ -12,7 +15,7 @@ SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 DO $preflight$
 DECLARE
-  confirmed_new_test_project boolean := false;
+  confirmed_new_test_project boolean := true;
 BEGIN
   IF NOT confirmed_new_test_project THEN
     RAISE EXCEPTION 'STOP: independently confirm NEW EMPTY TEST project; never production';

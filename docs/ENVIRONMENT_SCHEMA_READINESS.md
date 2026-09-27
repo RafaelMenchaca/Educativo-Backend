@@ -2,6 +2,14 @@
 
 Fecha: 2026-09-23. Estado: inspección local y propuesta documental. **Ambientes no declarados aislados; esquema desplegado no verificado.**
 
+## Actualización 02C.1 — 2026-09-27
+
+El usuario confirmó producción como `educativo-backend` / Project ID `bfnkaqmhcsyxdxoqnahk` / `us-east-2` — East US (Ohio) / PostgreSQL 15.8. Contiene esquema y datos vigentes y queda expresamente excluido de toda inicialización. Confirmó como destino separado y vacío `educativo-backend-test` / Project ID `gwdtlbisykzzplgzczzq` / la misma región / PostgreSQL 17.6 (`170006`). PostgreSQL no expone una fuente catalogal confiable para verificar el Project ID de Supabase: nombre, ID y región son una precondición visual manual.
+
+El preflight ejecutado manualmente por el usuario en el SQL Editor de pruebas devolvió `current_user=postgres` y cero relaciones/secuencias public, cero funciones public no pertenecientes a extensiones, cero triggers personalizados sobre auth.users y cero policies sobre storage.objects. Confirmó la presencia de auth.users, storage.objects, auth.uid(), storage.foldername(text) y gen_random_uuid(), además de RLS habilitado en storage.objects. El agente no conectó servicios ni verificó remotamente el resultado. La diferencia PostgreSQL 15.8 → 17.6 queda registrada y exige postflight; no justifica adaptar el esquema sin evidencia de incompatibilidad.
+
+El bloqueo humano del destino en [initialize_application.sql](test-environment/initialize_application.sql) refleja ahora esta autorización, manteniendo visibles producción prohibida y pruebas autorizadas. Permanecen las guardias técnicas de ejecutor, versión mínima, destino public vacío, ausencia de funciones/triggers/policies personalizados, dependencias gestionadas, RLS, roles y acceso al schema. Se añadió [postflight de solo lectura](test-environment/verify_initialization_readonly.sql). **La inicialización y el postflight no se ejecutaron.** Render, Vercel, variables, Auth y Storage no se modificaron; la configuración futura del bucket privado `planeacion-actividades` sigue separada.
+
 ## Actualización 02C — 2026-09-24
 
 Se recibieron y revisaron localmente los once CSV de `supabase_metadata/` (PostgreSQL de origen 15.8 comunicado). Sustituyen al snapshot histórico como evidencia de los objetos exportados: **19 tablas public con RLS habilitado**, 257 columnas, 76 constraints, 69 índices, seis funciones propias, 16 triggers, 49 policies public y ocho policies sobre storage.objects. Esto no certifica el estado remoto actual, la configuración de Auth/buckets, la completitud de todos los objetos ni el aislamiento de ambientes.

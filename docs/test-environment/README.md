@@ -1,6 +1,6 @@
 # Inicialización revisable de pruebas — sesión 02C
 
-**Borrador no ejecutado. Exclusivo para un proyecto Supabase NUEVO, vacío y separado de producción. No es una migración ni una autorización de lanzamiento.**
+**Paquete preparado, no ejecutado. Destino manual autorizado: `educativo-backend-test` / `gwdtlbisykzzplgzczzq` / `us-east-2`. Producción prohibida: `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`. No es una migración ni una autorización de lanzamiento.**
 
 [initialize_application.sql](initialize_application.sql) reproduce los objetos de aplicación observados en los CSV `bloque_01.csv`–`bloque_11.csv` aportados por el usuario. Origen PostgreSQL 15.8 comunicado; no se conectó al origen. [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md) registra cantidades y hashes de los archivos locales; los CSV no se incorporan a Git. La evidencia es el export, no una comprobación remota del estado actual ni un backup completo.
 
@@ -8,7 +8,7 @@
 
 | Bloque del script | Evidencia y alcance |
 | --- | --- |
-| Preflight | Transacción, bloqueo explícito de confirmación del destino, ejecutor `postgres`, PostgreSQL >=15 y objetos gestionados requeridos. Rechaza relaciones/secuencias y funciones propias preexistentes en public, triggers personalizados en auth.users y policies previas en storage.objects. `confirmed_new_test_project` permanece en `false`; el script no comprueba la identidad del proyecto por sí mismo. |
+| Preflight | Transacción, destino aprobado manualmente, ejecutor `postgres`, PostgreSQL >=15 y objetos gestionados requeridos. Rechaza relaciones/secuencias y funciones propias preexistentes en public, triggers personalizados en auth.users y policies previas en storage.objects. `confirmed_new_test_project` está en `true` por la evidencia de 02C.1. PostgreSQL no ofrece una fuente confiable para comprobar el Project ID: nombre/ID/región siguen siendo una precondición visual obligatoria. |
 | 1. Tablas | CSV01: 19 tablas, 257 columnas; tipos, orden, nulabilidad, defaults y collation. Todas pertenecen a postgres. `planeaciones.id`: bigint identity BY DEFAULT y secuencia explícita `public.planeaciones_id_seq` con los parámetros verificados descritos abajo. |
 | 2. Constraints | CSV02: 76 constraints validados, no diferibles. Primero PK/UNIQUE/CHECK, después todas las FK. Así se resuelve `examenes.generation_job_id` ↔ `examen_generation_jobs.examen_id`, sin quitar ni cambiar esas FK. |
 | 3. Índices | CSV03: 69 en total, todos válidos/listos. 26 corresponden a PK/UNIQUE; se crean con sus constraints. Los otros 43 se crean explícitamente, incluidos índices parciales. |
@@ -18,6 +18,17 @@
 | 7. ACL de aplicación | CSV06: 517 filas de permisos sobre tablas public y su secuencia, más los grants de las seis funciones de CSV08. Se limpian ACL heredadas SOLO de los objetos recién creados y se restauran permisos observados. No se modifican roles, esquemas, ACL de objetos internos ni default privileges. |
 
 Los bloques 09/10 no muestran tipos propios ni dependencias de extensiones para estos objetos: los tipos son de pg_catalog. `gen_random_uuid()` existe en PostgreSQL 15; se exige su existencia sin instalar pgcrypto. CSV11 enumera extensiones instaladas (`plpgsql`, `pgcrypto`, `uuid-ossp`, `pg_stat_statements`, `supabase_vault`), no demuestra que todas sean necesarias. No se recrean extensiones.
+
+### Destino autorizado y preflight de 02C.1
+
+| Ambiente | Proyecto | Project ID | Región | PostgreSQL | Uso |
+| --- | --- | --- | --- | --- | --- |
+| Producción | `educativo-backend` | `bfnkaqmhcsyxdxoqnahk` | `us-east-2` — East US (Ohio) | 15.8 | Contiene esquema/datos vigentes. **No ejecutar la inicialización.** |
+| Pruebas | `educativo-backend-test` | `gwdtlbisykzzplgzczzq` | `us-east-2` — East US (Ohio) | 17.6 (`170006`) | Destino vacío confirmado y único autorizado para una ejecución manual posterior. |
+
+El usuario ejecutó manualmente el preflight en el SQL Editor del destino de pruebas: `current_user=postgres`; los cuatro contadores `public_relations_or_sequences`, `non_extension_public_functions`, `custom_auth_user_triggers` y `storage_object_policies` devolvieron 0. `auth.users`, `storage.objects`, `auth.uid()`, `storage.foldername(text)` y `gen_random_uuid()` están disponibles; `storage.objects` tiene RLS habilitado. Es evidencia pegada por el usuario, no una consulta remota del agente. El script completo **no** se ha ejecutado.
+
+El salto PostgreSQL 15.8 → 17.6 está confirmado. La revisión estática no encontró sintaxis u objetos del borrador con incompatibilidad concreta: identity BY DEFAULT y sus opciones, catálogos usados, PL/pgSQL, RLS/policies, triggers, ACL y constraints están disponibles en el rango inspeccionado. Esto no acredita ejecución compatible en Supabase 17.6. No se adapta el esquema sin evidencia; el postflight y una ejecución manual controlada siguen siendo necesarios.
 
 ### Reproducción funcional y huecos
 
@@ -51,23 +62,37 @@ El snapshot histórico no incluía los cuerpos de funciones, el trigger de alta 
 5. Revisar `handle_new_user` SECURITY DEFINER sin search_path fijado. Se reproduce sin endurecimiento silencioso. Su cuerpo inserta SOLO profiles y user_settings con ON CONFLICT DO NOTHING.
 6. Probar denegación entre dos usuarios sintéticos, writes de métricas/jobs, relaciones cruzadas y Storage. No se ejecutaron estas pruebas. Reproducir policies no aprueba su seguridad.
 
-## Preparación y ejecución futura manual
+## Secuencia manual para una sesión posterior
 
-**No ejecutar ahora ni en el único proyecto actual educativo-backend.** Este directorio está fuera de migraciones automáticas. `package.json` arranca `src/server.js`; no referencia este SQL, y no se encontró un runner de despliegue que lo aplique.
+Esta sesión **no autoriza ejecutar** [initialize_application.sql](initialize_application.sql). El archivo está fuera de migraciones automáticas: `package.json` solo arranca `src/server.js` y no existe un runner versionado que lo aplique.
 
-1. En una sesión posterior, disponer de un proyecto Supabase de pruebas nuevo. Confirmar su identificador de proyecto en el panel, distinto de producción; no basta su nombre visible. No introducir sus credenciales en Git ni pegar cadenas de conexión.
-2. Confirmar destino vacío, sin usuarios creados por la app, tablas public propias, triggers de alta personalizados ni policies de Storage. Los objetos gestionados auth.users, storage.objects, auth.uid(), storage.foldername(text), roles y PL/pgSQL deben existir. No crearlos con este script.
-3. Revisar SQL/ACL y la versión real del destino (>=15 no garantiza compatibilidad Supabase). Los parámetros de secuencia ya están incorporados con evidencia pegada por el usuario. Mantener `confirmed_new_test_project = false` hasta confirmar de forma independiente un proyecto Supabase nuevo, vacío y separado; ese es el único bloqueo de reconocimiento manual restante.
-4. En SQL Editor del NUEVO destino, como postgres, ejecutar TODO el script revisado de una vez, con BEGIN/COMMIT. No seleccionar fragmentos para saltarse preflight. Los INSERT presentes en el cuerpo de handle_new_user son definición de la función, no una carga de datos; al ejecutar este SQL no se invoca la función de aplicación.
-5. Ante un error, detenerse y registrar bloque, SQLSTATE y mensaje revisado sin secretos. Si la conexión sigue en transacción abortada, ejecutar ROLLBACK en esa misma sesión. No solucionar conflictos borrando objetos desconocidos ni usando IF NOT EXISTS. El script es de una sola ejecución; una repetición debe fallar por destino no vacío.
-6. Después de una ejecución autorizada exitosa, repetir allí los bloques de inventario de 02B y comparar columnas/defaults, 76 constraints, 69 índices, funciones/ACL, 16 triggers y policies por nombre/expresión. Verificar secuencia con el suplemento. Excluir objetos internos variables entre versiones. Solo entonces crear usuarios sintéticos por Auth y probar que el trigger crea una fila profiles + settings y no duplica aprovisionamiento. No insertar directamente en auth.users.
-7. Antes de conectar la app, aislar los selectores frontend/backend/Auth/Storage; hoy siguen sin estar aislados. Probar RLS y flujos únicamente con datos sintéticos. Reversión de un fallo antes de COMMIT: transacción. Después de COMMIT, preferir descartar/recrear exclusivamente el proyecto desechable en otra acción autorizada, no un DROP genérico ni reparación de producción.
+A. Verificar visualmente en el dashboard: `educativo-backend-test` / `gwdtlbisykzzplgzczzq` / `us-east-2`. Si aparece `educativo-backend` o `bfnkaqmhcsyxdxoqnahk`, detenerse.
+
+B. Ejecutar nuevamente [preflight_target_readonly.sql](preflight_target_readonly.sql) antes de inicializar. Solo consulta catálogos y reproduce los campos comunicados en 02C.1.
+
+C. Confirmar que `public_relations_or_sequences`, `non_extension_public_functions`, `custom_auth_user_triggers` y `storage_object_policies` siguen en 0. Si cualquiera difiere de cero, detenerse y revisar; no editar el script para ocultarlo.
+
+D. Solo tras autorización posterior, ejecutar `initialize_application.sql` una vez y completo en pruebas, como `postgres`. No seleccionar fragmentos para saltarse el preflight. Los `INSERT` dentro de `handle_new_user` son parte de la definición y no se invocan durante la inicialización.
+
+E. Si aparece un error, detenerse. No reintentar automáticamente el script completo.
+
+F. Guardar el mensaje, SQLSTATE si aparece, sección/sentencia y objetos creados hasta ese punto. No incluir secretos ni datos personales. No ejecutar un rollback improvisado: `BEGIN` debe revertir la transacción si falla antes de `COMMIT`; confirmar el estado mediante catálogos antes de decidir cualquier recuperación.
+
+G. Si termina correctamente, ejecutar [verify_initialization_readonly.sql](verify_initialization_readonly.sql), también de solo lectura.
+
+H. Comparar sus resultados con [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md). Toda diferencia requiere revisión antes de configurar servicios.
+
+I. Configurar Storage en una sesión separada.
+
+J. Conectar backend/frontend al proyecto de pruebas únicamente después de aprobar el postflight. No cambiar todavía Render, Vercel ni variables locales.
+
+Advertencias: no ejecutar en producción; no copiar usuarios, filas ni archivos productivos; no configurar Auth; no crear buckets en esta sesión; no crear `avatars`; no improvisar DDL o rollback ante un fallo parcial.
 
 ## Configuración y datos fuera del script
 
 - **Auth:** habilitación de proveedores/email, confirmación, Site URL y allowlist de redirecciones de pruebas, límites de envío y SMTP de pruebas si se necesita. No copiar credenciales ni usuarios. Recopilar solo nombres/estado/configuración no secreta necesaria.
 - **Storage — confirmación visual comunicada por el usuario en 02C:** `planeacion-actividades` existe y es **PRIVADO** (`Public bucket` desactivado), con **10 MB por archivo** y MIME permitido **`image/*`**. Se usa para subir imágenes manualmente a las actividades de cada momento de una sesión y acceder mediante URLs firmadas. No hubo acceso externo del agente. Conservar el flujo y sus consumidores existentes (`detalle.page.js`: `subirImagenActividad`, `crearSignedUrlActividad`, `eliminarImagenesStorage`). La generación de imágenes con IA está pausada y fuera de alcance.
-- **Preparación de Storage de pruebas:** en una sesión posterior autorizada, configurar exclusivamente en el proyecto separado el bucket `planeacion-actividades` con esos mismos parámetros: privado, 10 MB y `image/*`. Esta configuración queda fuera del SQL de esquema; no se crea el bucket ahora ni se copian objetos productivos. Antes de conectar la app, comprobar destino y policies; después probar con imágenes sintéticas la carga manual, lectura por URL firmada, rechazo del acceso público sin firma, límites de tamaño/MIME y aislamiento entre dos usuarios. Conservar la caducidad vigente de las URLs firmadas (una hora). Estas pruebas siguen pendientes.
+- **Preparación de Storage de pruebas:** en una sesión posterior autorizada, configurar exclusivamente en `educativo-backend-test` el bucket `planeacion-actividades` con esos mismos parámetros: privado, 10 MB y `image/*`. Esta configuración queda fuera del SQL de esquema; no se crea el bucket ahora ni se copian objetos productivos. Antes de conectar la app, comprobar destino y policies; después probar con imágenes sintéticas la carga manual, lectura por URL firmada, rechazo del acceso público sin firma, límites de tamaño/MIME y aislamiento entre dos usuarios. Conservar la caducidad vigente de las URLs firmadas (una hora). Estas pruebas siguen pendientes.
 - **`avatars` no existe**, según la aclaración del usuario. Las cuatro policies exportadas que lo mencionan se conservan en el borrador como reproducción del estado observado; no demuestran existencia del bucket ni autorizan crearlo o implementar avatares. No crear `avatars` en producción ni en pruebas.
 - **Modelos/precios:** preparar posteriormente datos de referencia verificados para ai_model_prices (modelo, moneda, costes, activo, fecha de actualización según columnas). No extraer métricas para inventar precios ni asumir coste cero. Generación requiere configuración IA de pruebas y presupuesto explícito.
 - **Entorno:** nuevo identificador Supabase y asignación coherente de SUPABASE_URL/SUPABASE_KEY/SUPABASE_SERVICE_ROLE_KEY; API local, CORS y cliente frontend revisados antes de usar la app. No se han cambiado selectores ni leído secretos. Correo/pagos futuros de pruebas separados; no son parte de este esquema.
@@ -76,4 +101,4 @@ El snapshot histórico no incluía los cuerpos de funciones, el trigger de alta 
 
 Revisión estática de CSV, dependencias, orden de creación, cobertura de objetos y consumidores. Comprobaciones locales satisfactorias de las 257 definiciones de columna, 76 constraints, índices independientes y respaldados por constraints, seis cuerpos de función, nombres/expresiones de policies y cantidades de objetos. Comparación de los 17 conjuntos de columnas del snapshot histórico: no aparecen columnas agregadas/eliminadas en esas tablas; las dos tablas adicionales se describen arriba. Esto no sustituye un parser SQL ni prueba semántica de ejecución.
 
-No se ejecutó SQL, no se instaló nada ni se consultaron servicios externos. `psql`/`postgres` no encontrados en PATH; Docker CLI existe pero el daemon local no está disponible. No se acredita compatibilidad ejecutada. `git diff --check` pasó en ambos repositorios; también se revisaron los archivos nuevos fuera del índice con `git diff --no-index --check` y una comprobación local de whitespace. Solo hubo avisos de conversión LF/CRLF. Se preservaron los archivos pendientes de 02B; frontend permanece sin cambios. **Prueba manual de 00.1 sigue pendiente.**
+En 02C.1 se revisó estáticamente el paquete para PostgreSQL 15.8 → 17.6 y se añadió un postflight de catálogos. No se ejecutó SQL, no se instalaron herramientas ni se consultaron servicios externos. Esta revisión no sustituye validación contra PostgreSQL/Supabase 17.6. Las comprobaciones locales y el diff se reportan al cerrar la sesión. **Prueba manual de 00.1 sigue pendiente.**

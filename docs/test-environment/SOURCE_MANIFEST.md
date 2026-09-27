@@ -6,6 +6,29 @@ CSV aportados por el usuario; PostgreSQL 15.8 comunicado. No se incorporan los C
 
 El usuario ejecutó la consulta acotada `docs/diagnostics/identity_sequence_metadata_readonly.sql` en el Supabase actual y comunicó el resultado para `public.planeaciones.id`: identity kind `d` (BY DEFAULT), secuencia `public.planeaciones_id_seq`, propietario `postgres`, tipo `bigint`, START 1, INCREMENT 1, MINVALUE 1, MAXVALUE 9223372036854775807, CACHE 1, CYCLE false y dependencia `i`. Esta evidencia no llegó como archivo: no se inventa nombre, hash ni verificación remota. No incluyó ni se solicita `last_value`.
 
+## Destino y preflight comunicados — 02C.1
+
+Producción queda identificada como `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2` / PostgreSQL 15.8 y está excluida de la inicialización. El destino manual autorizado es `educativo-backend-test` / `gwdtlbisykzzplgzczzq` / `us-east-2` / PostgreSQL 17.6 (`170006`). El usuario comunicó que es separado y vacío.
+
+El preflight ejecutado por el usuario en el SQL Editor de pruebas devolvió `current_user=postgres` y cero para relaciones/secuencias public, funciones public no pertenecientes a extensiones, triggers personalizados de auth.users y policies de storage.objects. Confirmó `auth.users`, `storage.objects`, `auth.uid()`, `storage.foldername(text)`, `gen_random_uuid()` y RLS en storage.objects. Esta evidencia fue pegada en conversación: no tiene archivo/hash local y no fue verificada remotamente por el agente. No implica que la inicialización se haya ejecutado.
+
+Expectativas que [verify_initialization_readonly.sql](verify_initialization_readonly.sql) compara después de una futura ejecución autorizada:
+
+| Métrica | Esperado |
+| --- | ---: |
+| Tablas public | 19 |
+| Relaciones/secuencias public | 20 |
+| Columnas public | 257 |
+| Constraints public | 76 |
+| Foreign keys public | 41 |
+| Índices public | 69 |
+| Funciones public propias | 6 |
+| Triggers personalizados public + auth.users | 16 |
+| Tablas public con RLS | 19 |
+| Policies public | 49 |
+| Policies storage.objects | 8 |
+| Policies totales del alcance | 57 |
+
 | Archivo | Filas | SHA-256 |
 | --- | ---: | --- |
 | bloque_01.csv | 257 | c0a759b4dea3fe7f59d0cc8de65762307a93cf2989cb0ff37514dae9955a5482 |
