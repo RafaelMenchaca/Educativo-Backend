@@ -1,6 +1,18 @@
 # Inventario de entornos y evidencia de esquema — sesión 02A
 
-Fecha: 2026-09-23. Estado: inspección local y propuesta documental. **Ambientes no declarados aislados; esquema desplegado no verificado.**
+Inicio del inventario: 2026-09-23. Estado vigente al 2026-09-28: **esquema de pruebas inicializado y postflight aprobado por evidencia manual del usuario; aislamiento funcional de ambientes pendiente.**
+
+## Actualización 02C.2 — 2026-09-28
+
+El usuario confirmó desde Supabase SQL Editor la ejecución única de `initialize_application.sql` en `educativo-backend-test` / `gwdtlbisykzzplgzczzq` / `us-east-2` / PostgreSQL 17.6, con resultado `Success. No rows returned`, después de un preflight con los cuatro contadores en cero y dependencias/RLS disponibles. Ejecutó el postflight por bloques: las 15 comparaciones esperado/observado quedaron en OK. El [manifiesto de evidencia](test-environment/SOURCE_MANIFEST.md) registra los resultados completos: 19 tablas, 257 columnas, 76 constraints, 41 FK, 69 índices, seis funciones, 16 triggers y 57 policies, entre otros controles.
+
+Las 19 tablas tienen RLS habilitado y no forzado; los 16 triggers están en modo O, incluido on_auth_user_created → public.handle_new_user. La identity mantiene los parámetros confirmados, sin consulta ni modificación de last_value. Las 41 FK están validadas y sus acciones coinciden con el inicializador; planeaciones_user_id_fkey conserva ON UPDATE NO ACTION / ON DELETE NO ACTION. Las tres funciones gestionadas requeridas están disponibles.
+
+**No repetir la inicialización en este proyecto.** Las cuatro condiciones de cero del preflight ahora deben fallar intencionalmente: contadores 20/6/1/8 según el postflight. La consulta de solo lectura devuelve los valores sin lanzar excepción; las guardias del inicializador impiden usar un destino no vacío. El postflight continúa reutilizable. La evidencia fue proporcionada por el usuario, sin verificación remota del agente ni nuevo archivo/hash de resultados. No se copiaron datos, usuarios ni objetos productivos; producción `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` no fue modificada.
+
+La aprobación es catalogal: no constituye validación funcional con usuarios ni pruebas de aislamiento A/B/anon. Permanecen pendientes Auth; bucket privado planeacion-actividades (10 MB, image/*, carga manual y URLs firmadas); pruebas Storage con dos usuarios; RLS A/B/anon; datos de referencia/ai_model_prices; ia_metrics frente a ia_metrics_legacy; configuración por ambiente; conexión del backend local y frontend de pruebas; cambios Render/Vercel; registro, recuperación, contacto, planes, cuotas y pagos. No crear avatars. Prueba manual de 00.1 pendiente. El paquete base es `3be7c40`; en 02C.2 solo se actualiza documentación.
+
+Las secciones 02C.1, 02C, 02B y 02A siguientes conservan el estado **histórico de cada sesión**; sus referencias a ejecución pendiente, destino vacío o ausencia de entorno separado quedan sustituidas por este estado vigente.
 
 ## Actualización 02C.1 — 2026-09-27
 

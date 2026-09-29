@@ -1,6 +1,10 @@
 # Inicialización revisable de pruebas — sesión 02C
 
-**Paquete preparado, no ejecutado. Destino manual autorizado: `educativo-backend-test` / `gwdtlbisykzzplgzczzq` / `us-east-2`. Producción prohibida: `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`. No es una migración ni una autorización de lanzamiento.**
+**Esquema inicializado y postflight aprobado en pruebas**, según evidencia manual proporcionada por el usuario desde Supabase SQL Editor el **2026-09-28**: `educativo-backend-test` / `gwdtlbisykzzplgzczzq` / `us-east-2` / PostgreSQL 17.6. **No volver a ejecutar el inicializador sobre este proyecto.** Producción prohibida: `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`. No es una autorización de lanzamiento.
+
+El usuario confirmó una sola ejecución de `initialize_application.sql` (`Success. No rows returned`) y el postflight manual por bloques, con todas las comparaciones en OK. El [manifiesto](SOURCE_MANIFEST.md) registra los resultados completos, RLS, triggers, secuencia y FK, incluida `planeaciones_user_id_fkey` con ON UPDATE/DELETE NO ACTION. No se copiaron datos, usuarios ni objetos productivos y producción no fue modificada. El agente no ejecutó SQL ni verificó remotamente esta evidencia. La aprobación se limita al esquema: no acredita funcionamiento con usuarios ni aislamiento A/B/anon.
+
+El [postflight](verify_initialization_readonly.sql) permanece reutilizable. El [preflight](preflight_target_readonly.sql) ahora debe mostrar 20 relaciones/secuencias public, 6 funciones propias public, 1 trigger personalizado auth.users y 8 policies storage.objects, según la evidencia recibida: incumple las cuatro condiciones de cero de forma intencional. La consulta informa esos valores; las guardias del inicializador rechazan el destino no vacío. No repetir la inicialización para comprobarlas.
 
 [initialize_application.sql](initialize_application.sql) reproduce los objetos de aplicación observados en los CSV `bloque_01.csv`–`bloque_11.csv` aportados por el usuario. Origen PostgreSQL 15.8 comunicado; no se conectó al origen. [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md) registra cantidades y hashes de los archivos locales; los CSV no se incorporan a Git. La evidencia es el export, no una comprobación remota del estado actual ni un backup completo.
 
@@ -19,16 +23,16 @@
 
 Los bloques 09/10 no muestran tipos propios ni dependencias de extensiones para estos objetos: los tipos son de pg_catalog. `gen_random_uuid()` existe en PostgreSQL 15; se exige su existencia sin instalar pgcrypto. CSV11 enumera extensiones instaladas (`plpgsql`, `pgcrypto`, `uuid-ossp`, `pg_stat_statements`, `supabase_vault`), no demuestra que todas sean necesarias. No se recrean extensiones.
 
-### Destino autorizado y preflight de 02C.1
+### Destino y preflight previo (historial 02C.1; estado actualizado en 02C.2)
 
 | Ambiente | Proyecto | Project ID | Región | PostgreSQL | Uso |
 | --- | --- | --- | --- | --- | --- |
 | Producción | `educativo-backend` | `bfnkaqmhcsyxdxoqnahk` | `us-east-2` — East US (Ohio) | 15.8 | Contiene esquema/datos vigentes. **No ejecutar la inicialización.** |
-| Pruebas | `educativo-backend-test` | `gwdtlbisykzzplgzczzq` | `us-east-2` — East US (Ohio) | 17.6 (`170006`) | Destino vacío confirmado y único autorizado para una ejecución manual posterior. |
+| Pruebas | `educativo-backend-test` | `gwdtlbisykzzplgzczzq` | `us-east-2` — East US (Ohio) | 17.6 (`170006`) | Inicializado y postflight aprobado el 2026-09-28; ya no es un destino vacío. |
 
-El usuario ejecutó manualmente el preflight en el SQL Editor del destino de pruebas: `current_user=postgres`; los cuatro contadores `public_relations_or_sequences`, `non_extension_public_functions`, `custom_auth_user_triggers` y `storage_object_policies` devolvieron 0. `auth.users`, `storage.objects`, `auth.uid()`, `storage.foldername(text)` y `gen_random_uuid()` están disponibles; `storage.objects` tiene RLS habilitado. Es evidencia pegada por el usuario, no una consulta remota del agente. El script completo **no** se ha ejecutado.
+Antes de la inicialización, el usuario ejecutó manualmente el preflight en el SQL Editor de pruebas: `current_user=postgres`; los cuatro contadores `public_relations_or_sequences`, `non_extension_public_functions`, `custom_auth_user_triggers` y `storage_object_policies` devolvieron 0. `auth.users`, `storage.objects`, `auth.uid()`, `storage.foldername(text)` y `gen_random_uuid()` estaban disponibles; `storage.objects` tenía RLS habilitado. Es evidencia pegada por el usuario, no una consulta remota del agente. En 02C.1 el script aún no se había ejecutado; la ejecución posterior y su verificación están registradas en 02C.2.
 
-El salto PostgreSQL 15.8 → 17.6 está confirmado. La revisión estática no encontró sintaxis u objetos del borrador con incompatibilidad concreta: identity BY DEFAULT y sus opciones, catálogos usados, PL/pgSQL, RLS/policies, triggers, ACL y constraints están disponibles en el rango inspeccionado. Esto no acredita ejecución compatible en Supabase 17.6. No se adapta el esquema sin evidencia; el postflight y una ejecución manual controlada siguen siendo necesarios.
+El salto PostgreSQL 15.8 → 17.6 está confirmado. La revisión estática de 02C.1 no encontró incompatibilidad concreta. En 02C.2, el usuario aportó evidencia de ejecución satisfactoria y postflight aprobado en 17.6. Esto acredita ese resultado de inicialización y los metadatos comprobados, no equivalencia completa entre versiones ni validación funcional de la aplicación. No se adapta el esquema sin evidencia.
 
 ### Reproducción funcional y huecos
 
@@ -62,7 +66,9 @@ El snapshot histórico no incluía los cuerpos de funciones, el trigger de alta 
 5. Revisar `handle_new_user` SECURITY DEFINER sin search_path fijado. Se reproduce sin endurecimiento silencioso. Su cuerpo inserta SOLO profiles y user_settings con ON CONFLICT DO NOTHING.
 6. Probar denegación entre dos usuarios sintéticos, writes de métricas/jobs, relaciones cruzadas y Storage. No se ejecutaron estas pruebas. Reproducir policies no aprueba su seguridad.
 
-## Secuencia manual para una sesión posterior
+## Secuencia manual histórica de 02C.1 — completada, no repetir en este destino
+
+Se conserva como referencia del procedimiento y de cómo detenerse ante fallos. Los pasos de inicialización A–H ya se completaron según la evidencia de 02C.2; I–J siguen pendientes. No autorizan otra ejecución en el proyecto ya inicializado. La frase «esta sesión» del procedimiento se refiere a 02C.1.
 
 Esta sesión **no autoriza ejecutar** [initialize_application.sql](initialize_application.sql). El archivo está fuera de migraciones automáticas: `package.json` solo arranca `src/server.js` y no existe un runner versionado que lo aplique.
 
@@ -97,8 +103,12 @@ Advertencias: no ejecutar en producción; no copiar usuarios, filas ni archivos 
 - **Modelos/precios:** preparar posteriormente datos de referencia verificados para ai_model_prices (modelo, moneda, costes, activo, fecha de actualización según columnas). No extraer métricas para inventar precios ni asumir coste cero. Generación requiere configuración IA de pruebas y presupuesto explícito.
 - **Entorno:** nuevo identificador Supabase y asignación coherente de SUPABASE_URL/SUPABASE_KEY/SUPABASE_SERVICE_ROLE_KEY; API local, CORS y cliente frontend revisados antes de usar la app. No se han cambiado selectores ni leído secretos. Correo/pagos futuros de pruebas separados; no son parte de este esquema.
 
-## Verificación de esta sesión
+## Verificaciones históricas de preparación (02C / 02C.1)
 
 Revisión estática de CSV, dependencias, orden de creación, cobertura de objetos y consumidores. Comprobaciones locales satisfactorias de las 257 definiciones de columna, 76 constraints, índices independientes y respaldados por constraints, seis cuerpos de función, nombres/expresiones de policies y cantidades de objetos. Comparación de los 17 conjuntos de columnas del snapshot histórico: no aparecen columnas agregadas/eliminadas en esas tablas; las dos tablas adicionales se describen arriba. Esto no sustituye un parser SQL ni prueba semántica de ejecución.
 
 En 02C.1 se revisó estáticamente el paquete para PostgreSQL 15.8 → 17.6 y se añadió un postflight de catálogos. No se ejecutó SQL, no se instalaron herramientas ni se consultaron servicios externos. Esta revisión no sustituye validación contra PostgreSQL/Supabase 17.6. Las comprobaciones locales y el diff se reportan al cerrar la sesión. **Prueba manual de 00.1 sigue pendiente.**
+
+## Pendientes tras el cierre documental 02C.2
+
+Siguen pendientes la configuración de Supabase Auth; creación/configuración en pruebas del bucket privado `planeacion-actividades` (10 MB, `image/*`, carga manual y URLs firmadas); pruebas de Storage con dos usuarios; pruebas RLS A/B/anon; datos de referencia, incluido `ai_model_prices`; resolución de `ia_metrics` frente a `ia_metrics_legacy`; configuración explícita por ambiente; conexión del backend local y frontend de pruebas; cambios en Render y Vercel; registro, recuperación, contacto, planes, cuotas y pagos. No crear `avatars`; generación de imágenes con IA fuera de alcance. La aprobación del postflight no resuelve ni autoriza por sí sola estos trabajos. La prueba manual de 00.1 continúa pendiente.
