@@ -2,6 +2,10 @@
 
 Inicio del inventario: 2026-09-23. Estado vigente al 2026-09-28: **esquema de pruebas inicializado y postflight aprobado por evidencia manual del usuario; aislamiento funcional de ambientes pendiente.**
 
+## Preparación 02D.1 — 2026-09-28
+
+Frontend `work/features` / `885b2b8` y backend `work/features` / `7e75f65`, limpios al inicio. El esquema/policies de pruebas siguen aprobados en el alcance de 02C.2; el usuario confirma que el bucket de pruebas todavía no existe. Se prepararon la [guía de Storage e inventario Auth](test-environment/STORAGE_AUTH_READINESS.md) y la [consulta de metadatos del bucket](test-environment/verify_storage_bucket_readonly.sql), sin ejecutarla. La guía concentra el contrato de rutas, comparación de las ocho policies, preparación manual y campos de Auth para producción/pruebas. No se creó bucket, no se cambió Auth ni se conectó la app. Se mantienen pendientes la configuración aplicada y las pruebas A/B/anon.
+
 ## Actualización 02C.2 — 2026-09-28
 
 El usuario confirmó desde Supabase SQL Editor la ejecución única de `initialize_application.sql` en `educativo-backend-test` / `gwdtlbisykzzplgzczzq` / `us-east-2` / PostgreSQL 17.6, con resultado `Success. No rows returned`, después de un preflight con los cuatro contadores en cero y dependencias/RLS disponibles. Ejecutó el postflight por bloques: las 15 comparaciones esperado/observado quedaron en OK. El [manifiesto de evidencia](test-environment/SOURCE_MANIFEST.md) registra los resultados completos: 19 tablas, 257 columnas, 76 constraints, 41 FK, 69 índices, seis funciones, 16 triggers y 57 policies, entre otros controles.
