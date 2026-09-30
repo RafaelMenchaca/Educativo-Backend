@@ -1,6 +1,12 @@
 # Inventario de entornos y evidencia de esquema — sesión 02A
 
-Inicio del inventario: 2026-09-23. Estado vigente al 2026-09-28: **esquema de pruebas inicializado y postflight aprobado por evidencia manual del usuario; aislamiento funcional de ambientes pendiente.**
+Inicio del inventario: 2026-09-23. Estado vigente al 2026-09-29: **esquema de pruebas validado, bucket configurado estructuralmente y Auth inventariado por evidencia del usuario; pruebas funcionales y aislamiento de ambientes pendientes.**
+
+## Actualización 02D.2 — 2026-09-29
+
+El usuario confirmó la creación manual de planeacion-actividades en educativo-backend-test / gwdtlbisykzzplgzczzq / us-east-2 y la ejecución de la consulta preparada: bucket único, privado, 10485760 bytes, MIME image/*, todas las comparaciones OK y cuatro policies visibles. Avatars ausente; no se subieron objetos. El agente no ejecutó SQL ni consultó servicios. Storage no está validado funcionalmente con usuarios A/B, firma de URLs, upload/remove o aislamiento cruzado.
+
+La [guía canónica Storage/Auth](test-environment/STORAGE_AUTH_READINESS.md) registra inventarios observados de producción y pruebas, matriz de diferencias, rutas existentes/faltantes y propuestas NO aplicadas. Auth no se modificó. Quedan por decidir Site URL/redirects exactos, dominios legítimos, OTP, contraseña, CAPTCHA y SMTP transaccional; no se conecta todavía frontend/backend ni se cambian variables, Render o Vercel. Las referencias de 02D.1 y sesiones previas a bucket por crear e inventario Auth pendiente describen su estado histórico, sustituido por esta actualización. Producción educativo-backend / bfnkaqmhcsyxdxoqnahk permanece sin cambios.
 
 ## Preparación 02D.1 — 2026-09-28
 

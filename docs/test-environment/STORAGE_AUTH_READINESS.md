@@ -1,11 +1,30 @@
-# Storage e inventario Auth — 02D.1
+# Storage e inventario Auth — estado vigente 02D.2
 
-Fecha: 2026-09-28. Preparación local, sin configuración aplicada ni SQL ejecutado. Frontend `work/features` / `885b2b8`, backend `work/features` / `7e75f65`; ambos limpios al inicio. El merge frontend incorpora el `origin/main` disponible localmente (sin fetch). Se preservan vanilla JS, classic scripts, Biblioteca, explorerState y contratos de IDs.
+Actualización documental: 2026-09-29. Evidencia proporcionada por el usuario desde Supabase, sin consulta remota del agente. Frontend `work/features` / `d01c5de` y backend `work/features` / `6f44a1d`, ambos limpios al inicio. Storage fue aplicado manualmente por el usuario; Auth fue observado, no modificado. Las propuestas de este documento NO están aprobadas ni aplicadas. La validación funcional permanece pendiente. Se conserva el contrato inspeccionado en 02D.1 (frontend `885b2b8`, backend `7e75f65`) sin cambios funcionales.
 
 | Ambiente | Identidad manual del dashboard | Evidencia / estado |
 | --- | --- | --- |
-| Producción | educativo-backend / bfnkaqmhcsyxdxoqnahk | Solo observación acotada de Auth en una recopilación posterior. Storage confirmado por el usuario: planeacion-actividades privado, 10 MB, image/*. No modificar producción. |
-| Pruebas | educativo-backend-test / gwdtlbisykzzplgzczzq / us-east-2 / PostgreSQL 17.6 | Esquema y policies inicializados, postflight aprobado por evidencia del usuario en 02C.2. Bucket planeacion-actividades todavía NO creado al comenzar 02D.1. Sin usuarios/objetos de aplicación copiados desde producción. |
+| Producción | educativo-backend / bfnkaqmhcsyxdxoqnahk / us-east-2 | Auth inventariado por el usuario. Storage confirmado: planeacion-actividades privado, 10 MB, image/*. Producción no modificada. |
+| Pruebas | educativo-backend-test / gwdtlbisykzzplgzczzq / us-east-2 / PostgreSQL 17.6 | Esquema/policies validados en 02C.2. Bucket creado manualmente y metadatos verificados en 02D.2; Auth inventariado. No se subieron objetos ni se copiaron usuarios/objetos de producción. |
+
+## Evidencia Storage aplicada — 02D.2
+
+El usuario ejecutó [verify_storage_bucket_readonly.sql](verify_storage_bucket_readonly.sql) en pruebas y comunicó:
+
+| Campo | Resultado observado |
+| --- | --- |
+| id / name | planeacion-actividades / planeacion-actividades |
+| public | false |
+| file_size_limit | 10485760 bytes (10 × 1024 × 1024) |
+| allowed_mime_types | ["image/*"] |
+| matching_bucket_count / exists_uniquely | 1 / true |
+| id_name_match / private_match / size_match / mime_match | true / true / true / true |
+| status | OK |
+| Policies visibles para el bucket | 4 |
+| Objetos subidos | Ninguno, confirmado por el usuario; no se consultaron objetos para esta documentación |
+| avatars: matching_bucket_count / exists / status | 0 / false / ABSENT_DO_NOT_CREATE |
+
+Storage queda **configurado estructuralmente**, no validado con usuarios A/B, URLs firmadas, upload/remove ni acceso cruzado. No recrear el bucket ni crear avatars. No se añaden capturas, hashes inventados ni URLs del dashboard. El agente no ejecutó la consulta ni cambió servicios.
 
 La [evidencia de esquema](SOURCE_MANIFEST.md) no aprueba aislamiento funcional A/B/anon. `avatars` no existe: sus policies históricas no prueban existencia ni autorizan crearlo. Imágenes con IA pausadas y fuera de alcance. No volver a ejecutar el inicializador. Esta guía es el punto de referencia para Storage/Auth de esta sesión; no modifica el contrato comercial.
 
@@ -49,9 +68,9 @@ Hallazgos para sesiones posteriores, sin corregirlos aquí:
 - Date.now + nombre saneado puede colisionar para nombres iguales subidos en el mismo milisegundo, bajo la misma planeación/momento; upsert:false evita sobrescritura y produciría error. No se observó una colisión real.
 - Persistir una URL vencida en memoria y las rutas recibidas en tabla_ia requieren pruebas; no hay firma periódica ni comprobación local del prefijo en crearSignedUrlActividad/remove. RLS es la barrera efectiva para rutas ajenas. No se tocaron consumidores ni logs.
 
-## C. Creación manual futura, únicamente en pruebas
+## C. Procedimiento histórico 02D.1 — creación completada por el usuario en 02D.2
 
-Estas instrucciones quedan preparadas; esta sesión no crea el bucket. Los rótulos del dashboard pueden variar: si no aparece una opción indicada, detenerse y registrar el rótulo visible, sin improvisar cambios.
+Se conservan los pasos como historial de preparación. El bucket ya existe: no repetir su creación. Las referencias a autorización futura en esta sección describen 02D.1, no una acción pendiente actual. Los rótulos del dashboard pueden variar: detenerse ante diferencias, sin improvisar cambios.
 
 1. Abrir el dashboard de `educativo-backend-test`. Verificar visualmente Project ID **gwdtlbisykzzplgzczzq**, región us-east-2. Si aparece producción educativo-backend / bfnkaqmhcsyxdxoqnahk, detenerse.
 2. Entrar en Storage → Buckets. Comprobar si ya aparece `planeacion-actividades`, sin abrir objetos. Si existe con configuración distinta, detenerse y registrar diferencias; no editarlo. Si coincide, registrar que ya existe y no crear un duplicado.
@@ -66,38 +85,93 @@ No crear avatars, no subir imágenes reales o sintéticas todavía, no copiar ob
 
 Dos SELECT de solo lectura sobre **storage.buckets**, sin storage.objects, usuarios ni campos de propietarios. La primera consulta busca coincidencias por id o name, devuelve ambos, public, file_size_limit, allowed_mime_types, número de coincidencias y comparaciones. MISSING si no existe; DIFF ante duplicidad por nombre/ID, parámetros diferentes o restricciones NULL; OK solo con coincidencia única y exacta. La segunda informa por separado si avatars existe, sin requerirlo ni crearlo; si aparece, revisar sin cambios automáticos.
 
-La comparación de tamaño explicita **10 × 1024 × 1024 = 10485760 bytes** como interpretación de 10 MB para la preparación. El usuario confirmó el rótulo 10 MB, no el número almacenado en origen. Verificar la conversión del dashboard con el resultado del destino; si devuelve 10000000 u otra cifra, conservar DIFF y resolver la unidad, no afirmar igualdad ni modificar producción. MIME debe ser exactamente el array con `image/*`; no aceptar NULL (sin restricción) como equivalente. El SQL usa columnas de metadatos de Supabase Storage que deben comprobarse en destino: no se ejecutó ni se validó contra un servidor. Si falla por columna/permisos, registrar SQLSTATE/mensaje y detenerse; no ampliar a un dump de objetos.
+La comparación **10 × 1024 × 1024 = 10485760 bytes** quedó confirmada en el destino por el resultado manual de 02D.2. MIME coincidió exactamente con el array `image/*`; NULL no sería equivalente. La consulta fue ejecutada satisfactoriamente por el usuario en pruebas y permanece reutilizable; el agente no la ejecutó. Ante diferencias posteriores o errores de columnas/permisos, registrar resultados/SQLSTATE sin ampliar el alcance a objetos ni modificar producción.
 
 No contiene secretos ni Project URLs. El Project ID en comentario es una precondición visual, no una comprobación de identidad de PostgreSQL. La consulta no prueba RLS ni comportamiento de cargas.
 
-## E. Inventario manual Auth — observar sin guardar cambios
+## E. Inventario Auth observado — producción / pruebas (02D.2)
 
-Recopilar separadamente en producción **educativo-backend / bfnkaqmhcsyxdxoqnahk** y pruebas **educativo-backend-test / gwdtlbisykzzplgzczzq**. Anotar proyecto, fecha y sección/rótulo visible. No abrir usuarios ni probar registro/correo. Si un campo no aparece, escribir «no visible», no inferir el default. En la tabla, P = pendiente de observar; D = pendiente de decidir. Ningún valor deseado queda aprobado por esta guía.
+Valores proporcionados por el usuario, sin cambios Auth aplicados en esta sesión. Esta matriz sustituye los campos pendientes de recopilar de 02D.1; no son valores deseados aprobados.
 
-| Campo exacto / sección orientativa Auth | Producción observado | Pruebas observado | Deseado | Decisión necesaria para registro/confirmación/recuperación |
-| --- | --- | --- | --- | --- |
-| Allow new users to sign up / configuración de usuarios | P | P | D | Apertura de registro y condiciones de prueba. |
-| Confirm email / proveedor Email | P | P | D | Confirmación obligatoria y experiencia antes de confirmar. |
-| Secure email change / Email | P | P | D | Confirmación del cambio de correo. |
-| Minimum password length / seguridad de contraseñas | P | P | D | Regla y validación de formularios. |
-| Password requirements disponibles / seguridad | P | P | D | Copiar nombres de requisitos y estado, sin contraseñas; política a adoptar. |
-| Site URL / URL Configuration | P | P | D | Origen base por ambiente. |
-| Redirect URLs / URL Configuration | P | P | D | Inventariar patrones actuales; rutas finales pendientes de sesión Auth. |
-| Email provider habilitado / Sign In & Providers | P | P | D | Habilitación del flujo email/password. |
-| SMTP propio o proveedor predeterminado / Email | P | P | D | Canal de correo de pruebas separado y capacidad; solo modo, sin host/usuario/password. |
-| Rate limits relevantes signup/recovery / Rate Limits | P | P | D | Copiar nombre, valor, unidad y ventana de límites de email, signup y reset/recovery que aparezcan; condicionan pruebas y reenvíos. |
-| Duración JWT / Sessions o configuración JWT, si aparece | P | P | D | Caducidad de sesión; no copiar tokens ni claves de firma. |
-| Refresh token rotation, si aparece | P | P | D | Comportamiento de sesión y renovación. |
-| Refresh token reuse interval, si aparece | P | P | D | Ventana con unidad para pruebas de concurrencia de sesión. |
-| CAPTCHA, si aparece / protección | P | P | D | Estado y nombre del proveedor, sin claves; integración futura. |
-| Plantillas habilitadas / Email Templates | P | P | D | Solo nombres/tipos visibles (confirmación, recuperación, cambio email, etc.); no contenido ni enlaces/tokens de ejemplo. |
-| Hooks Auth personalizados / Hooks | P | P | D | Existencia, tipo de evento y estado; sin endpoint/URL, secretos o código. Evaluar efectos antes de signup. |
-| Proveedores externos habilitados / Providers | P | P | D | Solo nombres; decidir cuáles tienen alcance, sin client IDs/secrets. |
+| Campo | Producción observado | Pruebas observado |
+| --- | --- | --- |
+| Site URL | `https://educativoia.com` | `http://localhost:3000` |
+| Redirect URLs | Seis entradas, transcritas abajo | Ninguna |
+| Allow new users to sign up | true | true |
+| Allow manual linking / Allow anonymous sign-ins | false / false | false / false |
+| Confirm email | true | true |
+| Providers | Solo Email enabled; Phone, SAML, Web3 y sociales/OIDC disabled | Igual |
+| Secure email change | true | true |
+| Secure password change / Require current password when updating | false / false | false / false |
+| Prevent leaked passwords / protección de contraseñas filtradas | false; no disponible en el plan observado | Igual |
+| Minimum password length / Password requirements | 6 / ninguno | 6 / ninguno seleccionado |
+| Email OTP expiration | 86400 s; aviso «OTP expiry exceeds recommended threshold» | 3600 s |
+| Email OTP length | 6 | 8 |
+| Rate limit: sending emails | 2/h | 2/h |
+| Rate limit: SMS | 30/h | 30/h |
+| Rate limit: token refreshes | 150 requests/5 min/IP | Igual |
+| Rate limit: token verifications | 30 requests/5 min/IP | Igual |
+| Rate limit: anonymous users | 30 requests/h/IP | Igual |
+| Rate limit: signups/sign-ins | 30 requests/5 min/IP | Igual |
+| Rate limit: Web3 signups/sign-ins | 30 requests/5 min/IP | Igual |
+| Single session | disabled | disabled |
+| Time-box / Inactivity timeout | 0/never / 0/never | Igual |
+| Access token expiry | 3600 s | 3600 s |
+| Detect/revoke compromised refresh tokens | enabled | enabled |
+| Refresh token reuse interval | 10 s | 10 s |
+| CAPTCHA | disabled | disabled |
+| Custom SMTP / entrega | disabled / servicio integrado Supabase | Igual |
+| Advertencia de entrega observada | Servicio integrado no destinado a aplicaciones en producción | Límite observado 2 emails/h |
+| Plantillas | Predeterminadas equivalentes a la lista siguiente | Predeterminadas, lista siguiente |
+| Hooks Auth | Ninguno | Ninguno |
 
-Para Site URL y Redirect URLs, copiar únicamente orígenes/patrones de configuración sin tokens, credenciales ni parámetros sensibles. No pedir Project URLs de Supabase/API. No definir aún redirects finales ni crear callbacks: confirmación y recuperación se implementarán en la sesión Auth. El trigger de DB on_auth_user_created ya documentado no acredita que haya Hooks configurados en el dashboard.
+Los límites de proveedores deshabilitados se registran tal como aparecen; no implican que esos proveedores estén habilitados. El ajuste observado de detección/revocación de refresh tokens se conserva con su rótulo, sin inferir opciones adicionales no proporcionadas.
 
-Entregar preferentemente la tabla en texto; no capturas de pantallas completas con credenciales. No se solicitan todos los ajustes del proyecto. Tras recibir los valores se compararán observación, propuesta y decisión aprobada; hoy el inventario de ambos proyectos sigue pendiente y no hay configuración Auth aplicada por esta sesión.
+Redirect URLs de producción, con los patrones literales observados:
+
+- `http://127.0.0.1:5500`
+- `https://educativoia.com/**`
+- `https://www.educativoia.com/**`
+- `https://educativo-ia.vercel.app/**`
+- `https://planeacion-docente-ia.vercel.app/**`
+- `http://localhost:5500`
+
+Plantillas observadas (nombres/tipos, sin contenido ni inferir el estado individual de notificaciones): Authentication: Confirm sign up; Invite user; Magic link or OTP; Change email address; Reset password; Reauthentication. Security: Password changed; Email address changed; Phone number changed; Sign-in method linked; Sign-in method removed; MFA method added; MFA method removed. Producción muestra plantillas predeterminadas equivalentes. Su presencia no demuestra entrega de correo.
+
+## F. Rutas reales y precondiciones para la sesión Auth
+
+| Necesidad | Evidencia local en frontend | Existente / faltante |
+| --- | --- | --- |
+| Registro | [pages/registro.html](../../../frontend/pages/registro.html), aviso y botón deshabilitado de contención 00.1 | Pantalla existe, sin form/name ni integración signUp. Mantener contención hasta integrar. |
+| Confirmación / callback | Inventario pages/ y búsqueda en js/ de exchangeCodeForSession, verifyOtp, emailRedirectTo y redirectTo | No hay página/handler propio de callback de confirmación ni ruta final definida. La posible gestión automática del SDK no sustituye este flujo ni está validada. |
+| Solicitud de recuperación | [pages/recuperar.html](../../../frontend/pages/recuperar.html), aviso/botón deshabilitado | Pantalla existe, sin integración resetPasswordForEmail. No equivale a una página para cambiar contraseña. |
+| Establecer nueva contraseña | [auth.service.js](../../../frontend/js/services/auth.service.js), listener onAuthStateChange; búsqueda de updateUser/PASSWORD_RECOVERY | Sin página ni handler de nueva contraseña; listener solo trata SIGNED_OUT. Manejo de recovery, token/enlace inválido, expiración y confirmación de cambio faltantes. |
+| Login y destino posterior | [login.page.js](../../../frontend/js/pages/login.page.js), initLoginPage, líneas 11–20 | signInWithPassword funcional en código; éxito navega tras 1 s a dashboard.html relativo desde pages/login.html, es decir pages/dashboard.html. No se encontró conservación del destino previo mediante returnTo. |
+| Acceso sin sesión / logout | auth.service.js, protegerRuta / requireSession / SIGNED_OUT | Navegación relativa a login.html. La vuelta después de confirmar correo o restablecer contraseña todavía debe diseñarse. |
+| Hosts locales | [config.js](../../../frontend/js/core/config.js), API_BASE_URL; [README backend](../../README.md), ejemplo CORS_ORIGIN/PORT; [inventario](../ENVIRONMENT_SCHEMA_READINESS.md) | El puerto 3000 es la API local en config.js. El ejemplo CORS_ORIGIN documenta el frontend local en 5500 (localhost y 127.0.0.1); no asumir que Site URL de pruebas en 3000 sirve páginas Auth. |
+
+No implementar ni inventar nombres de nuevas páginas/URLs en esta sesión. Antes de implementar y probar los flujos hay que identificar los orígenes de frontend por ambiente, acordar rutas/handlers y retorno, y después registrar URLs exactas correspondientes a las páginas implementadas. No aprobar Redirect URLs finales antes de esa definición. Identificar un proyecto de pruebas en la documentación no cambia el cliente Supabase fijo del frontend ni aísla las variables del backend.
+
+## G. Riesgos observados y decisiones pendientes
+
+| Evidencia / riesgo | Propuesta no aplicada | Decisión o precondición |
+| --- | --- | --- |
+| Site URL pruebas en 3000; frontend local documentado en 5500 | Configuración local explícita para 127.0.0.1:5500 y/o localhost:5500 | Elegir origen/orígenes locales y configuración por ambiente. Son hosts distintos; no mezclarlos sin probar sesiones. |
+| Pruebas sin Redirect URLs y sin callbacks propios | Definir URLs exactas después de implementar las páginas/callbacks | Contrato de registro, confirmación, recuperación, nuevo password y retorno antes de integrar correo. |
+| Producción admite cuatro patrones /** amplios | Evitar wildcards más amplios de lo necesario | Revisar destinos necesarios; no se reduce la allowlist en esta sesión. |
+| educativo-ia.vercel.app figura en allowlist | Verificar si sigue siendo dominio legítimo y controlado | Comprobar propiedad/uso antes de conservarlo. Su legitimidad no fue contrastada externamente. |
+| Producción admite 127.0.0.1:5500 y localhost:5500 | Separar callbacks de pruebas/producción | Decidir si conservar redirects locales en producción; no retirarlos incidentalmente. |
+| OTP producción 86400 s y advertencia del dashboard | Reducir expiración de producción | Acordar duración; 3600 s en pruebas es observación, no un nuevo valor aprobado para producción. |
+| OTP length 6 producción / 8 pruebas | Unificar longitud si el flujo utiliza códigos OTP | Decidir enlaces/códigos y su UX; no confundir Email OTP expiration con Access token expiry. |
+| Password mínimo 6 sin requisitos adicionales; protecciones de cambio desactivadas | Elevar mínimo al menos a 8, sujeto a decisión; revisar política de cambios | Acordar requisitos y compatibilidad con usuarios existentes antes de cambiar Auth/formularios. No inferir privilegios comerciales. |
+| CAPTCHA desactivado | Evaluarlo antes de abrir el flujo público de registro | Seleccionar si se adopta e integración necesaria; altas están permitidas en Auth aunque la UI de registro esté contenida. |
+| Servicio integrado, 2 emails/h, advertencia de producción y sin SMTP transaccional configurado | Elegir SMTP transaccional antes del lanzamiento | Bloquea un lanzamiento fiable y limita pruebas repetidas. Elegir proveedor/configuración de prueba separada y validar entrega; no se ha elegido proveedor. |
+| Confirm email true, anónimos/manual linking false | Conservar confirmación obligatoria y mantener anónimos/manual linking deshabilitados salvo decisión explícita | Propuesta de continuidad, no nueva aprobación de políticas. Definir experiencia de usuario no confirmado. |
+| Sin validación funcional de correo, callbacks o recuperación | Pruebas controladas después de aislar y conectar ambientes | Validar enlaces válidos, expirados/usados, recuperación, sesión y redirecciones; actualmente todo pendiente. |
+| No hay Hooks Auth | Ningún cambio propuesto por defecto | Es evidencia, no defecto por sí mismo. No confundir Hooks con el trigger DB handle_new_user existente. |
+
+Continúan pendientes pruebas Storage con usuarios A/B, firma/expiración de URLs, upload/remove y aislamiento cruzado; RLS A/B/anon; conexión frontend/backend a pruebas; variables explícitas por ambiente; datos de referencia y discrepancia ia_metrics/ia_metrics_legacy. Esquema y bucket estructuralmente correctos no acreditan esas pruebas. Registro, recuperación, contacto, planes, cuotas y pagos no se implementan aquí. Prueba manual de 00.1 pendiente.
 
 ## Verificación local y límites
 
-Comparación estática de consumers/policies, revisión del SQL de metadatos y enlaces, git diff --check en ambos repositorios. No se cambió JS ni se requiere node --check. SQL no ejecutado; sin conexión externa, creación de bucket, configuración Auth, usuarios sintéticos, cambios de variables o integración de frontend/backend. Siguen pendientes pruebas A/B/anon, conexión aislada por ambiente y prueba manual de 00.1.
+02D.1 preparó la guía y SQL sin ejecutarlo. 02D.2 registra evidencia externa proporcionada por el usuario y contrasta rutas/hosts con código local. El agente no ejecutó SQL, no modificó JS/HTML/CSS/SQL, Auth, Storage, variables, Render o Vercel; no añadió capturas ni URLs del dashboard. Se revisan enlaces, diff completo y git diff --check en ambos repositorios. No hay pruebas de navegador o funcionales acreditadas por esta sesión.

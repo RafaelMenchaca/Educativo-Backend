@@ -68,7 +68,7 @@ El snapshot histórico no incluía los cuerpos de funciones, el trigger de alta 
 
 ## Secuencia manual histórica de 02C.1 — completada, no repetir en este destino
 
-Se conserva como referencia del procedimiento y de cómo detenerse ante fallos. Los pasos de inicialización A–H ya se completaron según la evidencia de 02C.2; I–J siguen pendientes. No autorizan otra ejecución en el proyecto ya inicializado. La frase «esta sesión» del procedimiento se refiere a 02C.1.
+Se conserva como referencia del procedimiento y de cómo detenerse ante fallos. Los pasos de inicialización A–H ya se completaron según la evidencia de 02C.2. El bucket del paso I quedó creado/verificado estructuralmente por el usuario en 02D.2; sus pruebas funcionales y el paso J de conexión siguen pendientes. No autorizan otra ejecución en el proyecto ya inicializado. La frase «esta sesión» del procedimiento se refiere a 02C.1.
 
 Esta sesión **no autoriza ejecutar** [initialize_application.sql](initialize_application.sql). El archivo está fuera de migraciones automáticas: `package.json` solo arranca `src/server.js` y no existe un runner versionado que lo aplique.
 
@@ -96,11 +96,11 @@ Advertencias: no ejecutar en producción; no copiar usuarios, filas ni archivos 
 
 ## Configuración y datos fuera del script
 
-La [guía canónica de preparación Storage e inventario Auth (02D.1)](STORAGE_AUTH_READINESS.md) detalla consumidores, policies, pasos manuales futuros, consulta de metadatos y campos acotados de Auth para ambos proyectos. Al inicio de 02D.1 el bucket de pruebas sigue sin crearse y el inventario Auth sigue pendiente; no hay configuración aplicada en esa sesión.
+La [guía canónica Storage/Auth (estado 02D.2)](STORAGE_AUTH_READINESS.md) registra el bucket de pruebas ya creado y verificado, avatars ausente e inventarios Auth observados en ambos proyectos. Auth no se modificó. Distingue configuración aplicada, evidencia del usuario, propuestas y decisiones pendientes; las pruebas conectadas y funcionales siguen pendientes.
 
-- **Auth:** habilitación de proveedores/email, confirmación, Site URL y allowlist de redirecciones de pruebas, límites de envío y SMTP de pruebas si se necesita. No copiar credenciales ni usuarios. Recopilar solo nombres/estado/configuración no secreta necesaria.
+- **Auth:** inventariado según evidencia del usuario en 02D.2. Cambios de configuración, rutas/callbacks y validación funcional pendientes; consultar la matriz canónica sin duplicar valores aquí. No copiar credenciales ni usuarios.
 - **Storage — confirmación visual comunicada por el usuario en 02C:** `planeacion-actividades` existe y es **PRIVADO** (`Public bucket` desactivado), con **10 MB por archivo** y MIME permitido **`image/*`**. Se usa para subir imágenes manualmente a las actividades de cada momento de una sesión y acceder mediante URLs firmadas. No hubo acceso externo del agente. Conservar el flujo y sus consumidores existentes (`detalle.page.js`: `subirImagenActividad`, `crearSignedUrlActividad`, `eliminarImagenesStorage`). La generación de imágenes con IA está pausada y fuera de alcance.
-- **Preparación de Storage de pruebas:** en una sesión posterior autorizada, configurar exclusivamente en `educativo-backend-test` el bucket `planeacion-actividades` con esos mismos parámetros: privado, 10 MB y `image/*`. Esta configuración queda fuera del SQL de esquema; no se crea el bucket ahora ni se copian objetos productivos. Antes de conectar la app, comprobar destino y policies; después probar con imágenes sintéticas la carga manual, lectura por URL firmada, rechazo del acceso público sin firma, límites de tamaño/MIME y aislamiento entre dos usuarios. Conservar la caducidad vigente de las URLs firmadas (una hora). Estas pruebas siguen pendientes.
+- **Storage de pruebas aplicado por el usuario en 02D.2:** `planeacion-actividades` único y privado, 10485760 bytes y `image/*`, consulta de metadatos OK, cuatro policies visibles y sin objetos subidos. No recrear el bucket. Siguen pendientes pruebas con imágenes sintéticas y dos usuarios: carga manual, URLs firmadas (TTL vigente una hora), expiración, upload/remove, límites tamaño/MIME y aislamiento cruzado. No se conectó la app en esta sesión.
 - **`avatars` no existe**, según la aclaración del usuario. Las cuatro policies exportadas que lo mencionan se conservan en el borrador como reproducción del estado observado; no demuestran existencia del bucket ni autorizan crearlo o implementar avatares. No crear `avatars` en producción ni en pruebas.
 - **Modelos/precios:** preparar posteriormente datos de referencia verificados para ai_model_prices (modelo, moneda, costes, activo, fecha de actualización según columnas). No extraer métricas para inventar precios ni asumir coste cero. Generación requiere configuración IA de pruebas y presupuesto explícito.
 - **Entorno:** nuevo identificador Supabase y asignación coherente de SUPABASE_URL/SUPABASE_KEY/SUPABASE_SERVICE_ROLE_KEY; API local, CORS y cliente frontend revisados antes de usar la app. No se han cambiado selectores ni leído secretos. Correo/pagos futuros de pruebas separados; no son parte de este esquema.
@@ -111,6 +111,8 @@ Revisión estática de CSV, dependencias, orden de creación, cobertura de objet
 
 En 02C.1 se revisó estáticamente el paquete para PostgreSQL 15.8 → 17.6 y se añadió un postflight de catálogos. No se ejecutó SQL, no se instalaron herramientas ni se consultaron servicios externos. Esta revisión no sustituye validación contra PostgreSQL/Supabase 17.6. Las comprobaciones locales y el diff se reportan al cerrar la sesión. **Prueba manual de 00.1 sigue pendiente.**
 
-## Pendientes tras el cierre documental 02C.2
+## Pendientes históricos tras 02C.2, actualizados por 02D.2
+
+La creación/configuración del bucket y recopilación de Auth que figuraban pendientes abajo ya se completaron según evidencia del usuario. Permanecen pendientes los cambios Auth que se decidan y todas las pruebas funcionales/conexiones. La lista siguiente se conserva como estado histórico del cierre 02C.2.
 
 Siguen pendientes la configuración de Supabase Auth; creación/configuración en pruebas del bucket privado `planeacion-actividades` (10 MB, `image/*`, carga manual y URLs firmadas); pruebas de Storage con dos usuarios; pruebas RLS A/B/anon; datos de referencia, incluido `ai_model_prices`; resolución de `ia_metrics` frente a `ia_metrics_legacy`; configuración explícita por ambiente; conexión del backend local y frontend de pruebas; cambios en Render y Vercel; registro, recuperación, contacto, planes, cuotas y pagos. No crear `avatars`; generación de imágenes con IA fuera de alcance. La aprobación del postflight no resuelve ni autoriza por sí sola estos trabajos. La prueba manual de 00.1 continúa pendiente.
