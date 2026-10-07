@@ -1,20 +1,10 @@
 // supabaseClient.js
 import { createClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
+import { runtimeConfig } from './src/config/runtime.js';
 
-dotenv.config();
-
-const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseUrl = runtimeConfig.supabaseUrl;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabasePublicKey = process.env.SUPABASE_KEY;
-
-if (!supabaseUrl) {
-  throw new Error('Missing SUPABASE_URL environment variable');
-}
-
-if (!supabaseServiceRoleKey) {
-  throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
-}
 
 export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
   auth: {
@@ -29,10 +19,6 @@ export const supabase = supabaseAdmin;
 export function createUserClient(accessToken) {
   if (!accessToken) {
     throw new Error('Access token is required to create a user Supabase client');
-  }
-
-  if (!supabasePublicKey) {
-    throw new Error('Missing SUPABASE_KEY environment variable');
   }
 
   return createClient(supabaseUrl, supabasePublicKey, {

@@ -8,6 +8,8 @@ Consultar las reglas en [`LOG_CONVENTIONS.md`](LOG_CONVENTIONS.md) y las reglas 
 
 ## Cobertura observada
 
+02E (2026-10-04): `scripts/check-environment.js` añade una comprobación local de configuración con salida limitada a environment, projectId, port y allowedOrigins. No importa clientes/servicios ni muestra claves. No cambia los logs funcionales del servidor.
+
 | Dominio | Archivos principales | Eventos observados |
 | --- | --- | --- |
 | Planeaciones/batches | controllers y `planeaciones.service.js` | request/resumen, intentos IA, fallback, guardado, estados SSE, delete |
