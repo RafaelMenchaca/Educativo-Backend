@@ -1,6 +1,180 @@
 # Inventario de entornos y evidencia de esquema — sesión 02A
 
-Inicio del inventario: 2026-09-23. Estado vigente al 2026-09-29: **esquema de pruebas validado, bucket configurado estructuralmente y Auth inventariado por evidencia del usuario; pruebas funcionales y aislamiento de ambientes pendientes.**
+Inicio del inventario: 2026-09-23. Cierre documental al 2026-10-06: **02E completada (implementación de aislamiento) y 02F completada (validación conectada local contra Supabase test), según pruebas automáticas y evidencia manual aportada por el usuario.** Auth/login, aprovisionamiento, API, aislamiento visual básico y Storage funcional aprobados en el alcance descrito abajo. No es una certificación exhaustiva RLS A/B/anon: matriz adversarial y acceso cruzado directo pendientes para Fase 03. Producción no modificada; cambios de código todavía sin stage ni despliegue.
+
+## 02E — aislamiento operativo en código (2026-10-04)
+
+Ajuste mínimo del 2026-10-06: identificadores técnicos frontend `EDUCATIVO_*` y carga normal backend de `.env` mediante dotenv, sin selector de archivo. No se leyó ni modificó el `.env` real. Se mantienen las guardias y el alcance de 02E.
+
+Puerta inicial: frontend `0965301`, backend `310f989`, ambos `work/features`, limpios y `0 / 0` frente a `origin/main` después de fetch. No se leyeron `.env` ni claves en salida. Producción no fue consultada ni modificada. Las secciones anteriores de auditoría que siguen abajo son históricas: sus fallbacks de configuración se sustituyen por el contrato de esta sección. La contención 00.1 sí tiene aprobación manual del usuario del 2026-09-30, registrada en el README frontend; las menciones previas a prueba pendiente son históricas.
+
+### Auditoría previa y owners
+
+- Frontend: `js/core/config.js` definía API_BASE_URL mediante coincidencia parcial de hostname; localhost/127.0.0.1 seleccionaban API local, mientras LAN, IPv6, file:, previews, dominios de producción y hosts desconocidos seleccionaban API productiva. `js/core/supabase.client.js` tenía URL fija del proyecto productivo y clave pública literal para todos los hosts. Login no cargaba config.js; Dashboard, Detalle, Archivados y dashboard_tailwind sí. Landing, registro, recuperación y contacto solo cargan componentes públicos: no tienen cliente ni API, y siguen así.
+- Consumidores directos del cliente frontend: `js/services/auth.service.js` (sesión/logout), `js/pages/login.page.js` (login), `js/ui/components.private.js` (navbar/logout), `js/pages/detalle.page.js` (Storage), `js/pages/dashboard-tailwind.page.js` (sesión histórica). Los seis módulos `js/api/*.api.js` usan API_BASE_URL; los services usan Auth para el Bearer. No se modifican esos consumidores.
+- Backend: `supabaseClient.js` cargaba dotenv al importar, comprobaba URL/service role antes de crear admin y posponía la comprobación de clave pública hasta createUserClient. No validaba proyecto ni mezclas. `src/app.js` leía NODE_ENV (default development) y CORS_ORIGIN; development admitía cualquier Origin y production añadía locales/GitHub Pages y tres hosts fijos. `src/server.js` leía PORT (default 3000) antes de listen.
+- Imports directos del cliente backend: `src/middleware/auth.middleware.js`; los seis controllers de anexos, biblioteca, examenes, jerarquia, listas_cotejo y planeaciones; services de aiMetrics, anexos, biblioteca, examenes, listas_cotejo y planeaciones. Se preservan admin, alias supabase, createUserClient, Bearer y opciones de sesión de servidor. Usos funcionales de admin pendientes de Fase 03.
+- Arranque backend: npm start → node src/server.js; npm run dev → nodemon. npm test sigue siendo placeholder. Frontend usa Jest/JSDOM, pero sus dependencias no estaban instaladas en este checkout. Node disponible: 22.21.0; no se instalaron dependencias.
+- Archivos locales: backend tiene `.env` (solo nombre comprobado, no contenido); frontend no mostró `.env*`. Ambos ignoran node_modules, logs, artefactos y `.env*`; backend exceptúa `.env.example`. Frontend añade `/js/core/config.local.js`. No se modifica ningún `.env` real.
+- Hosting: no hay manifiesto Vercel/Render versionado ni build de inyección de variables. Frontend package.json ofrece test, dev:css y build:css; archivos HTML/JS estáticos versionados. Build command/variables efectivos de Vercel siguen sin verificar: cambiar variables en el dashboard no modifica por sí solo JS estático. No se usa esa configuración externa en esta sesión.
+
+### Contrato frontend — scripts clásicos
+
+Orden compartido en las cinco páginas que crean cliente: **config.local.js opcional → config.js → SDK Supabase → supabase.client.js → Auth → consumidores existentes**. Solo se añade el provider local y config.js donde faltaba en login; se conserva el orden relativo de todos los owners. Páginas públicas sin servicios no necesitan configurar Supabase y siguen estáticas.
+
+| Ejecución | Identidad / destino permitido | Sin configuración válida |
+| --- | --- | --- |
+| HTTP localhost:5500 o 127.0.0.1:5500 | environment=test; proyecto gwdtlbisykzzplgzczzq; API HTTP localhost:3000 o 127.0.0.1:3000 | Aviso visible, sin cliente Supabase ni inicialización de página privada |
+| HTTPS educativoia.com, www.educativoia.com, planeacion-docente-ia.vercel.app, puerto estándar | environment=production; proyecto bfnkaqmhcsyxdxoqnahk; API https://api.educativoia.com | No se admite override local; no existe fallback de hosts desconocidos |
+| Previews Vercel, educativo-ia.vercel.app, host desconocido, LAN, IPv6, file: u otro puerto local | No autorizados en esta fase | Fallo cerrado en páginas consumidoras; la landing estática no conecta servicios |
+
+`js/core/config.local.example.js` es una plantilla; copiarla a `config.local.js`, ignorado, y sustituir únicamente la clave pública de TEST fuera de Git/chat. El placeholder REPLACE_ no permite iniciar. Campos: environment, supabaseUrl, apiBaseUrl, supabasePublicKey. Nunca poner credenciales privadas en el frontend. La clave pública de producción previamente versionada se conserva en su ubicación histórica en supabase.client.js, sin copiarla ni usarla en pruebas: solo se selecciona si el provider compartido autoriza production. No existe configuración propia de login.
+
+`window.EDUCATIVO_CONFIG` es la configuración validada; **no imprimirla**, pues en test contiene la clave pública. Para inspección usar únicamente `window.EDUCATIVO_ENVIRONMENT`: environment, projectId y apiBaseUrl, sin claves. Se conserva API_BASE_URL léxico y window.API_BASE_URL. Auth y Storage usan la misma instancia de cliente; bucket/rutas/TTL no cambian.
+
+Las URLs se validan como orígenes sin credenciales, query, hash ni rutas. Supabase requiere HTTPS y hostname exacto del proyecto esperado. Local nunca admite production ni API remota. Un error muestra «Configuración de entorno: …» con causas fijas, sin valores sensibles, y bloquea el arranque de la página. El archivo local ausente puede producir un 404 de recurso estático: en producción es opcional; en local el provider detiene la app con aviso. No hay conexiones de servicios como fallback.
+
+### Contrato backend y CORS
+
+`src/config/environment.js` valida datos de entrada sin efectos secundarios. `src/config/runtime.js` usa `dotenv.config()` para cargar normalmente `.env` desde la raíz backend y valida antes de crear clientes o aceptar tráfico. Dotenv conserva la precedencia de variables ya presentes en el proceso: el operador debe revisar su procedencia sin imprimirlas. No hay selector adicional de archivo. La ausencia de variables requeridas impide arrancar aunque no exista `.env`; producción puede proporcionarlas desde su entorno de proceso.
+
+| Variable | Regla |
+| --- | --- |
+| APP_ENV | Obligatoria: test o production; no se infiere desde NODE_ENV |
+| NODE_ENV | Obligatoria: development/test/production; APP_ENV production exige NODE_ENV production |
+| SUPABASE_URL | Origen HTTPS, puerto estándar, proyecto exacto: test → gwdtlbisykzzplgzczzq; production → bfnkaqmhcsyxdxoqnahk |
+| SUPABASE_KEY / SUPABASE_SERVICE_ROLE_KEY | Ambas presentes y no vacías antes de crear clientes; no se comparan, decodifican ni registran sus valores |
+| CORS_ORIGIN | Obligatoria; lista separada por comas de orígenes canónicos exactos, sin barra final, rutas, credenciales ni wildcards |
+| PORT | Entero 1–65535; default 3000. Test exige 3000 para corresponder con frontend |
+
+Test admite exclusivamente los orígenes HTTP localhost:5500 y 127.0.0.1:5500 que aparezcan explícitamente en CORS_ORIGIN. Production exige HTTPS no local y solo admite su lista explícita. Ya no añade localhost, GitHub Pages ni hosts fijos automáticamente. Sin Origin (undefined), la API conserva permiso para clientes no navegador; Origin literal null o no listado se rechaza. CORS no sustituye requireAuth ni RLS.
+
+Errores de ambiente, variables faltantes, URL/proyecto cruzados o CORS inválido impiden iniciar; no muestran entradas ni claves. La comprobación de Project ID valida el hostname, **no prueba pertenencia, validez ni privilegio de las claves**. El usuario ya validó backend test y login; quedan las comprobaciones de privilegios y aislamiento no reportadas, detalladas en 02F abajo. APP_ENV=production debe configurarse explícitamente junto con CORS antes de cualquier despliegue futuro; no desplegar este cambio con las variables antiguas sin revisar. Esta sesión no altera la producción desplegada ni confirma sus variables.
+
+### Procedimiento manual de referencia — estado de ejecución actualizado en 02F abajo
+
+El agente no ejecutó este procedimiento. El usuario ya reportó la validación conectada de frontend/backend, login, aprovisionamiento, observación A/B, Network y Storage descrita en el cierre 02F abajo. Se conservan los pasos como referencia; no marcar toda la lista como pendiente ni atribuir ejecución a pasos no reportados. Las restricciones de ejecución del agente no niegan las pruebas posteriores realizadas por el usuario.
+
+Usar PowerShell y no pegar claves en chat/consola/documentación. No probar producción. No sobrescribir archivos locales existentes. Las dependencias de backend deben estar disponibles; si faltan, detenerse y resolver instalación en otra sesión.
+
+1. Frontend, crear el override únicamente si no existe:
+
+   ```powershell
+   Set-Location C:/Users/angel/Documents/educativo_ia/worktrees/features/frontend
+   if (Test-Path js/core/config.local.js) { throw 'El archivo local ya existe; revisar sin sobrescribir.' }
+   Copy-Item js/core/config.local.example.js js/core/config.local.js
+   notepad js/core/config.local.js
+   ```
+
+   Completar localmente solo la clave pública de pruebas; conservar test, URL del proyecto de pruebas y API 127.0.0.1:3000. No copiar service role al frontend.
+
+2. Backend: el usuario revisa personalmente su `.env` local existente, ya ignorado por Git, usando `.env.example` como referencia. No copiar la plantilla encima ni compartir valores. Mantener APP_ENV=test y configurar únicamente el proyecto de pruebas. El agente no abre ni modifica ese archivo en esta sesión.
+
+   ```powershell
+   Set-Location C:/Users/angel/Documents/educativo_ia/worktrees/features/backend
+   notepad .env
+   node scripts/check-environment.js
+   ```
+
+   El usuario completa o revisa las variables de pruebas en el editor, sin copiarlas a comandos. La comprobación debe mostrar únicamente environment=test, projectId=gwdtlbisykzzplgzczzq, port=3000 y CORS local. No continuar si no coincide. La plantilla tiene OPENAI_API_KEY sintética para construir los SDK actuales; no habilita generación y no debe sustituirse por una credencial productiva. No ejecutar generación.
+
+3. En esa misma terminal, después de comprobar la salida:
+
+   ```powershell
+   npm start
+   ```
+
+   En otra terminal, comprobar solo el backend local:
+
+   ```powershell
+   Invoke-RestMethod http://127.0.0.1:3000/health
+   ```
+
+4. Servir la raíz frontend en otra terminal. Este comando usa únicamente Node ya disponible, sin instalación, sin listar directorios ni servir archivos sin extensión permitida. Atiende dos direcciones loopback: la segunda permite la prueba negativa de host. No ejecutado por el agente; detener con Ctrl+C. Si el puerto está ocupado, detener el servidor local previo, no cambiar el puerto silenciosamente.
+
+   ```powershell
+   Set-Location C:/Users/angel/Documents/educativo_ia/worktrees/features/frontend
+   @'
+   const http = require('node:http');
+   const fs = require('node:fs');
+   const path = require('node:path');
+   const root = process.cwd();
+   const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
+   const serve = (req, res) => {
+     try {
+       if (req.method !== 'GET') { res.writeHead(405).end(); return; }
+       const pathname = decodeURIComponent(new URL(req.url, 'http://127.0.0.1').pathname);
+       const file = path.resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname));
+       const relative = path.relative(root, file);
+       const mime = types[path.extname(file)];
+       if (relative.startsWith('..') || path.isAbsolute(relative) || relative.split(/[\\/]/).some(part => part.startsWith('.')) || !mime) { res.writeHead(404).end(); return; }
+       fs.readFile(file, (error, data) => {
+         if (error) { res.writeHead(404).end(); return; }
+         res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-store' }).end(data);
+       });
+     } catch { res.writeHead(400).end(); }
+   };
+   for (const host of ['127.0.0.1', '127.0.0.2']) http.createServer(serve).listen(5500, host);
+   '@ | node
+   ```
+
+   Abrir `http://127.0.0.1:5500/pages/login.html`. No servir la carpeta padre ni el backend. No poner credenciales privadas en el frontend, aunque sus archivos estén ignorados por Git.
+
+5. En DevTools evaluar **solo** `window.EDUCATIVO_ENVIRONMENT`: test, proyecto de pruebas, API local. Ver aviso de test. Network debe mostrar únicamente el proyecto de pruebas para Auth/Storage y API local. Filtrar por bfnkaqmhcsyxdxoqnahk y api.educativoia.com: cero requests, incluidas fallidas. No compartir headers, tokens, capturas completas ni URLs firmadas.
+
+6. Prueba posterior a cargo del usuario: detener backend con Ctrl+C. En su `.env` local cambiar únicamente SUPABASE_URL al hostname del Project ID productivo, conservando APP_ENV=test y claves de pruebas; ejecutar `node scripts/check-environment.js` y `npm start`: ambos deben rechazar antes de crear clientes/atender. Restaurar la URL de test en el editor. No cambiar APP_ENV a production para eludir el rechazo. En frontend, cambiar temporalmente únicamente supabaseUrl al proyecto productivo, recargar login y comprobar aviso y cero requests a servicios; restaurar test.
+
+7. Con el servidor del paso 4, abrir `http://127.0.0.2:5500/pages/login.html`: esperar rechazo de host y cero solicitudes a servicios. Si el sistema no permite el segundo bind, detener el servidor y registrar la limitación; no ampliar a LAN ni modificar DNS. El harness también cubre ese caso de host no autorizado. Previews y file: bloquean el cliente. No visitar un despliegue real para simular esta prueba.
+
+8. Solo posteriormente, con usuario sintético test autorizado, probar login, sesión, Dashboard/Biblioteca, Archivados y Detalle. No generar recursos ni subir imágenes como parte de 02E. Confirmar que no se reutiliza una sesión de producción. No crear usuarios en esta sesión.
+
+9. Confirmar exclusión de archivos con valores (no deben aparecer en status):
+
+   ```powershell
+   git -C C:/Users/angel/Documents/educativo_ia/worktrees/features/frontend check-ignore js/core/config.local.js
+   git -C C:/Users/angel/Documents/educativo_ia/worktrees/features/frontend status --short
+   git -C C:/Users/angel/Documents/educativo_ia/worktrees/features/backend check-ignore .env
+   git -C C:/Users/angel/Documents/educativo_ia/worktrees/features/backend status --short
+   ```
+
+Si falla una prueba: detener los procesos locales, restaurar en el editor únicamente los parámetros de prueba modificados y volver a ejecutar check-environment/harness. No reset/clean, no copiar `.env` productivos, no relajar guardias, no ejecutar el inicializador SQL. Retirar el override local deja la app local bloqueada de forma intencional. Para retirar el cambio de código, revisar/revertir el diff en otra acción autorizada; no improvisar cambios en servicios.
+
+### Cierre 02E/02F — evidencia manual y alcance aprobado
+
+**Evidencia manual proporcionada por el usuario, registrada el 2026-10-06**, sin verificación remota del agente. No se incorporan correos, identificadores de usuarios, claves, tokens, URLs firmadas ni datos personales. La fecha es de registro de evidencia, no una fecha de ejecución inferida.
+
+| Comprobación | Resultado manual aprobado |
+| --- | --- |
+| Ambiente ejecutado | Exclusivamente test; Project ID gwdtlbisykzzplgzczzq; frontend http://127.0.0.1:5500; API http://127.0.0.1:3000 |
+| Verificador backend | environment=test; projectId=gwdtlbisykzzplgzczzq; port=3000; allowedOrigins=[http://localhost:5500, http://127.0.0.1:5500], salida sanitizada |
+| Arranque e indicador | Backend en 3000 y frontend en 5500 iniciaron correctamente; indicador mostró test, proyecto test y API local |
+| Auth existente | Login real correcto con usuarios sintéticos test; credenciales incorrectas rechazadas |
+| Aprovisionamiento | Dos usuarios sintéticos creados; el trigger creó dos filas en profiles y dos en user_settings |
+| API y aislamiento visual básico | A creó y visualizó recursos propios; B mostró Biblioteca vacía y no visualizó recursos de A |
+| Network | Solo solicitudes al backend local o Supabase test; no se observaron solicitudes a bfnkaqmhcsyxdxoqnahk.supabase.co ni api.educativoia.com |
+| Storage funcional test | Subida manual de imagen sintética, visualización por URL firmada, persistencia al visualizar la planeación, eliminación correcta y persistencia posterior de la planeación sin imagen |
+| Producción | No modificada, confirmado por el usuario |
+
+La validación funcional de Auth corresponde al login existente y al aprovisionamiento observado. No acredita implementación de registro público, recuperación, confirmación/callbacks ni cambios de configuración Auth. La observación visual A/B no demuestra denegación de peticiones manipuladas, escrituras cruzadas ni acceso anónimo; se reserva expresamente para Fase 03.
+
+02E y 02F quedan completadas en sus alcances de implementación y validación conectada descritos. No se vuelven a pedir como pendientes las pruebas aprobadas de la tabla. Las aserciones automáticas para educativoia.com, www.educativoia.com y planeacion-docente-ia.vercel.app verifican environment=production, cero avisos renderizados y ausencia de test, Project ID de pruebas y API local en el contenido emitido por el provider. Cada host rechaza además un override local antes de crear cliente. Los dos hosts locales conservan un indicador test. Es una prueba del provider con DOM simulado, no una inspección del sitio productivo ni de todo su contenido visual.
+
+Comandos reproducibles sin red ni credenciales, desde cada raíz:
+
+```powershell
+# Frontend
+node --test tests/environment-config.cjs
+# Backend
+node --experimental-vm-modules --test tests/environment.test.js tests/client-configuration.test.js
+```
+
+28 casos frontend y 36 backend aprobados en el cierre (64 en total). Se simulan hosts, claves sintéticas, SDK y dotenv: no se evalúa la clave pública real y no se lee `.env` ni config.local.js. Cubren selección, rechazos, carga normal mediante dotenv.config() sin argumentos, ausencia de llamadas createClient ante error, orden de providers en las cinco páginas, CORS, admin/alias/Bearer y opciones de sesión. Node emite la advertencia esperada de VM Modules experimental. Sintaxis de JS modificado y git diff --check forman parte del cierre. Jest/JSDOM no disponibles localmente: suite histórica completa pendiente, sin instalación automática. El harness no acredita conectividad ni aislamiento RLS; la evidencia conectada es la aportada por el usuario.
+
+**Fase 03:** matriz adversarial RLS A/B/anon y acceso cruzado directo por IDs, lectura/escritura y relaciones, revisión de privilegios/admin y policies. En Storage quedan pruebas de acceso cruzado, expiración de firmas y límites MIME/tamaño; no repetir como pendientes upload/visualización/persistencia/remove ya aprobados. Otras comprobaciones aún no reportadas: rechazos manuales ante proyecto cruzado/host desconocido (cubiertos automáticamente), sesión/logout, regresión específica restante de Archivados y suite histórica Jest. El chequeo visual sobre despliegue productivo no se ejecutó ni queda autorizado por este cierre.
+
+**Precondición antes de fusionar/desplegar:** Render requerirá APP_ENV=production, NODE_ENV=production, SUPABASE_URL con Project ID productivo bfnkaqmhcsyxdxoqnahk y CORS_ORIGIN productivo explícito (orígenes HTTPS autorizados, sin permisos locales implícitos). Verificar y coordinar esa preparación antes de promover el código; las variables antiguas no garantizan arranque. No se cambió Render ni se verificaron sus valores actuales en esta sesión.
+
+Otros trabajos pendientes, distintos de esas pruebas: comprobar tipo/procedencia de claves sin compartirlas; datos de referencia; discrepancia ia_metrics/ia_metrics_legacy; decisiones Auth/SMTP/callbacks y revisión de usos admin/policies en Fase 03. No repetir SQL inicial, no crear avatars, no cambiar cuotas/planes ni generar imágenes IA. La separación de credenciales de IA/correo/pagos debe verificarse antes de habilitar esos servicios.
 
 ## Actualización 02D.2 — 2026-09-29
 

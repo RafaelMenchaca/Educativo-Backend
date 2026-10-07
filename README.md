@@ -214,14 +214,14 @@ El backend está diseñado para operar con RLS mediante clientes ligados al toke
 
 ## Variables de entorno
 
-Crea un archivo `.env` en la raiz con estas variables:
+Usa tu `.env` local existente, ya ignorado por Git, con [`.env.example`](.env.example) como referencia, sin sobrescribirlo con la plantilla. El backend conserva la carga normal mediante `dotenv.config()`. El usuario debe configurar únicamente el proyecto de pruebas para desarrollo local. El [contrato canónico 02E](docs/ENVIRONMENT_SCHEMA_READINESS.md#02e--aislamiento-operativo-en-código-2026-10-04) contiene el procedimiento completo, errores esperados y límites de la verificación. El agente no lee ni modifica el `.env` real ni cambia configuración externa en esta sesión.
 
 ```bash
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-SUPABASE_KEY=your-anon-public-key
-OPENAI_API_KEY=your-openai-api-key
-PIXABAY_API_KEY=your-pixabay-api-key
+APP_ENV=test
+SUPABASE_URL=https://gwdtlbisykzzplgzczzq.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_KEY=
+OPENAI_API_KEY=REPLACE_WITH_SEPARATE_TEST_KEY_BEFORE_AUTHORIZED_GENERATION
 CORS_ORIGIN=http://127.0.0.1:5500,http://localhost:5500
 PORT=3000
 NODE_ENV=development
@@ -229,14 +229,15 @@ NODE_ENV=development
 
 | Variable | Uso |
 |---|---|
+| `APP_ENV` | Identidad obligatoria test/production, validada contra Project ID |
 | `SUPABASE_URL` | URL del proyecto Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | Clave admin para validar usuarios |
 | `SUPABASE_KEY` | Clave publica usada para clientes por usuario (respeta RLS) |
 | `OPENAI_API_KEY` | Generacion de todos los documentos educativos |
 | `PIXABAY_API_KEY` | Busqueda de imagenes para enriquecer planeaciones (opcional) |
-| `CORS_ORIGIN` | Origenes permitidos separados por coma |
+| `CORS_ORIGIN` | Lista obligatoria de orígenes exactos, validada por ambiente |
 | `PORT` | Puerto del servidor Express (default 3000) |
-| `NODE_ENV` | Controla comportamiento de CORS y logs |
+| `NODE_ENV` | Modo Node obligatorio; no selecciona proyecto. Production exige production |
 
 ## Instalacion
 
@@ -254,10 +255,12 @@ npm test        # placeholder, no hay suite configurada
 
 ## Ejecucion local
 
-1. Crea y completa el archivo `.env`.
-2. Instala dependencias con `npm install`.
-3. Ejecuta `npm run dev`.
-4. Verifica el servicio en `http://localhost:3000/health`.
+1. Revisa y configura personalmente tu `.env` local existente siguiendo la guía 02E, sin reutilizar credenciales productivas ni compartir valores.
+2. Ejecuta los comandos desde la raíz backend; dotenv carga normalmente `.env`.
+3. Ejecuta `node scripts/check-environment.js`: debe indicar test y el proyecto autorizado, sin claves. No importa SDK ni conecta servicios.
+4. Con dependencias ya disponibles, ejecuta `npm start` o `npm run dev` y comprueba `http://127.0.0.1:3000/health`. La sesión 02E no arranca este servidor ni autoriza generación real.
+
+Pruebas aisladas sin dependencias externas: `node --experimental-vm-modules --test tests/environment.test.js tests/client-configuration.test.js`. El comando `npm test` histórico continúa siendo placeholder.
 
 ## Estructura del proyecto
 
@@ -310,7 +313,7 @@ Educativo-Backend/
 
 El frontend de Educativo IA consume esta API desde el navegador. La URL base se configura en `js/core/config.js` del repo frontend segun el hostname.
 
-CORS esta configurado en `src/app.js`; la variable `CORS_ORIGIN` define los origenes permitidos en produccion. En desarrollo local acepta `localhost` y `127.0.0.1`.
+CORS se configura en `src/app.js` con la lista validada en `src/config/environment.js`. No hay orígenes implícitos: test admite únicamente los locales de puerto 5500 expresamente listados; production requiere una lista HTTPS no local. Requests sin Origin conservan acceso sujeto a Auth/RLS. Antes de un futuro deploy se debe preparar APP_ENV y la lista CORS explícita; este cambio no modifica el servicio desplegado.
 
 ## Seguridad y datos
 

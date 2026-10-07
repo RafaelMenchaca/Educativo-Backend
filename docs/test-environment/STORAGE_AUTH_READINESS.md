@@ -1,5 +1,7 @@
 # Storage e inventario Auth — estado vigente 02D.2
 
+Actualización de cierre 02E/02F (2026-10-06): el usuario aprobó la conexión local a test, login, aprovisionamiento, aislamiento visual básico y Storage funcional (subida, URL firmada, persistencia y eliminación). La [evidencia canónica de cierre](../ENVIRONMENT_SCHEMA_READINESS.md#cierre-02e02f--evidencia-manual-y-alcance-aprobado) sustituye los pendientes de esas pruebas en el historial siguiente. Matriz adversarial RLS A/B/anon, acceso cruzado directo y pruebas Storage de aislamiento/límites/expiración siguen pendientes para Fase 03. No se atribuyen cambios externos al agente.
+
 Actualización documental: 2026-09-29. Evidencia proporcionada por el usuario desde Supabase, sin consulta remota del agente. Frontend `work/features` / `d01c5de` y backend `work/features` / `6f44a1d`, ambos limpios al inicio. Storage fue aplicado manualmente por el usuario; Auth fue observado, no modificado. Las propuestas de este documento NO están aprobadas ni aplicadas. La validación funcional permanece pendiente. Se conserva el contrato inspeccionado en 02D.1 (frontend `885b2b8`, backend `7e75f65`) sin cambios funcionales.
 
 | Ambiente | Identidad manual del dashboard | Evidencia / estado |
