@@ -1,5 +1,7 @@
 # Inventario de entornos y evidencia de esquema — sesión 02A
 
+Seguimiento actualizado 2026-10-10: [auditoría de aislamiento 03A](ISOLATION_03A.md), inventario de propiedad, matriz anon/A/B y harness acotado preparados. **03A completada y validada únicamente para las 11 comprobaciones de planteles del harness**: A/B/anon, Supabase directo y API local, 11 PASS, cleanup completo y cero residuos conocidos. Los 310 casos del CSV permanecen NO EJECUTADOS; relaciones, jobs, Storage y estado del navegador pasan a 03B–03F. Fase 03 sigue abierta. Este seguimiento no modifica el cierre 00–02 ni la configuración de ambientes.
+
 Inicio del inventario: 2026-09-23. Cierre documental al 2026-10-06: **02E completada (implementación de aislamiento) y 02F completada (validación conectada local contra Supabase test), según pruebas automáticas y evidencia manual aportada por el usuario.** Auth/login, aprovisionamiento, API, aislamiento visual básico y Storage funcional aprobados en el alcance descrito abajo. No es una certificación exhaustiva RLS A/B/anon: matriz adversarial y acceso cruzado directo pendientes para Fase 03. Producción no modificada; cambios de código todavía sin stage ni despliegue.
 
 ## 02E — aislamiento operativo en código (2026-10-04)
