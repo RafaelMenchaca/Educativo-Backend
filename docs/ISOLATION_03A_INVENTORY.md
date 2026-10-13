@@ -68,7 +68,7 @@ Consumers: planeaciones.service.js, detalle.page.js (PUT), Archivados, features/
 | DELETE /planeaciones/:id/permanent | deletePlaneacionPermanent → eliminarPlaneacionPermanentemente | planeaciones S/D | p:id Number integer | P | exige archivada, DEL |
 | DELETE /planeaciones/:id/directo | deletePlaneacionDirectaController → eliminarPlaneacionDirecta | planeaciones S/D; anexos/listas D | p:id | P | DEL secuencial; sin limpieza Storage |
 | GET /planeaciones/:id | getPlaneacionById → obtenerPlaneacionPorId | planeaciones + jerarquía S | p:id Number | P | RO |
-| PUT /planeaciones/:id | updatePlaneacion → actualizarPlaneacion | planeaciones U; jerarquía S | p:id Number integer; b:body copiado excepto user_id; id/batch_id/tema_id llegan al update | P | WR H01, valida tabla_ia/actividades sin whitelist global |
+| PUT /planeaciones/:id | updatePlaneacion → actualizarPlaneacion | planeaciones U; jerarquía S solo si la fila actualizada conserva tema_id | p:id entero seguro positivo; b:solo tabla_ia | P | 03B: allowlist explícita, cliente y userId obligatorios, filtros id+user_id, 404 uniforme; validación manual pendiente |
 | DELETE /planeaciones/:id | deletePlaneacion → eliminarPlaneacion | planeaciones D | p:id Number | P | DELETE físico; controller catch genérico 500; DEL |
 
 ## Biblioteca — js/api/biblioteca.api.js

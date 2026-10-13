@@ -1,6 +1,6 @@
 # Educativo IA — matriz anon/A/B y fixtures 03A
 
-[CSV completo](ISOLATION_03A_MATRIX.csv): 310 casos estables por recurso, capa, operación y actor. Son un diseño reproducible, no 310 tests implementados ni aprobados. Todos permanecen **NO EJECUTADOS**. Cada fila incluye precondiciones, solicitud sin secretos, esperado propuesto, evidencia, control de efectos y limpieza. API y Supabase directo no se sustituyen mutuamente. La tabla de correspondencia del harness registra por separado las 11 comprobaciones acotadas ejecutadas; no actualiza resultados del CSV ni aprueba sus 310 casos. Los casos suplementarios posteriores siguen NO EJECUTADOS.
+[CSV completo](ISOLATION_03A_MATRIX.csv): 310 casos estables por recurso, capa, operación y actor. Son un diseño reproducible, no 310 pruebas reales aprobadas. Cuatro casos API de actualización de planeaciones tienen **PRUEBA MANUAL REAL PASS** en 03B; dos casos relacionales adicionales conservan únicamente **PRUEBA AUTOMÁTICA PASS (transporte simulado)**; los otros 304 permanecen **NO EJECUTADOS**. Tres de los cuatro casos manuales también tienen cobertura simulada, pero cada caseId se cuenta por su nivel de evidencia más alto. Cada fila incluye precondiciones, solicitud sin secretos, esperado propuesto, evidencia, control de efectos y limpieza. API y Supabase directo no se sustituyen mutuamente. La tabla del harness registra por separado las 11 comprobaciones reales acotadas de planteles, que no corresponden a filas del CSV.
 
 ## G0: condiciones comunes obligatorias
 
@@ -63,7 +63,7 @@ Precondición de todos: G0, F_A/F_B completos creados por ejecutor revisado; act
 
 | ID | Actor / capa | Solicitud o procedimiento | Contrato esperado propuesto / riesgo |
 | --- | --- | --- | --- |
-| 03A-PE-ID-MUTATE | A / API | PUT /api/planeaciones/{planeacion_A}, body id={nuevo bigint libre}; revisar PK/FK antes | No mover identidad; no ejecutar con ID ajeno preexistente; H01 |
+| 03A-PE-ID-MUTATE | A / API | PUT /api/planeaciones/{planeacion_A}, body id={nuevo bigint libre}; revisar PK/FK antes | PRUEBA AUTOMÁTICA PASS (transporte simulado): 400 antes de mutación; validación real pendiente |
 | 03A-PE-ARCHIVE-CROSS | A / API | PATCH /api/planeaciones/{planeacion_B}/archive, después /restore en copia independiente | B sin cambios |
 | 03A-BA-ARCHIVE-CROSS | A / API | PATCH /api/planeaciones/batch/{batch_B}/archive o /restore, casos independientes | todas las planeaciones B intactas |
 | 03A-PE-PERMANENT-CROSS | A / API | DELETE /api/planeaciones/{planeacion_B}/permanent con B archivada | B y derivados intactos |

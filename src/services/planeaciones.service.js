@@ -93,6 +93,28 @@ const TABLA_IA_TIEMPOS_ESPERADOS = new Set([
   'desarrollo',
   'cierre'
 ]);
+export const PLANEACION_EDITABLE_FIELDS = Object.freeze(['tabla_ia']);
+const PLANEACION_EDITABLE_FIELD_SET = new Set(PLANEACION_EDITABLE_FIELDS);
+const TABLA_IA_EDITABLE_FIELDS = new Set([
+  'tiempo_sesion',
+  'actividades',
+  'tiempo_min',
+  'producto',
+  'instrumento',
+  'formativa',
+  'sumativa',
+  'actividades_imagenes'
+]);
+const ACTIVIDAD_IMAGEN_INPUT_FIELDS = new Set([
+  'id',
+  'name',
+  'path',
+  'mime_type',
+  'size',
+  'uploaded_at',
+  'source',
+  'query'
+]);
 
 function buildHttpError(status, message) {
   const err = new Error(message);
@@ -753,9 +775,34 @@ function normalizeTablaIaTiempoSesion(value) {
     : '';
 }
 
+function hasOnlyEnumerableOwnFields(value, allowedFields) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+  ) {
+    return false;
+  }
+
+  return Reflect.ownKeys(value).every(
+    (key) =>
+      typeof key === 'string' &&
+      allowedFields.has(key) &&
+      Object.prototype.propertyIsEnumerable.call(value, key)
+  );
+}
+
 function validateActividadImagenMetadata(item, rowIndex, imageIndex) {
-  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+  if (!hasOnlyEnumerableOwnFields(item, ACTIVIDAD_IMAGEN_INPUT_FIELDS)) {
     throw buildHttpError(400, `tabla_ia[${rowIndex}].actividades_imagenes[${imageIndex}] debe ser un objeto.`);
+  }
+
+  if (Object.hasOwn(item, 'source') && typeof item.source !== 'string') {
+    throw buildHttpError(400, `tabla_ia[${rowIndex}].actividades_imagenes[${imageIndex}].source debe ser texto.`);
+  }
+  if (Object.hasOwn(item, 'query') && typeof item.query !== 'string') {
+    throw buildHttpError(400, `tabla_ia[${rowIndex}].actividades_imagenes[${imageIndex}].query debe ser texto.`);
   }
 
   const id = typeof item.id === 'string' ? item.id.trim() : '';
@@ -763,9 +810,22 @@ function validateActividadImagenMetadata(item, rowIndex, imageIndex) {
   const path = typeof item.path === 'string' ? item.path.trim() : '';
   const mime_type = typeof item.mime_type === 'string' ? item.mime_type.trim() : '';
   const uploaded_at = typeof item.uploaded_at === 'string' ? item.uploaded_at.trim() : '';
-  const size = item.size === undefined || item.size === null || item.size === ''
-    ? 0
-    : Number(item.size);
+  let size = 0;
+
+  if (item.size !== undefined && item.size !== null) {
+    if (typeof item.size === 'number') {
+      size = item.size;
+    } else if (typeof item.size === 'string') {
+      size = item.size === ''
+        ? 0
+        : (item.size.trim() === '' ? Number.NaN : Number(item.size));
+    } else {
+      throw buildHttpError(
+        400,
+        `tabla_ia[${rowIndex}].actividades_imagenes[${imageIndex}].size debe ser un numero valido.`
+      );
+    }
+  }
 
   if (!id || !name || !path || !uploaded_at) {
     throw buildHttpError(
@@ -788,7 +848,7 @@ function validateActividadImagenMetadata(item, rowIndex, imageIndex) {
     );
   }
 
-  return {
+  const normalized = {
     id,
     name,
     path,
@@ -796,6 +856,10 @@ function validateActividadImagenMetadata(item, rowIndex, imageIndex) {
     size,
     uploaded_at
   };
+
+  if (Object.hasOwn(item, 'source')) normalized.source = item.source;
+  if (Object.hasOwn(item, 'query')) normalized.query = item.query;
+  return normalized;
 }
 
 function validateTablaIaUpdate(tablaIa) {
@@ -808,18 +872,31 @@ function validateTablaIaUpdate(tablaIa) {
   }
 
   const normalizedRows = tablaIa.map((row, rowIndex) => {
-    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+    if (!hasOnlyEnumerableOwnFields(row, TABLA_IA_EDITABLE_FIELDS)) {
       throw buildHttpError(400, `tabla_ia[${rowIndex}] debe ser un objeto.`);
+    }
+    for (const field of TABLA_IA_EDITABLE_FIELDS) {
+      if (
+        field !== 'actividades_imagenes' &&
+        Object.hasOwn(row, field) &&
+        typeof row[field] !== 'string'
+      ) {
+        throw buildHttpError(400, `tabla_ia[${rowIndex}].${field} debe ser texto.`);
+      }
     }
 
     const actividades_imagenes = Array.isArray(row.actividades_imagenes)
       ? row.actividades_imagenes.map((item, imageIndex) => validateActividadImagenMetadata(item, rowIndex, imageIndex))
       : [];
 
-    return {
-      ...row,
-      actividades_imagenes
-    };
+    const normalizedRow = {};
+    for (const field of TABLA_IA_EDITABLE_FIELDS) {
+      if (field !== 'actividades_imagenes' && Object.hasOwn(row, field)) {
+        normalizedRow[field] = row[field];
+      }
+    }
+    normalizedRow.actividades_imagenes = actividades_imagenes;
+    return normalizedRow;
   });
 
   const tiempos = normalizedRows.map((row) => normalizeTablaIaTiempoSesion(row.tiempo_sesion));
@@ -832,41 +909,65 @@ function validateTablaIaUpdate(tablaIa) {
   return normalizedRows;
 }
 
+function buildPlaneacionUpdate(update) {
+  if (
+    !update ||
+    typeof update !== 'object' ||
+    Array.isArray(update) ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(update))
+  ) {
+    throw buildHttpError(400, 'Body invalido');
+  }
+
+  const keys = Reflect.ownKeys(update);
+  if (keys.length === 0) {
+    throw buildHttpError(400, 'Debes enviar al menos un campo editable');
+  }
+
+  if (
+    keys.some(
+      (key) =>
+        typeof key !== 'string' ||
+        !PLANEACION_EDITABLE_FIELD_SET.has(key) ||
+        !Object.prototype.propertyIsEnumerable.call(update, key)
+    )
+  ) {
+    throw buildHttpError(400, 'La actualizacion contiene campos no permitidos');
+  }
+
+  return {
+    tabla_ia: validateTablaIaUpdate(update.tabla_ia)
+  };
+}
+
 export async function actualizarPlaneacion({
   supabaseClient,
   id,
   update,
   userId
 }) {
-  const client = getClient(supabaseClient);
-  const safeUpdate = { ...(update || {}) };
-  delete safeUpdate.user_id;
-
-  if (safeUpdate.tabla_ia !== undefined) {
-    safeUpdate.tabla_ia = validateTablaIaUpdate(safeUpdate.tabla_ia);
+  if (!supabaseClient || typeof supabaseClient.from !== 'function') {
+    throw new Error('User Supabase client is required');
+  }
+  if (typeof userId !== 'string' || !userId) {
+    throw new Error('Authenticated user is required');
+  }
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw buildHttpError(400, 'ID invalido');
   }
 
-  if (safeUpdate.actividades_momentos !== undefined) {
-    safeUpdate.actividades_momentos = normalizeActividadesMomentos(
-      safeUpdate.actividades_momentos,
-      safeUpdate.actividad_cierre
-    );
-    if (safeUpdate.actividad_cierre === undefined) {
-      safeUpdate.actividad_cierre = safeUpdate.actividades_momentos.cierre || '';
-    }
-  } else if (safeUpdate.actividad_cierre !== undefined) {
-    safeUpdate.actividad_cierre = validateActividadCierre(safeUpdate.actividad_cierre);
-  }
-
-  const query = client.from('planeaciones').update(safeUpdate).eq('id', id);
-  if (userId) {
-    query.eq('user_id', userId);
-  }
+  const safeUpdate = buildPlaneacionUpdate(update);
+  const query = supabaseClient
+    .from('planeaciones')
+    .update(safeUpdate)
+    .eq('id', id)
+    .eq('user_id', userId);
 
   const { data, error } = await query.select().maybeSingle();
 
-  if (error) throw error;
-  return enriquecerPlaneacionConJerarquia(client, data);
+  if (error) throw buildHttpError(500, 'Error al actualizar planeacion');
+  if (!data) throw buildHttpError(404, 'Planeacion no encontrada');
+  return enriquecerPlaneacionConJerarquia(supabaseClient, data);
 }
 
 export async function eliminarPlaneacion({ supabaseClient, id, userId }) {

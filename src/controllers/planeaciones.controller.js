@@ -110,7 +110,7 @@ export async function getPlaneacionById(req, res) {
 export async function updatePlaneacion(req, res) {
   const id = Number(req.params.id);
 
-  if (!Number.isInteger(id)) {
+  if (!Number.isSafeInteger(id) || id <= 0) {
     return res.status(400).json({ error: 'ID invalido' });
   }
 

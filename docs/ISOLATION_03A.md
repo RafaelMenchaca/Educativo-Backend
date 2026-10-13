@@ -1,6 +1,6 @@
 # Educativo IA — auditoría de aislamiento 03A
 
-Fecha: 2026-10-07; estado actualizado el 2026-10-10. Fases 00–02 cerradas según handoff y [cierre 02E/02F](ENVIRONMENT_SCHEMA_READINESS.md). **03A completada y validada en el alcance acotado de planteles descrito abajo. Fase 03 sigue abierta.** La matriz completa, relaciones, jobs, Storage y estado del navegador continúan pendientes para 03B–03F.
+Fecha: 2026-10-07; estado actualizado el 2026-10-12. Fases 00–02 cerradas según handoff y [cierre 02E/02F](ENVIRONMENT_SCHEMA_READINESS.md). **03A completada y validada en el alcance acotado de planteles descrito abajo; commit real: `4b8de11` (`test(security): add adversarial isolation baseline`). 03B también está completada y validada en su alcance de actualización de planeaciones. Fase 03 sigue abierta.** Relaciones restantes, jobs, Storage y estado del navegador continúan pendientes para 03C–03F.
 
 ## Puerta y límites de evidencia
 
@@ -83,9 +83,11 @@ Ejecución manual inconclusa comunicada el 2026-10-08: runId `b52d583f-4918-4223
 
 Ejecución posterior aprobada, comunicada el 2026-10-10: runId `ca11685d-5e72-4b16-a92c-4fff42ec1a35`. El operador confirmó los metadatos test y la API local como precondiciones. `prepare` creó y confirmó un plantel sintético por A y B con HTTP 201, sin diagnósticos ni errores. `execute` completó 6/6 lecturas directas por ID, 3/3 listados API y 2/2 comprobaciones de ausencia de efectos: **11 PASS, 0 FAIL, 0 INCONCLUSIVE**. El anónimo obtuvo HTTP 401 con el contrato esperado en la API; en acceso directo no observó ninguno de los dos planteles. `cleanup` eliminó ambos fixtures con HTTP 204. Resumen: `commandsCompleted=["prepare","execute","cleanup"]`, `commandErrors=0`, `prepared=true`, `executeCompleted=true`, `fixturesPending=[]`, `uncertainPending=[]`, `successful=true`. No quedan residuos conocidos. No se documentan UUID de usuarios o fixtures, credenciales, headers ni URLs de sesión.
 
+Cierre documental 03B comunicado el 2026-10-12: 46/46 pruebas offline y 36/36 pruebas de configuración aprobadas; cuatro casos manuales reales PASS sobre `PUT /api/planeaciones/:id`: edición propia persistida y posteriormente restaurada, rechazo HTTP 400 de `user_id`, rechazo HTTP 404 de edición cruzada y rechazo HTTP 401 sin Bearer. Cada rechazo conservó la planeación sin cambios. El contenido original fue restaurado exactamente, no quedaron residuos conocidos, no hubo generación/OpenAI y solo se observaron destinos locales, CDN pública y el proyecto Supabase test. La matriz registra esos cuatro caseIds con evidencia manual real y conserva dos casos relacionales únicamente con evidencia simulada. Los otros 304 casos del CSV continúan NO EJECUTADOS.
+
 ## Secuencia de correcciones propuesta
 
-1. **03B**: delimitar entradas de edición (H01), cliente/identidad obligatorios en servicios de usuario (H03), validación de IDs/tipos y pruebas de contrato. Acordar whitelist y tratamiento de campos ignorados sin imponer nuevo status HTTP en 03A.
+1. **03B**: completada y validada mediante pruebas automáticas y cuatro casos manuales reales. La edición de planeaciones queda limitada a `tabla_ia`, exige cliente/identidad de usuario y rechaza campos desconocidos, de sistema y relacionales. Ver [contrato 03B](ISOLATION_03B.md).
 2. **03C**: exámenes/jobs, batchId y selección completa, relación unidad/batch, listas y excepciones admin (H02/H04/H06/H07). Separar confianza del worker de campos que el cliente puede editar. Conservar generación/retries; necesita casos sin generación real o infraestructura de test dedicada.
 3. **03D**: confirmar metadatos y ejecutar A/B/anon directo; migraciones de ownership/grants solo tras revisión (H05/H07/H10). Probar cascadas y fallos parciales con fixtures aislados. Depende de contratos acordados en 03B/C.
 4. **03E**: integridad Storage/planeación, upload/update/delete, huérfanos y ciclo de firmas (H08/H10). Depende de relaciones y orden de borrado de 03D; sin alterar TTL incidentalmente.
