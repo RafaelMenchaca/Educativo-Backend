@@ -68,7 +68,7 @@ Consumers: planeaciones.service.js, detalle.page.js (PUT), Archivados, features/
 | DELETE /planeaciones/:id/permanent | deletePlaneacionPermanent → eliminarPlaneacionPermanentemente | planeaciones S/D | p:id Number integer | P | exige archivada, DEL |
 | DELETE /planeaciones/:id/directo | deletePlaneacionDirectaController → eliminarPlaneacionDirecta | planeaciones S/D; anexos/listas D | p:id | P | DEL secuencial; sin limpieza Storage |
 | GET /planeaciones/:id | getPlaneacionById → obtenerPlaneacionPorId | planeaciones + jerarquía S | p:id Number | P | RO |
-| PUT /planeaciones/:id | updatePlaneacion → actualizarPlaneacion | planeaciones U; jerarquía S solo si la fila actualizada conserva tema_id | p:id entero seguro positivo; b:solo tabla_ia | P | 03B: allowlist explícita, cliente y userId obligatorios, filtros id+user_id, 404 uniforme; validación manual pendiente |
+| PUT /planeaciones/:id | updatePlaneacion → actualizarPlaneacion | planeaciones U; jerarquía S solo si la fila actualizada conserva tema_id | p:id entero seguro positivo; b:solo tabla_ia | P | 03B completada: allowlist explícita, cliente y userId obligatorios, filtros id+user_id, 404 uniforme; validación manual PASS |
 | DELETE /planeaciones/:id | deletePlaneacion → eliminarPlaneacion | planeaciones D | p:id Number | P | DELETE físico; controller catch genérico 500; DEL |
 
 ## Biblioteca — js/api/biblioteca.api.js
@@ -98,9 +98,9 @@ APIs: anexos.api.js, listas_cotejo.api.js, examenes.api.js; biblioteca.api.js pr
 | GET /listas-cotejo/planeacion/:planeacionId | getListaCotejoPorPlaneacion → obtenerListaCotejoPorPlaneacion | listas S | p:planeacionId | D | RO |
 | GET /listas-cotejo/:id | getListaCotejoById → obtenerListaCotejoPorId | listas S | p:id | D | RO |
 | DELETE /listas-cotejo/:id | deleteListaCotejoController → eliminarListaCotejo | listas S/D | p:id | D | DEL |
-| POST /examenes/generate | postGenerateExamen → generarExamenUnidad | jerarquía/temas/planeaciones S; jobs/items I; exámenes worker I; métricas | b:unidad_id,tema_ids,planeacion_ids,batch_id,tipos_pregunta,cantidades_pregunta | G | programa worker; batch sin check; GEN H02/H06 |
-| POST /examenes/generar | postGenerateExamen → generarExamenUnidad | mismas tablas | mismos inputs | G | alias, mismo riesgo/GEN |
-| GET /examenes/generacion/:jobId | getExamenGenerationJob → obtenerEstadoGeneracionExamen | examen_generation_jobs S | p:jobId | D | fetchGenerationJob filtra id+user_id si suministrado; RO job ajeno |
+| POST /examenes/generate | postGenerateExamen → generarExamenUnidad | jerarquía/temas/planeaciones/batches S; job pending + items I; exámenes worker I; métricas | b:unidad_id,tema_ids,planeacion_ids,batch_id,tipos_pregunta,cantidades_pregunta | G | 03C: allowlist; batch/selección/cardinalidad completas; compensación `failed`; cliente usuario obligatorio; worker admin revalida autoridad antes de processing y del INSERT final; GEN real pendiente |
+| POST /examenes/generar | postGenerateExamen → generarExamenUnidad | mismas tablas | mismos inputs | G | alias con el mismo contrato 03C |
+| GET /examenes/generacion/:jobId | getExamenGenerationJob → obtenerEstadoGeneracionExamen | examen_generation_jobs S | p:jobId UUID | D | 03C: cliente usuario obligatorio, id+user_id, 404 uniforme; evidencia automática simulada |
 | GET /examenes/unidad/:unidadId | getExamenesByUnidad → listarExamenesPorUnidad | exámenes S | p:unidadId | D | RO |
 | GET /examenes/:id | getExamenById → obtenerExamenPorId | exámenes S | p:id | D | RO |
 | DELETE /examenes/:id | deleteExamen → eliminarExamen | exámenes S/D | p:id | D | DEL; job FK set null según SQL |

@@ -138,8 +138,38 @@ function buildHttpError(status, message) {
   return error;
 }
 
-function getClient(supabaseClient) {
-  return supabaseClient || supabaseAdmin;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EXAM_WORKER_ALLOWED_STATUSES = new Set(['pending', 'processing']);
+const EXAM_WORKER_ITEM_ALLOWED_STATUSES = new Set(['pending', 'processing', 'retrying', 'completed']);
+
+function requireUserClient(supabaseClient) {
+  if (!supabaseClient || typeof supabaseClient.from !== 'function') {
+    throw buildHttpError(500, 'Cliente de usuario requerido.');
+  }
+  return supabaseClient;
+}
+
+function normalizeUuid(value) {
+  const normalized = normalizeString(value);
+  return UUID_PATTERN.test(normalized) ? normalized.toLowerCase() : '';
+}
+
+function buildWorkerAuthorityError(reason, checkedIdentity = null) {
+  const error = new Error('Worker authority validation failed');
+  error.code = `worker_authority_${reason}`;
+  if (checkedIdentity?.jobId && checkedIdentity?.userId) {
+    error.checkedIdentity = Object.freeze({
+      jobId: checkedIdentity.jobId,
+      userId: checkedIdentity.userId
+    });
+  }
+  return error;
+}
+
+function safeWorkerErrorReason(error) {
+  return typeof error?.code === 'string' && error.code.startsWith('worker_authority_')
+    ? error.code
+    : 'worker_internal_error';
 }
 
 function normalizeString(value) {
@@ -1429,28 +1459,84 @@ FORMATO ESPERADO:
 }`;
 }
 
-async function updateGenerationJob(client, jobId, payload) {
-  const { error } = await client
+function applyExpectedStatuses(query, expectedStatuses) {
+  const statuses = [...new Set(
+    (Array.isArray(expectedStatuses) ? expectedStatuses : [expectedStatuses])
+      .filter((status) => typeof status === 'string' && status)
+  )];
+  if (statuses.length === 1) return query.eq('status', statuses[0]);
+  if (statuses.length > 1) return query.in('status', statuses);
+  return query;
+}
+
+async function updateGenerationJob(client, authority, payload, { expectedStatuses = ['processing'] } = {}) {
+  if (!authority?.jobId || !authority?.userId) {
+    throw buildWorkerAuthorityError('invalid_state');
+  }
+  let query = client
     .from('examen_generation_jobs')
     .update({
       ...payload,
       updated_at: new Date().toISOString()
     })
-    .eq('id', jobId);
+    .eq('id', authority.jobId)
+    .eq('user_id', authority.userId);
+
+  query = applyExpectedStatuses(query, expectedStatuses);
+  const { data, error } = await query.select('id').maybeSingle();
 
   if (error) throw error;
+  if (!data) throw buildWorkerAuthorityError('job_mutation_rejected', authority);
 }
 
-async function updateGenerationItem(client, itemId, payload) {
-  const { error } = await client
+async function updateGenerationItem(
+  client,
+  authority,
+  itemId,
+  payload,
+  { expectedStatuses = [...EXAM_WORKER_ITEM_ALLOWED_STATUSES] } = {}
+) {
+  const normalizedItemId = normalizeUuid(itemId);
+  if (!normalizedItemId || !authority?.itemIds?.includes(normalizedItemId)) {
+    throw buildWorkerAuthorityError('item_not_authorized', authority);
+  }
+  let query = client
     .from('examen_generation_items')
     .update({
       ...payload,
       updated_at: new Date().toISOString()
     })
-    .eq('id', itemId);
+    .eq('id', normalizedItemId)
+    .eq('job_id', authority.jobId)
+    .eq('user_id', authority.userId);
+
+  query = applyExpectedStatuses(query, expectedStatuses);
+  const { data, error } = await query.select('id').maybeSingle();
 
   if (error) throw error;
+  if (!data) throw buildWorkerAuthorityError('item_mutation_rejected', authority);
+}
+
+async function markGenerationJobFailed(client, { jobId, userId }, { expectedStatuses = ['pending', 'processing'] } = {}) {
+  const normalizedJobId = normalizeUuid(jobId);
+  const normalizedUserId = normalizeUuid(userId);
+  if (!normalizedJobId || !normalizedUserId) return false;
+
+  let query = client
+    .from('examen_generation_jobs')
+    .update({
+      status: 'failed',
+      error_message: EXAM_GENERIC_FAILURE_MESSAGE,
+      current_step: 'No se pudo completar el examen.',
+      failed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', normalizedJobId)
+    .eq('user_id', normalizedUserId);
+  query = applyExpectedStatuses(query, expectedStatuses);
+  const { data, error } = await query.select('id').maybeSingle();
+  if (error || !data) return false;
+  return true;
 }
 
 async function fetchGenerationJob(client, jobId, userId) {
@@ -1476,6 +1562,207 @@ async function fetchGenerationItems(client, jobId) {
 
   if (error) throw error;
   return data || [];
+}
+
+async function fetchOwnedBatch(client, batchId, userId) {
+  const { data, error } = await client
+    .from('planeacion_batches')
+    .select('id, user_id, plantel_id, grado_id, materia_id, unidad_id')
+    .eq('id', batchId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw buildHttpError(404, 'Conjunto no encontrado.');
+  return data;
+}
+
+export async function validateExamGenerationWorkerAuthority({ client, jobId }) {
+  if (!client || typeof client.from !== 'function') {
+    throw buildWorkerAuthorityError('missing_client');
+  }
+
+  const normalizedJobId = normalizeUuid(jobId);
+  if (!normalizedJobId) throw buildWorkerAuthorityError('invalid_job');
+
+  let job;
+  try {
+    job = await fetchGenerationJob(client, normalizedJobId);
+  } catch (error) {
+    if (error?.status === 404) throw buildWorkerAuthorityError('job_not_found');
+    throw buildWorkerAuthorityError('database');
+  }
+
+  const userId = normalizeUuid(job.user_id);
+  const unidadId = normalizeUuid(job.unidad_id);
+  if (!userId || !unidadId) throw buildWorkerAuthorityError('invalid_job');
+  const checkedIdentity = Object.freeze({ jobId: normalizedJobId, userId });
+  const reject = (reason) => {
+    throw buildWorkerAuthorityError(reason, checkedIdentity);
+  };
+  if (!EXAM_WORKER_ALLOWED_STATUSES.has(job.status)) {
+    reject('invalid_status');
+  }
+
+  const expectedItemCount = Number(job.total_preguntas);
+  const progressTotal = Number(job.progress_total);
+  const configuredTotal = Number(job.configuracion?.total_preguntas);
+  if (
+    !Number.isInteger(expectedItemCount)
+    || expectedItemCount < 1
+    || progressTotal !== expectedItemCount
+    || configuredTotal !== expectedItemCount
+  ) {
+    reject('invalid_item_count');
+  }
+
+  const batchIdValue = job.configuracion?.batch_id;
+  const batchId = batchIdValue == null || batchIdValue === '' ? null : normalizeUuid(batchIdValue);
+  if (batchIdValue != null && batchIdValue !== '' && !batchId) {
+    reject('invalid_batch');
+  }
+
+  let batch = null;
+  if (batchId) {
+    const { data, error } = await client
+      .from('planeacion_batches')
+      .select('id, user_id, unidad_id')
+      .eq('id', batchId)
+      .maybeSingle();
+    if (error) reject('database');
+    if (!data) reject('batch_not_found');
+    if (data.user_id !== userId || String(data.unidad_id) !== unidadId) reject('batch_owner_mismatch');
+    batch = data;
+  }
+
+  const { data: unidad, error: unidadError } = await client
+    .from('unidades')
+    .select('id, user_id, materia_id')
+    .eq('id', unidadId)
+    .maybeSingle();
+  if (unidadError) reject('database');
+  if (!unidad || unidad.user_id !== userId) reject('unit_owner_mismatch');
+
+  const { data: materia, error: materiaError } = await client
+    .from('materias')
+    .select('id, user_id, grado_id')
+    .eq('id', unidad.materia_id)
+    .maybeSingle();
+  if (materiaError) reject('database');
+  if (!materia || materia.user_id !== userId || String(job.materia_id) !== String(materia.id)) {
+    reject('hierarchy_owner_mismatch');
+  }
+
+  const { data: grado, error: gradoError } = await client
+    .from('grados')
+    .select('id, user_id, plantel_id')
+    .eq('id', materia.grado_id)
+    .maybeSingle();
+  if (gradoError) reject('database');
+  if (!grado || grado.user_id !== userId || String(job.grado_id) !== String(grado.id)) {
+    reject('hierarchy_owner_mismatch');
+  }
+
+  const { data: plantel, error: plantelError } = await client
+    .from('planteles')
+    .select('id, user_id')
+    .eq('id', grado.plantel_id)
+    .maybeSingle();
+  if (plantelError) reject('database');
+  if (!plantel || plantel.user_id !== userId || String(job.plantel_id) !== String(plantel.id)) {
+    reject('hierarchy_owner_mismatch');
+  }
+
+  const rawSelectedTemaIds = Array.isArray(job.configuracion?.tema_ids)
+    ? job.configuracion.tema_ids
+    : [];
+  const normalizedSelectedTemaIds = rawSelectedTemaIds.map(normalizeUuid);
+  const selectedTemaIds = [...new Set(normalizedSelectedTemaIds.filter(Boolean))];
+  if (selectedTemaIds.length === 0 || normalizedSelectedTemaIds.some((id) => !id)) {
+    reject('missing_topics');
+  }
+
+  const { data: selectedTemas, error: temasError } = await client
+    .from('temas')
+    .select('id, user_id, unidad_id')
+    .in('id', selectedTemaIds);
+  if (temasError) reject('database');
+  if (
+    !Array.isArray(selectedTemas)
+    || selectedTemas.length !== selectedTemaIds.length
+    || selectedTemas.some((tema) => tema.user_id !== userId || String(tema.unidad_id) !== unidadId)
+  ) {
+    reject('topic_owner_mismatch');
+  }
+
+  const contextoTemas = Array.isArray(job.contexto_temas) ? job.contexto_temas : [];
+  const planeacionIds = [...new Set(
+    contextoTemas.map((entry) => entry?.planeacion_id).filter((value) => value != null).map(String)
+  )];
+  if (planeacionIds.length > 0) {
+    const { data: planeaciones, error: planeacionesError } = await client
+      .from('planeaciones')
+      .select('id, user_id, tema_id, batch_id')
+      .in('id', planeacionIds);
+    if (planeacionesError) reject('database');
+    if (
+      !Array.isArray(planeaciones)
+      || planeaciones.length !== planeacionIds.length
+      || planeaciones.some((planeacion) => (
+        planeacion.user_id !== userId
+        || !selectedTemaIds.includes(String(planeacion.tema_id))
+        || (batchId ? String(planeacion.batch_id) !== batchId : planeacion.batch_id != null)
+      ))
+    ) {
+      reject('planeacion_owner_mismatch');
+    }
+  }
+
+  let items;
+  try {
+    items = await fetchGenerationItems(client, normalizedJobId);
+  } catch {
+    reject('database');
+  }
+  const normalizedItemIds = items.map((item) => normalizeUuid(item.id));
+  const itemNumbers = items.map((item) => Number(item.pregunta_numero));
+  const expectedItemNumbers = Array.from({ length: expectedItemCount }, (_, index) => index + 1);
+  if (
+    items.length !== expectedItemCount
+    || normalizedItemIds.some((id) => !id)
+    || new Set(normalizedItemIds).size !== expectedItemCount
+    || new Set(itemNumbers).size !== expectedItemCount
+    || itemNumbers.some((number, index) => number !== expectedItemNumbers[index])
+    || items.some((item) => (
+      item.user_id !== userId
+      || String(item.job_id) !== normalizedJobId
+      || !item.tema_id
+      || !selectedTemaIds.includes(String(item.tema_id))
+      || !EXAM_WORKER_ITEM_ALLOWED_STATUSES.has(item.status)
+    ))
+  ) {
+    reject('item_owner_mismatch');
+  }
+
+  return Object.freeze({
+    jobId: normalizedJobId,
+    userId,
+    unidadId,
+    batchId,
+    status: job.status,
+    temaIds: Object.freeze([...selectedTemaIds]),
+    planeacionIds: Object.freeze([...planeacionIds]),
+    itemIds: Object.freeze([...normalizedItemIds]),
+    expectedItemCount,
+    job: Object.freeze({ ...job, id: normalizedJobId, user_id: userId, unidad_id: unidadId }),
+    batch: batch ? Object.freeze({ ...batch, id: batchId, user_id: userId }) : null,
+    items: Object.freeze(items.map((item, index) => Object.freeze({
+      ...item,
+      id: normalizedItemIds[index],
+      job_id: normalizedJobId,
+      user_id: userId
+    })))
+  });
 }
 
 function countAcceptedQuestionsByTopic(existingQuestions) {
@@ -1565,7 +1852,8 @@ async function generateSingleQuestionWithIa({
   allowedTypes = [],
   availableTopics = [],
   aiJobId = null,
-  userId = null
+  userId = null,
+  authority
 }) {
   let retryFeedback = '';
   let lastValidationErrors = [];
@@ -1693,10 +1981,10 @@ async function generateSingleQuestionWithIa({
       return { ok: true, question: result.question, retryCount: attemptIndex - 1, validationErrors: [], usedFallback: false };
     }
 
-    await updateGenerationJob(supabaseAdmin, jobId, {
+    await updateGenerationJob(supabaseAdmin, authority, {
       current_step: `Reintentando pregunta ${item.pregunta_numero}...`
     }).catch(() => {});
-    await updateGenerationItem(supabaseAdmin, item.id, {
+    await updateGenerationItem(supabaseAdmin, authority, item.id, {
       status: 'retrying',
       retry_count: attemptIndex,
       validation_errors: lastValidationErrors,
@@ -1729,10 +2017,10 @@ async function generateSingleQuestionWithIa({
       return { ok: true, question: result.question, retryCount: attemptIndex - 1, validationErrors: [], usedFallback: true };
     }
 
-    await updateGenerationJob(supabaseAdmin, jobId, {
+    await updateGenerationJob(supabaseAdmin, authority, {
       current_step: `Buscando otra pregunta para el reactivo ${item.pregunta_numero}...`
     }).catch(() => {});
-    await updateGenerationItem(supabaseAdmin, item.id, {
+    await updateGenerationItem(supabaseAdmin, authority, item.id, {
       status: 'retrying',
       retry_count: attemptIndex,
       validation_errors: lastValidationErrors,
@@ -1789,13 +2077,27 @@ function getProblemQuestionNumbers(validationErrors) {
   )];
 }
 
-async function processExamGenerationJob(jobId) {
+export async function processExamGenerationJob(jobId) {
   const startedAt = Date.now();
   const client = supabaseAdmin;
-  const job = await fetchGenerationJob(client, jobId);
+  let aiJobId = null;
+  let authority = null;
+
+  try {
+  authority = await validateExamGenerationWorkerAuthority({ client, jobId });
+  await updateGenerationJob(client, authority, {
+    status: 'processing',
+    current_step: 'Preparando generacion del examen...'
+  }, { expectedStatuses: [authority.status] });
+  authority = Object.freeze({
+    ...authority,
+    status: 'processing',
+    job: Object.freeze({ ...authority.job, status: 'processing' })
+  });
+  const job = authority.job;
   console.info('[examenes] worker:start', {
-    jobId,
-    unidadId: job.unidad_id,
+    jobId: authority.jobId,
+    unidadId: authority.unidadId,
     totalPreguntas: Number(job.progress_total || 0)
   });
   const contexto = await obtenerContextoUnidad(client, job.unidad_id);
@@ -1816,7 +2118,7 @@ async function processExamGenerationJob(jobId) {
     totalTemas: temasContexto.length,
     temas: temasContexto.map((tema) => tema.tema)
   });
-  let items = await fetchGenerationItems(client, jobId);
+  let items = authority.items;
   const total = Number(job.progress_total || items.length || 0);
   // Tipos permitidos y temas seleccionados, usados por los fallbacks por
   // pregunta (cambiar de tema o de tipo cuando una pregunta sale duplicada).
@@ -1827,7 +2129,6 @@ async function processExamGenerationJob(jobId) {
   ).values()].filter((topic) => topic.tema);
 
   // Create AI metrics job for this exam generation
-  let aiJobId = null;
   if (job.user_id) {
     try {
       aiJobId = await createAiJob({
@@ -1848,39 +2149,39 @@ async function processExamGenerationJob(jobId) {
     }
   }
 
-  try {
     for (const item of items) {
       if (item.status === 'completed') continue;
 
-      await updateGenerationItem(client, item.id, {
+      await updateGenerationItem(client, authority, item.id, {
         status: 'processing',
         error_message: null
       });
-      await updateGenerationJob(client, jobId, {
+      await updateGenerationJob(client, authority, {
         status: 'processing',
         current_step: `Generando pregunta ${item.pregunta_numero} de ${total}...`
       });
 
-      const acceptedQuestions = buildAcceptedQuestionsFromItems(await fetchGenerationItems(client, jobId));
+      const acceptedQuestions = buildAcceptedQuestionsFromItems(await fetchGenerationItems(client, authority.jobId));
 
       const result = await generateSingleQuestionWithIa({
         contexto,
         item,
         temasContexto,
         totalPreguntas: total,
-        jobId,
+        jobId: authority.jobId,
         existingQuestions: acceptedQuestions,
         allowedTypes,
         availableTopics,
         aiJobId,
-        userId: job.user_id
+        userId: authority.userId,
+        authority
       });
 
       // Un duplicado/validacion recuperable NO cancela el examen: la pregunta
       // se marca como failed y se continua. El job solo fallara al final si
       // realmente quedaron reactivos sin completar.
       if (!result.ok) {
-        await updateGenerationItem(client, item.id, {
+        await updateGenerationItem(client, authority, item.id, {
           status: 'failed',
           validation_errors: Array.isArray(result.validationErrors) ? result.validationErrors : [],
           retry_count: result.retryCount,
@@ -1889,7 +2190,7 @@ async function processExamGenerationJob(jobId) {
         continue;
       }
 
-      await updateGenerationItem(client, item.id, {
+      await updateGenerationItem(client, authority, item.id, {
         status: 'completed',
         pregunta_ia: result.question,
         validation_errors: [],
@@ -1897,15 +2198,15 @@ async function processExamGenerationJob(jobId) {
         error_message: null
       });
 
-      const completedCount = Number((await fetchGenerationItems(client, jobId))
+      const completedCount = Number((await fetchGenerationItems(client, authority.jobId))
         .filter((candidate) => candidate.status === 'completed').length);
-      await updateGenerationJob(client, jobId, {
+      await updateGenerationJob(client, authority, {
         progress_current: completedCount,
         current_step: `Validando pregunta ${item.pregunta_numero}...`
       });
     }
 
-    items = await fetchGenerationItems(client, jobId);
+    items = await fetchGenerationItems(client, authority.jobId);
     const failedItems = items.filter((item) => item.status !== 'completed');
 
     if (failedItems.length > 0) {
@@ -1915,14 +2216,14 @@ async function processExamGenerationJob(jobId) {
       // Solo se llega aqui si, tras reintentos + fallbacks por pregunta, algun
       // reactivo quedo realmente sin completar (caso extremo / infra).
       console.error('[examenes] fallo al completar examen', {
-        jobId,
+        jobId: authority.jobId,
         requestedTotal: total,
         generatedTotal: items.length - failedItems.length,
         failedQuestions: failedItems.map((item) => item.pregunta_numero),
         errors: validationErrors,
         durationMs: Date.now() - startedAt
       });
-      await updateGenerationJob(client, jobId, {
+      await updateGenerationJob(client, authority, {
         status: 'failed',
         error_message: EXAM_GENERIC_FAILURE_MESSAGE,
         current_step: 'No se pudo completar el examen.',
@@ -1942,7 +2243,7 @@ async function processExamGenerationJob(jobId) {
       return { ok: false, validationErrors };
     }
 
-    const freshJob = await fetchGenerationJob(client, jobId);
+    let freshJob = await fetchGenerationJob(client, authority.jobId, authority.userId);
     let examenIa = buildFinalExamPayloadFromItems({ job: freshJob, items });
     let finalUniquenessValidation = validateExamQuestionsUniqueness(examenIa);
 
@@ -1951,7 +2252,7 @@ async function processExamGenerationJob(jobId) {
 
       for (const error of finalUniquenessValidation.errors) {
         console.warn('[examenes] duplicado detectado en validacion final, regenerando pregunta', {
-          jobId,
+          jobId: authority.jobId,
           preguntaNumero: error?.pregunta_numero,
           duplicateOf: error?.duplicate_of,
           similarity: error?.similarity,
@@ -1963,36 +2264,37 @@ async function processExamGenerationJob(jobId) {
         const item = items.find((candidate) => Number(candidate.pregunta_numero) === Number(preguntaNumero));
         if (!item) continue;
 
-        await updateGenerationItem(client, item.id, {
+        await updateGenerationItem(client, authority, item.id, {
           status: 'processing',
           validation_errors: finalUniquenessValidation.errors.filter((error) => Number(error?.pregunta_numero) === Number(preguntaNumero)),
           error_message: null
         });
-        await updateGenerationJob(client, jobId, {
+        await updateGenerationJob(client, authority, {
           status: 'processing',
           current_step: `Ajustando pregunta ${preguntaNumero}...`
         });
 
-        const latestItems = await fetchGenerationItems(client, jobId);
+        const latestItems = await fetchGenerationItems(client, authority.jobId);
         const acceptedQuestions = buildAcceptedQuestionsFromItems(latestItems, preguntaNumero);
         const result = await generateSingleQuestionWithIa({
           contexto,
           item,
           temasContexto,
           totalPreguntas: total,
-          jobId,
+          jobId: authority.jobId,
           existingQuestions: acceptedQuestions,
           allowedTypes,
           availableTopics,
           aiJobId,
-          userId: job.user_id
+          userId: authority.userId,
+          authority
         });
 
         if (!result.ok) {
           // No se pudo reemplazar la pregunta duplicada ni con fallbacks. Se
           // marca el reactivo como failed; el bloque de validacion final
           // posterior decidira si el examen completo falla.
-          await updateGenerationItem(client, item.id, {
+          await updateGenerationItem(client, authority, item.id, {
             status: 'failed',
             validation_errors: Array.isArray(result.validationErrors) ? result.validationErrors : [],
             retry_count: Number(item.retry_count || 0) + Number(result.retryCount || 0) + 1,
@@ -2001,7 +2303,7 @@ async function processExamGenerationJob(jobId) {
           continue;
         }
 
-        await updateGenerationItem(client, item.id, {
+        await updateGenerationItem(client, authority, item.id, {
           status: 'completed',
           pregunta_ia: result.question,
           validation_errors: [],
@@ -2010,7 +2312,7 @@ async function processExamGenerationJob(jobId) {
         });
       }
 
-      items = await fetchGenerationItems(client, jobId);
+      items = await fetchGenerationItems(client, authority.jobId);
       examenIa = buildFinalExamPayloadFromItems({ job: freshJob, items });
       finalUniquenessValidation = validateExamQuestionsUniqueness(examenIa);
     }
@@ -2030,14 +2332,14 @@ async function processExamGenerationJob(jobId) {
         const itemErrors = errorsByQuestion.get(Number(item.pregunta_numero));
         if (!itemErrors) return Promise.resolve();
 
-        return updateGenerationItem(client, item.id, {
+        return updateGenerationItem(client, authority, item.id, {
           status: 'failed',
           validation_errors: itemErrors,
           error_message: EXAM_GENERIC_FAILURE_MESSAGE
         });
       }));
 
-      await updateGenerationJob(client, jobId, {
+      await updateGenerationJob(client, authority, {
         status: 'failed',
         error_message: EXAM_GENERIC_FAILURE_MESSAGE,
         current_step: 'No se pudo completar el examen.',
@@ -2057,7 +2359,7 @@ async function processExamGenerationJob(jobId) {
       }
 
       console.error('[examenes] generate:error', {
-        jobId,
+        jobId: authority.jobId,
         errorType: 'duplicate_questions',
         preguntasFallidas: finalUniquenessValidation.errors.length,
         durationMs: Date.now() - startedAt
@@ -2066,7 +2368,19 @@ async function processExamGenerationJob(jobId) {
       return { ok: false, validationErrors: finalUniquenessValidation.errors };
     }
 
-    const jobBatchId = freshJob.configuracion?.batch_id || null;
+    authority = await validateExamGenerationWorkerAuthority({ client, jobId: authority.jobId });
+    if (authority.items.some((item) => item.status !== 'completed')) {
+      throw buildWorkerAuthorityError('items_not_completed', authority);
+    }
+    items = [...authority.items];
+    freshJob = authority.job;
+    examenIa = buildFinalExamPayloadFromItems({ job: freshJob, items });
+    finalUniquenessValidation = validateExamQuestionsUniqueness(examenIa);
+    if (!finalUniquenessValidation.valid) {
+      throw buildWorkerAuthorityError('final_validation_changed', authority);
+    }
+
+    const jobBatchId = authority.batchId;
     const insertPayload = {
       user_id: freshJob.user_id,
       plantel_id: freshJob.plantel_id,
@@ -2082,7 +2396,7 @@ async function processExamGenerationJob(jobId) {
       examen_ia: examenIa,
       prompt_version: EXAM_PROMPT_VERSION,
       status: 'generado',
-      generation_job_id: jobId,
+      generation_job_id: authority.jobId,
       generation_error: null,
       validation_errors: []
     };
@@ -2096,12 +2410,12 @@ async function processExamGenerationJob(jobId) {
     if (examenError) throw examenError;
 
     console.info('[examenes] exam:saved', {
-      jobId,
+      jobId: authority.jobId,
       examenId: examen.id,
       totalPreguntas: examenIa.preguntas.length
     });
 
-    await updateGenerationJob(client, jobId, {
+    await updateGenerationJob(client, authority, {
       status: 'completed',
       progress_current: total,
       progress_total: total,
@@ -2109,7 +2423,7 @@ async function processExamGenerationJob(jobId) {
       completed_at: new Date().toISOString(),
       examen_id: examen.id,
       error_message: null
-    });
+    }, { expectedStatuses: ['processing'] });
 
     const totalRetries = items.reduce((sum, it) => sum + Number(it.retry_count || 0), 0);
 
@@ -2125,7 +2439,7 @@ async function processExamGenerationJob(jobId) {
     }
 
     console.info('[examenes] generate:success', {
-      jobId,
+      jobId: authority.jobId,
       examenId: examen.id,
       totalPreguntas: examenIa.preguntas.length,
       retries: totalRetries,
@@ -2134,17 +2448,32 @@ async function processExamGenerationJob(jobId) {
 
     return { ok: true, examenId: examen.id };
   } catch (error) {
-    const latestItems = await fetchGenerationItems(client, jobId).catch(() => []);
+    if (typeof error?.code === 'string' && error.code.startsWith('worker_authority_')) {
+      const checkedIdentity = error.checkedIdentity || (authority?.jobId && authority?.userId
+        ? { jobId: authority.jobId, userId: authority.userId }
+        : null);
+      let marcadoFailed = false;
+      if (checkedIdentity) {
+        marcadoFailed = await markGenerationJobFailed(client, checkedIdentity).catch(() => false);
+      }
+      console.error('[examenes] worker:authority_rejected', {
+        etapa: 'authority',
+        reason: safeWorkerErrorReason(error),
+        marcadoFailed
+      });
+      return { ok: false, reason: safeWorkerErrorReason(error) };
+    }
+
+    const latestItems = authority?.jobId
+      ? await fetchGenerationItems(client, authority.jobId).catch(() => [])
+      : [];
     const validationErrors = latestItems.flatMap((item) => (
       Array.isArray(item.validation_errors) ? item.validation_errors : []
     ));
 
-    await updateGenerationJob(client, jobId, {
-      status: 'failed',
-      error_message: EXAM_GENERIC_FAILURE_MESSAGE,
-      current_step: 'No se pudo completar el examen.',
-      failed_at: new Date().toISOString()
-    }).catch(() => {});
+    const marcadoFailed = authority?.jobId && authority?.userId
+      ? await markGenerationJobFailed(client, authority).catch(() => false)
+      : false;
 
     if (aiJobId) {
       failAiJob(aiJobId, {
@@ -2154,21 +2483,21 @@ async function processExamGenerationJob(jobId) {
     }
 
     console.error('[exam-debug] processExamGenerationJob.fallo', {
-      jobId,
-      motivo: error?.message || 'Error desconocido',
-      validationErrors,
+      etapa: 'worker',
+      motivo: 'worker_internal_error',
+      marcadoFailed,
       durationMs: Date.now() - startedAt
     });
-    return { ok: false, error };
+    return { ok: false, reason: 'worker_internal_error' };
   }
 }
 
 function scheduleExamGenerationJob(jobId) {
-  setTimeout(() => {
+  return setTimeout(() => {
     processExamGenerationJob(jobId).catch((error) => {
       console.error('[exam-debug] scheduleExamGenerationJob.fallo', {
         jobId,
-        motivo: error?.message || 'Error desconocido'
+        motivo: safeWorkerErrorReason(error)
       });
     });
   }, 0);
@@ -2472,37 +2801,55 @@ function detectBatchIdFromTemas(temas) {
 
 // Resuelve una lista de IDs de planeacion a los IDs de tema asociados.
 // Se usa porque la biblioteca selecciona por planeacion, no por tema.
-async function resolveTemaIdsFromPlaneaciones(client, planeacionIds, userId) {
+async function resolvePlaneacionesSeleccionadas(client, planeacionIds, userId) {
   const ids = Array.isArray(planeacionIds)
     ? [...new Set(planeacionIds.map(String).filter(Boolean))]
     : [];
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { temaIds: [], batchIds: [] };
 
   const query = client
     .from('planeaciones')
-    .select('id, tema_id')
-    .in('id', ids);
-  if (userId) query.eq('user_id', userId);
+    .select('id, tema_id, batch_id')
+    .in('id', ids)
+    .eq('user_id', userId);
 
   const { data, error } = await query;
   if (error) throw error;
+  if (!Array.isArray(data) || data.length !== ids.length) {
+    throw buildHttpError(404, 'Seleccion de planeaciones no encontrada.');
+  }
 
-  return [...new Set((data || []).map((p) => p.tema_id).filter(Boolean).map(String))];
+  return {
+    temaIds: [...new Set(data.map((p) => p.tema_id).filter(Boolean).map(String))],
+    batchIds: [...new Set(data.map((p) => p.batch_id).filter(Boolean).map(String))]
+  };
 }
 
 // Resuelve, desde la tabla temas, a que unidad(es) pertenecen los IDs de tema
 // recibidos. Es la defensa principal contra contexto cruzado entre unidades.
-async function resolveUnidadIdsForTemas(client, temaIds) {
-  const ids = Array.isArray(temaIds)
-    ? [...new Set(temaIds.map(String).filter(Boolean))]
-    : [];
-  if (ids.length === 0) return { unidadIds: [], foundTemaIds: [] };
+async function resolveUnidadIdsForTemas(client, temaIds, userId) {
+  const rawIds = Array.isArray(temaIds) ? temaIds : [];
+  const normalizedIds = rawIds.map(normalizeUuid);
+  if (normalizedIds.some((id) => !id)) {
+    throw buildHttpError(404, 'Seleccion de temas no encontrada.');
+  }
+  const ids = [...new Set(normalizedIds)];
+  const requestedUniqueCount = ids.length;
+  if (ids.length === 0) {
+    if (requestedUniqueCount > 0) throw buildHttpError(404, 'Seleccion de temas no encontrada.');
+    return { unidadIds: [], foundTemaIds: [] };
+  }
 
   const { data, error } = await client
     .from('temas')
-    .select('id, unidad_id')
-    .in('id', ids);
+    .select('id, unidad_id, user_id')
+    .in('id', ids)
+    .eq('user_id', userId);
   if (error) throw error;
+
+  if (!Array.isArray(data) || data.length !== ids.length) {
+    throw buildHttpError(404, 'Seleccion de temas no encontrada.');
+  }
 
   const unidadIds = [...new Set((data || []).map((t) => t.unidad_id).filter(Boolean).map(String))];
   const foundTemaIds = (data || []).map((t) => String(t.id));
@@ -2519,12 +2866,23 @@ export async function generarExamenUnidad({
   planeacionIds,
   batchId
 }) {
-  const client = getClient(supabaseClient);
+  const client = requireUserClient(supabaseClient);
   const normalizedUnidadId = normalizeString(unidadId);
 
   try {
+    const normalizedUserId = normalizeUuid(userId);
+    if (!normalizedUserId) {
+      throw buildHttpError(401, 'Usuario requerido.');
+    }
     if (!normalizedUnidadId) {
       throw buildHttpError(400, 'unidad_id es requerido.');
+    }
+    const explicitBatchId = batchId == null || batchId === '' ? null : normalizeUuid(batchId);
+    if (batchId != null && batchId !== '' && !explicitBatchId) {
+      throw buildHttpError(400, 'batch_id invalido.');
+    }
+    if (explicitBatchId) {
+      await fetchOwnedBatch(client, explicitBatchId, normalizedUserId);
     }
 
     const normalizedTypes = normalizeQuestionTypes(tiposPregunta);
@@ -2535,16 +2893,36 @@ export async function generarExamenUnidad({
 
     // 1) Reunir los IDs de tema seleccionados: directos (dashboard) y/o
     //    derivados de las planeaciones seleccionadas (biblioteca).
-    const directTemaIds = Array.isArray(temaIds) && temaIds.length > 0 ? temaIds.map(String) : [];
-    const temaIdsFromPlaneaciones = await resolveTemaIdsFromPlaneaciones(client, planeacionIds, userId);
+    const directTemaIds = Array.isArray(temaIds) && temaIds.length > 0
+      ? [...new Set(temaIds.map(normalizeString).filter(Boolean))]
+      : [];
+    if (directTemaIds.length > 0) {
+      const { unidadIds } = await resolveUnidadIdsForTemas(client, directTemaIds, normalizedUserId);
+      if (unidadIds.length !== 1 || unidadIds[0] !== normalizedUnidadId) {
+        throw buildHttpError(404, 'Seleccion de temas no encontrada.');
+      }
+    }
+    const planeacionSelection = await resolvePlaneacionesSeleccionadas(client, planeacionIds, normalizedUserId);
+    const temaIdsFromPlaneaciones = planeacionSelection.temaIds;
     const candidateTemaIds = [...new Set([...directTemaIds, ...temaIdsFromPlaneaciones])];
+
+    if (planeacionSelection.batchIds.length > 1) {
+      throw buildHttpError(400, 'No se puede generar un examen mezclando planeaciones de diferentes conjuntos.');
+    }
+    if (
+      explicitBatchId
+      && planeacionSelection.batchIds.length === 1
+      && planeacionSelection.batchIds[0] !== explicitBatchId
+    ) {
+      throw buildHttpError(400, 'Las planeaciones seleccionadas no pertenecen al conjunto indicado.');
+    }
 
     // 2) Determinar la unidad real de la seleccion. El backend NO confia en el
     //    unidad_id del payload: si la seleccion pertenece a otra unidad (p. ej.
     //    el unidad_id viejo del batch), se autocorrige hacia la unidad real.
     let effectiveUnidadId = normalizedUnidadId;
     if (candidateTemaIds.length > 0) {
-      const { unidadIds } = await resolveUnidadIdsForTemas(client, candidateTemaIds);
+      const { unidadIds } = await resolveUnidadIdsForTemas(client, candidateTemaIds, normalizedUserId);
 
       if (unidadIds.length > 1) {
         throw buildHttpError(400, 'No se puede generar un examen mezclando temas de diferentes unidades.');
@@ -2561,7 +2939,7 @@ export async function generarExamenUnidad({
     }
 
     const contexto = await obtenerContextoUnidad(client, effectiveUnidadId);
-    const allTemas = await fetchUnitTopics(client, effectiveUnidadId, userId);
+    const allTemas = await fetchUnitTopics(client, effectiveUnidadId, normalizedUserId);
     const temas = candidateTemaIds.length > 0
       ? allTemas.filter((tema) => candidateTemaIds.includes(String(tema.id)))
       : allTemas;
@@ -2587,7 +2965,12 @@ export async function generarExamenUnidad({
     const contextoTemas = buildContextoTemasSnapshot(temas);
     const totalPreguntas = getRequestedQuestionCountTotal(normalizedQuestionCounts);
 
-    const resolvedBatchId = normalizeString(batchId) || detectBatchIdFromTemas(temas);
+    const resolvedBatchId = explicitBatchId || planeacionSelection.batchIds[0] || detectBatchIdFromTemas(temas);
+    if (resolvedBatchId && resolvedBatchId !== explicitBatchId) {
+      const normalizedDetectedBatchId = normalizeUuid(resolvedBatchId);
+      if (!normalizedDetectedBatchId) throw buildHttpError(400, 'batch_id invalido.');
+      await fetchOwnedBatch(client, normalizedDetectedBatchId, normalizedUserId);
+    }
     if (resolvedBatchId) {
       console.info('[exam-debug] batch_id_detectado', { batchId: resolvedBatchId });
     } else {
@@ -2595,7 +2978,7 @@ export async function generarExamenUnidad({
     }
 
     const jobPayload = {
-      user_id: userId,
+      user_id: normalizedUserId,
       plantel_id: contexto.plantel?.id || null,
       grado_id: contexto.grado?.id || null,
       materia_id: contexto.materia?.id || null,
@@ -2612,7 +2995,7 @@ export async function generarExamenUnidad({
         batch_id: resolvedBatchId || null
       },
       prompt_version: EXAM_PROMPT_VERSION,
-      status: 'processing',
+      status: 'pending',
       progress_current: 0,
       progress_total: totalPreguntas,
       current_step: 'Preparando generacion del examen...',
@@ -2633,7 +3016,7 @@ export async function generarExamenUnidad({
     }).map((item) => ({
       ...item,
       job_id: job.id,
-      user_id: userId,
+      user_id: normalizedUserId,
       status: 'pending',
       retry_count: 0,
       max_retries: EXAM_ITEM_MAX_RETRIES
@@ -2643,7 +3026,17 @@ export async function generarExamenUnidad({
       .from('examen_generation_items')
       .insert(generationItems);
 
-    if (itemsError) throw itemsError;
+    if (itemsError) {
+      const compensated = await markGenerationJobFailed(client, {
+        jobId: job.id,
+        userId: normalizedUserId
+      });
+      console.error('[examenes] prepare:items_failed', {
+        etapa: 'items_insert',
+        compensado: compensated
+      });
+      throw itemsError;
+    }
 
     console.info('[exam-debug] examen_generation_job_creado', {
       jobId: job.id,
@@ -2652,13 +3045,25 @@ export async function generarExamenUnidad({
       tiposPregunta: normalizedTypes
     });
 
-    scheduleExamGenerationJob(job.id);
+    try {
+      scheduleExamGenerationJob(job.id);
+    } catch (scheduleError) {
+      const compensated = await markGenerationJobFailed(client, {
+        jobId: job.id,
+        userId: normalizedUserId
+      });
+      console.error('[examenes] prepare:schedule_failed', {
+        etapa: 'schedule',
+        compensado: compensated
+      });
+      throw scheduleError;
+    }
 
     return job;
   } catch (error) {
     console.error('[exam-debug] generarExamenUnidad.fallo', {
-      unidadId: normalizedUnidadId || null,
-      motivo: error?.message || 'Error desconocido al generar examen.',
+      etapa: 'prepare',
+      motivo: error?.status ? 'controlled_error' : 'internal_error',
       status: error?.status || 500
     });
     throw error;
@@ -2670,14 +3075,14 @@ export async function obtenerEstadoGeneracionExamen({
   userId,
   jobId
 }) {
-  const client = getClient(supabaseClient);
-  const normalizedJobId = normalizeString(jobId);
+  const client = requireUserClient(supabaseClient);
+  const normalizedUserId = normalizeUuid(userId);
+  const normalizedJobId = normalizeUuid(jobId);
 
-  if (!normalizedJobId) {
-    throw buildHttpError(400, 'jobId es requerido.');
-  }
+  if (!normalizedUserId) throw buildHttpError(401, 'Usuario requerido.');
+  if (!normalizedJobId) throw buildHttpError(400, 'jobId invalido.');
 
-  const job = await fetchGenerationJob(client, normalizedJobId, userId);
+  const job = await fetchGenerationJob(client, normalizedJobId, normalizedUserId);
 
   return {
     ok: true,
@@ -2698,9 +3103,11 @@ export async function listarExamenesPorUnidad({
   userId,
   unidadId
 }) {
-  const client = getClient(supabaseClient);
+  const client = requireUserClient(supabaseClient);
   const normalizedUnidadId = normalizeString(unidadId);
+  const normalizedUserId = normalizeUuid(userId);
 
+  if (!normalizedUserId) throw buildHttpError(401, 'Usuario requerido.');
   if (!normalizedUnidadId) {
     throw buildHttpError(400, 'unidad_id es requerido.');
   }
@@ -2711,9 +3118,7 @@ export async function listarExamenesPorUnidad({
     .eq('unidad_id', normalizedUnidadId)
     .order('created_at', { ascending: false });
 
-  if (userId) {
-    query.eq('user_id', userId);
-  }
+  query.eq('user_id', normalizedUserId);
 
   const { data, error } = await query;
 
@@ -2722,17 +3127,18 @@ export async function listarExamenesPorUnidad({
 }
 
 export async function eliminarExamen({ supabaseClient, userId, id }) {
-  const client = getClient(supabaseClient);
+  const client = requireUserClient(supabaseClient);
   const normalizedId = normalizeString(id);
+  const normalizedUserId = normalizeUuid(userId);
 
-  if (!userId) throw buildHttpError(401, 'Usuario requerido.');
+  if (!normalizedUserId) throw buildHttpError(401, 'Usuario requerido.');
   if (!normalizedId) throw buildHttpError(400, 'id es requerido.');
 
   const { data: examen, error: fetchError } = await client
     .from('examenes')
     .select('id')
     .eq('id', normalizedId)
-    .eq('user_id', userId)
+    .eq('user_id', normalizedUserId)
     .maybeSingle();
 
   if (fetchError) throw fetchError;
@@ -2742,7 +3148,7 @@ export async function eliminarExamen({ supabaseClient, userId, id }) {
     .from('examenes')
     .delete()
     .eq('id', normalizedId)
-    .eq('user_id', userId);
+    .eq('user_id', normalizedUserId);
   if (deleteError) throw deleteError;
 
   console.info('[examenes] delete:success', { examenId: normalizedId });
@@ -2755,9 +3161,11 @@ export async function obtenerExamenPorId({
   userId,
   id
 }) {
-  const client = getClient(supabaseClient);
+  const client = requireUserClient(supabaseClient);
   const normalizedId = normalizeString(id);
+  const normalizedUserId = normalizeUuid(userId);
 
+  if (!normalizedUserId) throw buildHttpError(401, 'Usuario requerido.');
   if (!normalizedId) {
     throw buildHttpError(400, 'id es requerido.');
   }
@@ -2767,9 +3175,7 @@ export async function obtenerExamenPorId({
     .select('*')
     .eq('id', normalizedId);
 
-  if (userId) {
-    query.eq('user_id', userId);
-  }
+  query.eq('user_id', normalizedUserId);
 
   const { data, error } = await query.maybeSingle();
 

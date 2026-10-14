@@ -1,6 +1,6 @@
 # Educativo IA — matriz anon/A/B y fixtures 03A
 
-[CSV completo](ISOLATION_03A_MATRIX.csv): 310 casos estables por recurso, capa, operación y actor. Son un diseño reproducible, no 310 pruebas reales aprobadas. Cuatro casos API de actualización de planeaciones tienen **PRUEBA MANUAL REAL PASS** en 03B; dos casos relacionales adicionales conservan únicamente **PRUEBA AUTOMÁTICA PASS (transporte simulado)**; los otros 304 permanecen **NO EJECUTADOS**. Tres de los cuatro casos manuales también tienen cobertura simulada, pero cada caseId se cuenta por su nivel de evidencia más alto. Cada fila incluye precondiciones, solicitud sin secretos, esperado propuesto, evidencia, control de efectos y limpieza. API y Supabase directo no se sustituyen mutuamente. La tabla del harness registra por separado las 11 comprobaciones reales acotadas de planteles, que no corresponden a filas del CSV.
+[CSV completo](ISOLATION_03A_MATRIX.csv): 310 casos estables por recurso, capa, operación y actor. Son un diseño reproducible, no 310 pruebas reales aprobadas. Siete casos tienen **PRUEBA MANUAL REAL PASS**: cuatro de actualización de planeaciones en 03B y tres de polling en 03C. Tres casos adicionales tienen únicamente **PRUEBA AUTOMÁTICA PASS (transporte simulado)**; los otros 300 permanecen **NO EJECUTADOS**. Los caseIds se cuentan por su nivel de evidencia más alto. Cada fila incluye precondiciones, solicitud sin secretos, esperado propuesto, evidencia, control de efectos y limpieza. API y Supabase directo no se sustituyen mutuamente. Las comprobaciones suplementarias de los harnesses se registran aparte cuando no corresponden a una fila del CSV.
 
 ## G0: condiciones comunes obligatorias
 
@@ -27,7 +27,7 @@ El procedimiento de cada fila es: preparar fixtures; leer estado completo como o
 | planeaciones | user_id, tema_id, batch_id, custom_title, tabla_ia:[], status:ready | tema/batch propios; ID DB; tabla sintética sin IA. No usar ese array para probar PUT tabla_ia, que exige 3 momentos |
 | anexos | user_id,planeacion_id,tema_id,unidad_id,batch_id,titulo,contenido:{} | planeación propia exclusiva: unique planeacion_id |
 | listas_cotejo | user_id,planeacion_id,tema_id,unidad_id,batch_id,titulo,criterios:[],total_puntos:10 | unique planeacion_id, json array; propio |
-| examen_generation_jobs | user_id,titulo,total_preguntas:0,status:completed,configuracion:{},contexto_temas:[] | unidad/otros IDs propios opcionales; sin schedule. Crear solo tras confirmar que INSERT directo no dispara workers/webhooks |
+| examen_generation_jobs | user_id,titulo,total_preguntas:0,status:failed,progress_current:0,progress_total:0,configuracion:{fixture_kind:exam_polling_03c},contexto_temas:[] | Harness 03C ejecutado con referencias nulas, sin items/schedule; fixture eliminado y cero residuos conocidos |
 | examen_generation_items | user_id,job_id,pregunta_numero:1,tipo_pregunta:opcion_multiple,status:completed | job propio; tema_id opcional propio; unique job+numero |
 | examenes | user_id,unidad_id,batch_id,titulo,total_preguntas:0,examen_ia:[],generation_job_id:null | unidad/batch propios; no invocar generate. Caso relación job usa job sintético terminal |
 
@@ -55,7 +55,14 @@ La clave de evidencia es `(caseId, actor)`; identifica establemente el caso. `pr
 
 Los listados de este harness comparan **los dos fixtures**; no certifican todos los recursos ni toda la paginación. El CSV propone una comprobación más amplia. API de planteles no tiene GET por ID: para conocimiento de ID se inspecciona su lista; Supabase directo sí consulta por ID. No confundir esas superficies.
 
-Resultado comunicado para runId `ca11685d-5e72-4b16-a92c-4fff42ec1a35`: 11 PASS, 0 FAIL, 0 INCONCLUSIVE; ambos fixtures eliminados, `fixturesPending=[]`, `uncertainPending=[]` y cero residuos conocidos. Los metadatos test y la API local fueron confirmados por el operador como precondiciones. Este resultado no modifica las 310 filas del CSV, que permanecen NO EJECUTADAS.
+El harness separado `exam-polling-*` preparó exactamente un job terminal `failed` de A, probó polling A/B/anon/inexistente y limpió su ID exacto. La ejecución manual obtuvo cinco PASS, cero FAIL/INCONCLUSIVE, cleanup completo y cero residuos conocidos. `03C-POLL-MISSING-B` y `03C-POLL-NO-EFFECT` son evidencia suplementaria porque no tienen fila propia en el CSV.
+
+| Caso suplementario 03C | Evidencia manual real | Resultado |
+| --- | --- | --- |
+| `03C-POLL-MISSING-B` | B consultó un UUID reservado inexistente | HTTP 404, PASS; contrato equivalente al recurso ajeno |
+| `03C-POLL-NO-EFFECT` | Relectura exacta del job terminal de A después del polling | PASS; fixture sin cambios antes de cleanup |
+
+Resultado comunicado para runId `ca11685d-5e72-4b16-a92c-4fff42ec1a35`: 11 PASS, 0 FAIL, 0 INCONCLUSIVE; ambos fixtures eliminados, `fixturesPending=[]`, `uncertainPending=[]` y cero residuos conocidos. Los metadatos test y la API local fueron confirmados por el operador como precondiciones. Este resultado de planteles no correspondió por sí solo a filas del CSV; los niveles actuales incorporan además los cierres posteriores 03B/03C.
 
 ## Casos suplementarios: API, integridad y Archivados
 
@@ -71,8 +78,8 @@ Precondición de todos: G0, F_A/F_B completos creados por ejecutor revisado; act
 | 03A-ARCHIVED-LIST | A y B / API | GET /api/planeaciones/archived con una planeación propia archivada por identidad | solo propios; control activo/archivado correcto |
 | 03A-JOB-CROSS-READ | A y anon / API | GET /api/examenes/generacion/{job_B} terminal | sin progreso/examen/error de B; comparar inexistente |
 | 03A-JOB-CROSS-EDIT | A / SB | PATCH examen_generation_jobs?id=eq.{job_B} con titulo sintético | B y items intactos; no tocar status de job activo |
-| 03A-EX-BATCH-INPUT | A / API, diseño únicamente | POST /api/examenes/generate: unidad_id={unidad_A},planeacion_ids=[{planeacion_A}],batch_id={batch_B},tipos_pregunta:[opcion_multiple],cantidades_pregunta:{opcion_multiple:1} | Rechazar relación antes de job/worker/IA. **NO ENVIAR en 03A**; requiere infraestructura aislada posterior |
-| 03A-EX-SELECTION | A / API, diseño únicamente | mismo payload, planeacion_ids=[{planeacion_B}] y luego mezcla A/B | No fallback silencioso a todos ni selección parcial; **NO ENVIAR** |
+| 03A-EX-BATCH-INPUT | A / API, transporte simulado | POST /api/examenes/generate: unidad_id={unidad_A},planeacion_ids=[{planeacion_A}],batch_id={batch_B},tipos_pregunta:[opcion_multiple],cantidades_pregunta:{opcion_multiple:1} | PRUEBA AUTOMÁTICA PASS: rechaza relación antes de job/worker/IA; validación real pendiente y **NO ENVIAR** porque el POST legítimo agenda worker |
+| 03A-EX-SELECTION | A / API, transporte simulado | mismo payload, planeacion_ids=[{planeacion_B}] y mezcla/mismatch de batch | PRUEBA AUTOMÁTICA PASS: no hay selección parcial ni fallback a todos; validación real pendiente |
 | 03A-LC-UNIT-INPUT | A / API, diseño únicamente | POST /api/listas-cotejo/generate: planeacion_ids:[{planeacion_A}],unidad_id:{unidad_B} | No guardar lista A ligada a unidad B; **NO ENVIAR** |
 | 03A-GEN-ANON | anon / API, diseño únicamente | rutas generate/generar/regenerate del inventario | Auth antes de generación; **NO ENVIAR**, incluso payload negativo |
 | 03A-BROWSER-SWITCH | A→B / navegador | mismo perfil local, login A, visitar Archivados; logout, login B; comparar UI con sesión limpia B | Ninguna metadata/selección de A debe aparecer; clave local compartida H09. No copiar contenido de localStorage al reporte |
