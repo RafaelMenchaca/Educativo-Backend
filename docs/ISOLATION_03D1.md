@@ -120,7 +120,7 @@ Las ocho policies Storage no formaron parte de esta evidencia. Permanecen en 03E
 
 ## Plan ejecutable agrupado para 03D2
 
-No se implementa en 03D1. Se reutilizarán dos identidades sintéticas A/B y una jerarquía mínima completa por actor. Cada fixture tendrá runId, ID reservado/confirmado y ledger privado; INSERT incierto nunca se limpiará automáticamente.
+No se implementa en 03D1. **Este bosquejo quedó sustituido por el alcance revisado de [03D2](ISOLATION_03D2_SCOPE.md):** la jerarquía es una dependencia congelada y no será objeto de un CRUD exhaustivo. Se reutilizarán dos identidades sintéticas A/B; cada fixture tendrá runId, ID reservado/confirmado y ledger privado, e INSERT incierto nunca se limpiará automáticamente.
 
 | Grupo | Fixtures y orden | Casos mínimos agrupados | Capas | No efecto / limpieza | Riesgo |
 | --- | --- | --- | --- | --- | --- |
@@ -179,3 +179,5 @@ Formato seguro a devolver: nombre del bloque, número de filas y export tabular 
 ## Estado
 
 **03D1 completada y validada mediante metadata read-only en Supabase test. Fase 03 continúa abierta.** Los resultados live se compararon con el manifiesto y el SQL versionado; no se versionó la evidencia fuente. Los 310 casos conservan sus niveles actuales y no se añadió PASS funcional. 03D2 debe comprobar comportamiento adversarial A/B/anon y 03D3 debe resolver hardening condicionado por esta evidencia. 03E y 03F permanecen pendientes.
+
+La superficie funcional para esas pruebas se delimitó, sin conexiones remotas, en [ISOLATION_03D2_SCOPE.md](ISOLATION_03D2_SCOPE.md). El alcance reconoce Biblioteca como único flujo visual principal, congela la jerarquía como dependencia interna de Quick Create, generación o Archivados y mantiene el harness 03D2 sin implementar.

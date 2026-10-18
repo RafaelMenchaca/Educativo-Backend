@@ -26,6 +26,8 @@ Biblioteca es el consumidor visual principal vigente del frontend. El backend no
 
 Los endpoints jerárquicos no deben interpretarse como obligación de mantener o reactivar esa interfaz. Tampoco debe eliminarse `unidad_id`, `tema_id` ni una relación persistente por una decisión de frontend. Archivados es un consumidor separado que puede conservar esas dependencias.
 
+Esta jerarquía es una capa relacional heredada y congelada. Sus consumidores internos no la convierten en flujo visual activo ni en owner de producto. No se amplían sus rutas o contratos, no se crean funcionalidades o herramientas alrededor de ella y no se refactoriza incidentalmente. Toda funcionalidad nueva parte de Biblioteca. Un cambio inevitable requiere autorización explícita, una necesidad concreta de Biblioteca o seguridad, alcance mínimo, preservación de contratos y regresión de Biblioteca. Las vulnerabilidades demostradas se documentan y corrigen en un alcance separado; las tablas, rutas y relaciones tampoco se retiran sin análisis.
+
 Durante un refactor frontend se conservan los contratos backend, incluida la selección explícita por `planeacion_ids` cuando corresponde. No se modifican prompts, generación, jobs, polling ni métricas IA para acomodar código visual legacy.
 
 ## Tecnologías

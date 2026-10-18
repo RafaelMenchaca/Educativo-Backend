@@ -8,6 +8,8 @@ Este archivo es la entrada obligatoria para una IA que trabaje en el backend. No
 
 ## Arquitectura
 
+**Biblioteca es el único flujo visual principal vigente de Educativo IA.** Archivados permanece como flujo independiente. Planteles, grados, materias, unidades y temas son una capa relacional heredada y congelada: puede sostener contratos internos de Biblioteca, Quick Create, generación y Archivados, pero no autoriza reintroducir Explorer, ampliar rutas o contratos jerárquicos, crear funcionalidades nuevas alrededor de esa capa ni tratarla como owner de la experiencia. Todo cambio inevitable requiere una necesidad concreta de Biblioteca o seguridad, alcance mínimo, preservación de contratos, autorización explícita y regresión de Biblioteca. Una vulnerabilidad demostrada se documenta y se corrige en un alcance separado; no se ignora ni se modifica incidentalmente.
+
 El backend usa Node.js con ES Modules y Express 4:
 
 ```text
@@ -35,7 +37,7 @@ Siempre leer este archivo. Después consultar solo lo relacionado con la tarea:
 | Prompts y generación IA | [`docs/AI_GENERATION_CONTRACTS.md`](docs/AI_GENERATION_CONTRACTS.md) |
 | Reglas de logs | [`docs/observability/LOG_CONVENTIONS.md`](docs/observability/LOG_CONVENTIONS.md) |
 | Estado auditado de logs | [`docs/observability/LOG_AUDIT.md`](docs/observability/LOG_AUDIT.md) |
-| Consumidor frontend | [`frontend AGENTS.md`](../../educativo_frontend/planeacion-docente-ia/AGENTS.md) y su documentación relacionada |
+| Consumidor frontend | [`frontend AGENTS.md`](../frontend/AGENTS.md) y su documentación relacionada |
 
 El código ejecutable y las migraciones SQL son la fuente técnica real. Si faltan migraciones o un documento contradice la implementación, declarar la limitación y detener cualquier cambio contractual.
 
