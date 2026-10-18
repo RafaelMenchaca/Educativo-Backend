@@ -1,6 +1,6 @@
 # Educativo IA — autoridad de batches, exámenes y jobs 03C
 
-Estado al 2026-10-13: **03C completada y validada en su alcance de aplicación y polling local/test**. 03B quedó cerrada en el commit real `5a901fb` (`fix(security): restrict planeacion updates`). Fase 03 sigue abierta.
+Estado al 2026-10-14: **03C completada y validada en su alcance de aplicación y polling local/test; commit real `fac93a2` (`fix(security): enforce exam generation authority`)**. 03B quedó cerrada en `5a901fb`. 03D1 está preparada con ejecución manual de metadatos pendiente. Fase 03 sigue abierta.
 
 ## Cadena y clientes
 
