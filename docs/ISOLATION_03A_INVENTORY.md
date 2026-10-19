@@ -1,8 +1,10 @@
 # Educativo IA — inventario trazable 03A
 
+Correspondencia 03D2B: `anexos`, `listas_cotejo` y `examenes` se agrupan en el [harness de derivados](ISOLATION_03D2B.md). Tras recuperar completamente el primer run, la ejecución definitiva completó 72 casos: 60 PASS, 12 FAIL relacionales, cero INCONCLUSIVE/errores y cero residuos conocidos. `generation_job_id` se transfiere a 03D2C.
+
 Correspondencia posterior: `planeacion_batches`, `planeaciones` y lecturas de Biblioteca se agrupan en el harness ejecutado de [03D2A](ISOLATION_03D2A.md). Sus 42 casos terminaron con 39 PASS y tres FAIL, cleanup completo y cero residuos conocidos. No ejecutó CRUD jerárquico, generación ni Storage.
 
-03D2A quedó completada con vulnerabilidad relacional confirmada: INSERT A→batch B, INSERT B→batch A y UPDATE A→batch B persistieron una relación ajena conservando el owner de la planeación. El batch padre no cambió, el aislamiento de filas pasó en los otros 39 casos ejecutados, cleanup terminó sin residuos y el hardening de integridad corresponde a 03D3. 03D2B permanece pendiente.
+03D2A quedó completada con vulnerabilidad relacional confirmada: INSERT A→batch B, INSERT B→batch A y UPDATE A→batch B persistieron una relación ajena conservando el owner de la planeación. 03D2B también quedó completada con vulnerabilidades de propietario común confirmadas en las relaciones de anexos, listas y exámenes. En ambos casos los padres no cambiaron, cleanup terminó sin residuos y el hardening de integridad corresponde a 03D3.
 
 Todos los paths privados incluyen `/api`. Evidencia A de los HEAD en [auditoría](ISOLATION_03A.md); estado remoto D. Cada fila es una operación. Owners: `src/routes/<dominio>.routes.js` → `src/controllers/<dominio>.controller.js` → `src/services/<dominio>.service.js`, salvo generación por jerarquía que llama planeaciones.service.js. Los nombres de controller/service de las tablas permiten localizar la implementación sin depender de líneas cambiantes.
 

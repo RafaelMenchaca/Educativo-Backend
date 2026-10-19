@@ -1,6 +1,8 @@
 # Educativo IA — auditoría de aislamiento 03A
 
-Fecha: 2026-10-07; estado actualizado el 2026-10-18. Fases 00–02 cerradas según handoff y [cierre 02E/02F](ENVIRONMENT_SCHEMA_READINESS.md). **03A completada y validada; commit `4b8de11`. 03B completada y validada; commit `5a901fb`. 03C completada y validada; commit `fac93a2`. 03D1 completada y validada mediante metadata read-only en Supabase test. Fase 03 sigue abierta.** Pruebas adversariales 03D2, hardening 03D3, Storage y estado del navegador continúan pendientes para 03D–03F.
+Fecha: 2026-10-07; estado actualizado el 2026-10-18. Fases 00–02 cerradas según handoff y [cierre 02E/02F](ENVIRONMENT_SCHEMA_READINESS.md). **03A completada y validada; commit `4b8de11`. 03B completada y validada; commit `5a901fb`. 03C completada y validada; commit `fac93a2`. 03D1 completada y validada mediante metadata read-only en Supabase test. 03D2A y 03D2B completadas con vulnerabilidades relacionales confirmadas y fixtures completamente limpiados. Fase 03 sigue abierta.** 03D2C, hardening 03D3, Storage y estado del navegador continúan pendientes para 03D–03F.
+
+03D2B completó 72 casos reales sobre anexos, listas de cotejo y exámenes: 60 PASS y 12 FAIL de integridad relacional, sin inconclusos, errores ni residuos. La primera corrida parcial se recuperó por completo antes de la definitiva. Biblioteca sigue siendo el único flujo visual principal; las unidades fueron precondiciones externas read-only y la jerarquía visual permanece retirada y congelada. La corrección de propietario común pasa a 03D3.
 
 ## Puerta y límites de evidencia
 
