@@ -1,14 +1,18 @@
 # Educativo IA — matriz anon/A/B y fixtures 03A
 
+Correspondencia 03D2C: [el harness de jobs técnicos](ISOLATION_03D2C.md) ejecutó 26 caseIds con fixtures terminales: 22 PASS, cuatro FAIL relacionales, cero INCONCLUSIVE/errores y cleanup completo. Dieciocho PASS y los cuatro FAIL tienen correspondencia exacta en el CSV; cuatro PASS quedan como evidencia suplementaria. Jobs/calls métricas quedaron fuera por carecer de cleanup A/B seguro.
+
 Correspondencia 03D2B: [el harness de derivados](ISOLATION_03D2B.md) ejecutó 72 casos para anexos, listas y exámenes: 60 PASS, 12 FAIL relacionales, cero INCONCLUSIVE/errores y cleanup completo. La recuperación previa eliminó 15 fixtures del primer run y confirmó ausente el uncertain, sin residuos conocidos. Cuarenta y cinco PASS y los 12 FAIL tienen correspondencia exacta en el CSV; otros 15 PASS quedan como evidencia suplementaria Markdown. `generation_job_id` se transfiere a 03D2C.
 
 Correspondencia 03D2A: batches/planeaciones se agrupan mediante [el harness de Biblioteca](ISOLATION_03D2A.md), con API local para el contrato de Biblioteca y PostgREST para RLS. La ejecución completa produjo 39 PASS y tres FAIL, con cleanup completo y cero residuos conocidos. No cambian las evidencias previas ni el total de 310 filas del CSV.
 
 Evidencia real 03D2A: `03D2A-SB-PLAN-CREATE-CROSS-BATCH-A`, `03D2A-SB-PLAN-CREATE-CROSS-BATCH-B` y `03D2A-SB-PLAN-EDIT-CROSS-BATCH-A` son **PRUEBA MANUAL REAL FAIL**. Los equivalentes inequívocos del CSV para orientación A son `03A-SB-PE-CREATE-REL-BATCH_ID-A` y `03A-SB-PE-EDIT-REL-BATCH_ID-A`; el INSERT orientado B queda como evidencia suplementaria porque el CSV no tiene una fila B exacta. De los 39 PASS, 26 elevan filas con actor, capa, tabla, operación y semántica idénticos; los otros 13 permanecen como evidencia suplementaria del owner 03D2A.
 
-[CSV completo](ISOLATION_03A_MATRIX.csv): 310 casos estables y 310 IDs únicos por recurso, capa, operación y actor. Son un diseño reproducible, no 310 pruebas reales aprobadas. Setenta y ocho casos tienen **PRUEBA MANUAL REAL PASS**, 14 tienen **PRUEBA MANUAL REAL FAIL**, tres conservan únicamente **PRUEBA AUTOMÁTICA PASS (transporte simulado)** y 215 permanecen **NO EJECUTADOS**. Los caseIds se cuentan por su nivel de evidencia más alto. Cada fila incluye precondiciones, solicitud sin secretos, esperado propuesto, evidencia, control de efectos y limpieza. API y Supabase directo no se sustituyen mutuamente. Las comprobaciones suplementarias de los harnesses se registran aparte cuando no corresponden a una fila del CSV.
+[CSV completo](ISOLATION_03A_MATRIX.csv): 310 casos estables y 310 IDs únicos por recurso, capa, operación y actor. Son un diseño reproducible, no 310 pruebas reales aprobadas. Noventa y seis casos tienen **PRUEBA MANUAL REAL PASS**, 18 tienen **PRUEBA MANUAL REAL FAIL**, tres conservan únicamente **PRUEBA AUTOMÁTICA PASS (transporte simulado)** y 193 permanecen **NO EJECUTADOS**. Los caseIds se cuentan por su nivel de evidencia más alto. Cada fila incluye precondiciones, solicitud sin secretos, esperado propuesto, evidencia, control de efectos y limpieza. API y Supabase directo no se sustituyen mutuamente. Las comprobaciones suplementarias de los harnesses se registran aparte cuando no corresponden a una fila del CSV.
 
 Evidencia suplementaria 03D2B sin fila exacta: por cada recurso, creación propia B, listado B, creación anónima, UPDATE anónimo y DELETE anónimo. La primera corrida parcial no se cuenta otra vez. La corrida definitiva es la fuente única de los 60 PASS y 12 FAIL de 03D2B.
+
+Evidencia suplementaria 03D2C sin fila exacta: `03D2C-PREP-EJOB-B`, `03D2C-PREP-ITEM-B`, `03D2C-SB-EJOB-DELETE-ANON` y `03D2C-SB-ITEM-DELETE-ANON`, todos PASS reales. La primera corrida diagnóstica no se suma; el segundo run es la fuente única de 22 PASS y cuatro FAIL.
 
 ## G0: condiciones comunes obligatorias
 

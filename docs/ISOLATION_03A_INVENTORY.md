@@ -1,10 +1,12 @@
 # Educativo IA — inventario trazable 03A
 
+Correspondencia 03D2C: [el harness técnico](ISOLATION_03D2C.md) completó 26 casos sobre jobs/items de examen y `examenes.generation_job_id`: 22 PASS y cuatro FAIL relacionales, sin inconclusos, errores ni residuos. Jobs/calls métricas quedaron solo auditados: sin DELETE seguro no entraron al manifiesto ni recovery y pasan a 03D3. No se ejecutaron generación, workers, Storage ni OpenAI.
+
 Correspondencia 03D2B: `anexos`, `listas_cotejo` y `examenes` se agrupan en el [harness de derivados](ISOLATION_03D2B.md). Tras recuperar completamente el primer run, la ejecución definitiva completó 72 casos: 60 PASS, 12 FAIL relacionales, cero INCONCLUSIVE/errores y cero residuos conocidos. `generation_job_id` se transfiere a 03D2C.
 
 Correspondencia posterior: `planeacion_batches`, `planeaciones` y lecturas de Biblioteca se agrupan en el harness ejecutado de [03D2A](ISOLATION_03D2A.md). Sus 42 casos terminaron con 39 PASS y tres FAIL, cleanup completo y cero residuos conocidos. No ejecutó CRUD jerárquico, generación ni Storage.
 
-03D2A quedó completada con vulnerabilidad relacional confirmada: INSERT A→batch B, INSERT B→batch A y UPDATE A→batch B persistieron una relación ajena conservando el owner de la planeación. 03D2B también quedó completada con vulnerabilidades de propietario común confirmadas en las relaciones de anexos, listas y exámenes. En ambos casos los padres no cambiaron, cleanup terminó sin residuos y el hardening de integridad corresponde a 03D3.
+03D2A quedó completada con vulnerabilidad relacional confirmada: INSERT A→batch B, INSERT B→batch A y UPDATE A→batch B persistieron una relación ajena conservando el owner de la planeación. 03D2B confirmó vulnerabilidades de propietario común en anexos, listas y exámenes; 03D2C confirmó item→job y examen→generation job. En todos los casos los padres no cambiaron, cleanup terminó sin residuos y el hardening de integridad corresponde a 03D3.
 
 Todos los paths privados incluyen `/api`. Evidencia A de los HEAD en [auditoría](ISOLATION_03A.md); estado remoto D. Cada fila es una operación. Owners: `src/routes/<dominio>.routes.js` → `src/controllers/<dominio>.controller.js` → `src/services/<dominio>.service.js`, salvo generación por jerarquía que llama planeaciones.service.js. Los nombres de controller/service de las tablas permiten localizar la implementación sin depender de líneas cambiantes.
 
