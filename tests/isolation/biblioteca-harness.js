@@ -1,5 +1,6 @@
 // Educativo IA 03D2A. Importing this module performs no I/O.
 import { randomUUID } from 'node:crypto';
+import { OWNER_CONSTRAINTS, classifyOwnerConstraintRejection } from './owner-constraint-errors.js';
 
 export const BIB_TEST_URL = 'https://gwdtlbisykzzplgzczzq.supabase.co';
 export const BIB_API_URL = 'http://127.0.0.1:3000';
@@ -8,7 +9,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const DECIMAL_ID = /^[1-9][0-9]{0,14}$/;
 export const MAX_PLANEACION_ID = 999999999999999;
 const PHASES = ['config', 'auth', 'prepare', 'execute', 'cleanup'];
-const REASONS = ['http', 'identity_mismatch', 'anonymous_identity', 'invalid_json', 'redirect', 'timeout', 'network', 'unexpected_response', 'invalid_state', 'related_rows'];
+const REASONS = ['http', 'identity_mismatch', 'anonymous_identity', 'invalid_json', 'redirect', 'timeout', 'network', 'unexpected_response', 'invalid_state', 'related_rows', 'rls', 'foreign_key', 'unique', 'check', 'owner_constraint'];
 const TABLES = ['planeacion_batches', 'planeaciones'];
 
 const caseRows = [
@@ -106,6 +107,8 @@ export function safeBibliotecaEvent(event) {
   if (['A', 'B', 'anon'].includes(event.actor)) out.actor = event.actor;
   if (TABLES.includes(event.table)) out.table = event.table;
   if (['PASS', 'FAIL', 'INCONCLUSIVE', 'PENDING', 'CREATED', 'REMOVED'].includes(event.result)) out.result = event.result;
+  if (['42501','23503','23505','23514'].includes(event.dbCode)) out.dbCode = event.dbCode;
+  if (OWNER_CONSTRAINTS.includes(event.constraint)) out.constraint = event.constraint;
   if (Number.isInteger(event.status) && event.status >= 100 && event.status <= 599) out.status = event.status;
   if (UUID.test(event.runId || '')) out.runId = event.runId.toLowerCase();
   if (UUID.test(event.id || '') || DECIMAL_ID.test(String(event.id || ''))) out.id = String(event.id).toLowerCase();
@@ -408,7 +411,8 @@ export function createBibliotecaHarness(env, {
         reportCase({ caseId, actor, table: 'planeaciones', status: response.status, result: batchUnchanged ? 'FAIL' : 'INCONCLUSIVE' });
       } else if (observed.length === 0 && !response.ok && batchUnchanged) {
         uncertain.delete(`planeaciones:${id}`);
-        reportCase({ caseId, actor, table: 'planeaciones', status: response.status, result: 'PASS' });
+        const verdict=classifyOwnerConstraintRejection({caseId,response,snapshotClean:true});
+        reportCase({ caseId, actor, table: 'planeaciones', status: response.status, ...verdict });
       } else reportCase({ caseId, actor, table: 'planeaciones', status: response.status, result: 'INCONCLUSIVE' });
       return;
     }
@@ -427,7 +431,8 @@ export function createBibliotecaHarness(env, {
         diagnose({ phase: 'execute', actor, reason: 'unexpected_response' });
       }
     } else if (changed.length === 1 && JSON.stringify(changed[0]) === JSON.stringify(before) && batchUnchanged) {
-      reportCase({ caseId, actor, table: 'planeaciones', status: response.status, result: 'PASS' });
+      const verdict=response.ok?{result:'PASS'}:classifyOwnerConstraintRejection({caseId,response,snapshotClean:true});
+      reportCase({ caseId, actor, table: 'planeaciones', status: response.status, ...verdict });
     } else reportCase({ caseId, actor, table: 'planeaciones', status: response.status, result: 'INCONCLUSIVE' });
   }
   async function apiCases() {

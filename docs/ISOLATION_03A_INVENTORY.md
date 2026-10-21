@@ -130,3 +130,7 @@ Owner frontend `js/pages/detalle.page.js`: obtenerUsuarioAutenticado → subirIm
 Cuatro policies de actividades para authenticated; otras cuatro avatars históricas, fuera de alcance y sin crear bucket. Configuración histórica: privado, 10485760 bytes, image/*. Ni MIME ni límite prueban contenido válido. Policies solo comparan primer segmento; no existencia/owner de planeación en segundo segmento. SQL no es verificación actual del bucket.
 
 Privilegios/relaciones adicionales a revisar: public.profiles(id) y user_profiles(user_id) separados; user_settings propio; ia_metrics_legacy RLS sin policies en inicializador; ai_model_prices SELECT authenticated; grants amplios versionados no garantizan acceso efectivo vía PostgREST. Función SECURITY DEFINER handle_new_user aprovisiona profiles/user_settings, no user_profiles. Ningún consumidor RPC encontrado en el alcance auditado; no invocar funciones para investigarlas.
+
+## Estado de integridad relacional tras 03D3B
+
+Las nueve relaciones de propietario comun quedaron protegidas y verificadas en Supabase test mediante 19 intentos adversariales. Las repeticiones 03D2A/B/C terminaron 140 PASS y tres cleanups completos. Produccion y el hardening restante siguen pendientes. Vease [03D3B](ISOLATION_03D3B.md).

@@ -85,7 +85,7 @@ function fakeServer({ crossParentAllowed = false, forgedOwnerAllowed = false, du
       if (!actor) return response({ message: 'denied' }, 401);
       const row = JSON.parse(options.body);
       if (row.user_id !== actor && !forgedOwnerAllowed) return response({ message: 'denied' }, 403);
-      if (table === 'planeaciones' && row.batch_id && !crossParentAllowed && batches.get(row.batch_id)?.user_id !== actor) return response({ message: 'parent denied' }, 403);
+      if (table === 'planeaciones' && row.batch_id && !crossParentAllowed && batches.get(row.batch_id)?.user_id !== actor) return response({ code:'23503', message:'insert or update on table "planeaciones" violates foreign key constraint "educativo_ia_planeaciones_batch_owner_fkey"' }, 409);
       row.created_at ??= timestamp(); row.updated_at ??= row.created_at;
       if (table === 'planeaciones') row.fecha_creacion ??= row.created_at;
       store.set(String(row.id), structuredClone(row));
@@ -97,7 +97,7 @@ function fakeServer({ crossParentAllowed = false, forgedOwnerAllowed = false, du
     if (method === 'PATCH') {
       const update = JSON.parse(options.body);
       if (update.user_id && update.user_id !== actor) return response({ message: 'denied' }, 403);
-      if (table === 'planeaciones' && update.batch_id && !crossParentAllowed && batches.get(update.batch_id)?.user_id !== actor) return response({ message: 'parent denied' }, 403);
+      if (table === 'planeaciones' && update.batch_id && !crossParentAllowed && batches.get(update.batch_id)?.user_id !== actor) return response({ code:'23503', message:'insert or update on table "planeaciones" violates foreign key constraint "educativo_ia_planeaciones_batch_owner_fkey"' }, 409);
       const previousBatch = row.batch_id;
       Object.assign(row, update); row.updated_at = timestamp();
       const isRestoration = table === 'planeaciones' && update.batch_id && previousBatch !== update.batch_id && batches.get(update.batch_id)?.user_id === actor;

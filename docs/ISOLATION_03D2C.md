@@ -107,3 +107,14 @@ Relaciones de propietario común confirmadas: `planeaciones.batch_id → planeac
 También pasan a 03D3 las relaciones nullable de `ai_generation_jobs`, `ai_generation_calls.job_id`, policies técnicas `TO PUBLIC`, CRUD directo innecesario de jobs/items, ausencia de DELETE/UPDATE reversible en métricas, grants amplios y TRUNCATE, EXECUTE concedido a PUBLIC, `handle_new_user` SECURITY DEFINER sin `search_path` fijo, atomicidad/reconciliación heredadas de 03C y decisiones sobre `user_profiles`, `ia_metrics_legacy` y mínimo privilegio de `ai_model_prices`. No ampliar la jerarquía ni modificar Biblioteca.
 
 Codex no ejecutó el harness ni recovery, no conectó Supabase/API y no invocó workers, timers, SSE, Storage, generación u OpenAI.
+
+## Repeticion posterior a 03D3A
+
+Pendiente de ejecucion real. Los cuatro casos item-job y
+examen-generation_job aceptan como PASS solo su constraint compuesta exacta y
+snapshots limpios. El target independiente del item, cleanup y recovery se
+conservan.
+
+## Cierre posterior 03D3B
+
+La repeticion real posterior se completo con 26/26 PASS. Los cuatro casos relacionales fueron rechazados por `educativo_ia_examen_items_job_owner_fkey` o `educativo_ia_examenes_generation_job_owner_fkey`, segun su mapeo exacto; cleanup completo, ledgers vacios y exit 0. Se conserva la evidencia historica y diagnostica previa. Estado actual: remediado y verificado en Supabase test, pendiente de produccion. Vease [03D3B](ISOLATION_03D3B.md).

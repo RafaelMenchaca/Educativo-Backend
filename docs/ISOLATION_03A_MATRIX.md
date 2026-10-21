@@ -119,3 +119,7 @@ G0 + bucket actual revisado + planeaciones F_A/F_B + imagen PNG sintética míni
 | ST-METADATA-PATH | A / API | PUT planeación_A con tabla_ia válida de tres momentos y metadata path=pB | no persistir referencia ajena; comparar tabla y objetos A/B | no borrar pB desde A; revertir/eliminar fixture A |
 
 No modificar TTL/policies para ejecutar estos casos. No crear avatars. Los casos que en el futuro acepten una relación inconsistente se reportan FAIL del contrato propuesto, con distinción explícita de comportamiento actual observado.
+
+## Reclasificacion posterior a 03D3B
+
+Se reclasificaron exactamente 18 filas con correspondencia exacta de `PRUEBA MANUAL REAL FAIL` a `PRUEBA MANUAL REAL PASS`. Cada nota conserva la aceptacion historica y agrega el rechazo posterior con 23503 por la constraint exacta, snapshots sin cambios y cleanup completo. El caso suplementario B hacia A de 03D2A permanece solo en Markdown. Conteo: 114 PASS manual real, 0 FAIL manual real, 3 PASS automaticos con transporte simulado y 193 NO EJECUTADO; 310 filas y 310 IDs unicos. Vease [03D3B](ISOLATION_03D3B.md).

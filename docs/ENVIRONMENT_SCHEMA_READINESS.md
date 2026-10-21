@@ -1,6 +1,8 @@
 # Inventario de entornos y evidencia de esquema — sesión 02A
 
-Seguimiento actualizado 2026-10-19: [03A](ISOLATION_03A.md) está completada en `4b8de11`; [03B](ISOLATION_03B.md), completada en `5a901fb`; [03C](ISOLATION_03C.md), completada y validada en `fac93a2`. [03D1](ISOLATION_03D1.md) quedó completada y validada mediante 17 consultas read-only en Supabase test. 03D2A–03D2C completaron sus ejecuciones adversariales con cleanup total y confirmaron vulnerabilidades de propietario común, incluidas item→job y examen→generation job en 03D2C. Grants amplios, función definer sin search_path fijo, relaciones y tablas métricas sin ciclo reversible pasan a 03D3. Storage y estado del navegador continúan en 03E–03F. Fase 03 sigue abierta. Este seguimiento no modifica el cierre 00–02 ni la configuración de ambientes.
+Seguimiento actualizado 2026-10-20: [03A](ISOLATION_03A.md) está completada en `4b8de11`; [03B](ISOLATION_03B.md), completada en `5a901fb`; [03C](ISOLATION_03C.md), completada y validada en `fac93a2`. [03D1](ISOLATION_03D1.md) quedó completada y validada mediante 17 consultas read-only en Supabase test. 03D2A–03D2C confirmaron vulnerabilidades de propietario común; [03D3B](ISOLATION_03D3B.md) verificó su remediación en test mediante 140 PASS y tres cleanups completos. Grants amplios, función definer sin search_path fijo y tablas métricas sin ciclo reversible continúan en 03D3C. Storage y estado del navegador continúan en 03E–03F. Fase 03 sigue abierta. Este seguimiento no modifica el cierre 00–02 ni la configuración de ambientes.
+
+03D3A preparó exclusivamente offline el paquete de constraints compuestas para nueve relaciones confirmadas. Incluye preflight agregado, migración one-shot, post-verificación y rollback; no se aplicó SQL a test ni producción. 03D3B debe verificar cero drift, aplicar primero en test y repetir los harnesses relacionales antes de cualquier promoción.
 
 Inicio del inventario: 2026-09-23. Cierre documental al 2026-10-06: **02E completada (implementación de aislamiento) y 02F completada (validación conectada local contra Supabase test), según pruebas automáticas y evidencia manual aportada por el usuario.** Auth/login, aprovisionamiento, API, aislamiento visual básico y Storage funcional aprobados en el alcance descrito abajo. La evidencia posterior de Fase 03 incluye 03D2A, 03D2B y 03D2C completadas: el aislamiento de filas pasó en su alcance, pero se confirmaron relaciones entre owners distintos que requieren hardening en 03D3. Biblioteca permanece como flujo principal, la jerarquía visual está retirada y congelada, y todos los fixtures de esas ejecuciones fueron limpiados. Producción no modificada; cambios de código todavía sin stage ni despliegue.
 
@@ -396,3 +398,9 @@ Si el acceso por interfaz resulta insuficiente, 02B debe preparar y revisar una 
 5. Preparar criterios de aceptación de aislamiento (sin destino productivo por defecto, error antes de requests con configuración inválida, coherencia API/Auth/Storage, pruebas A/B sintéticas). Implementación y pruebas externas requieren el alcance acordado de la siguiente sesión.
 
 Salida esperada de 02B: mapa de ambientes respaldado por evidencia, informe de schema con limitaciones y plan concreto de aislamiento. No cerrar automáticamente aislamiento, verificación RLS o la prueba manual pendiente de 00.1.
+
+- 03D3B: Supabase test tiene 14/14 constraints de propietario comun aplicadas y verificadas. Los harnesses posteriores terminaron 42/42, 72/72 y 26/26 PASS, con cleanups completos. Produccion permanece intacta; rollback no ejecutado.
+
+## Supabase test tras 03D3B
+
+La migracion de propietario comun esta aplicada y post-verificada en test: 14/14 constraints coincidentes y validadas. Las repeticiones adversariales sumaron 140 PASS, cero FAIL/INCONCLUSIVE y cero residuos conocidos. Produccion no fue modificada; rollback no ejecutado. Vease [03D3B](ISOLATION_03D3B.md).

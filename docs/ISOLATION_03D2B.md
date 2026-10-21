@@ -148,3 +148,14 @@ La suite offline simula red, UUID, tiempo y timeout. Comprueba guards, unidades,
 03D3 debe garantizar propietario común en `planeaciones.batch_id → planeacion_batches`, `anexos.planeacion_id → planeaciones`, `anexos.batch_id → planeacion_batches`, `listas_cotejo.planeacion_id → planeaciones`, `listas_cotejo.batch_id → planeacion_batches`, `examenes.unidad_id → unidades` y `examenes.batch_id → planeacion_batches`. Debe evaluar triggers mínimos, constraints compuestos o una estrategia equivalente, sin ampliar la jerarquía congelada y preservando Biblioteca y los contratos actuales.
 
 También conserva los riesgos de grants amplios, `handle_new_user` SECURITY DEFINER sin `search_path` fijo, EXECUTE por PUBLIC y la atomicidad/reconciliación de jobs heredada de 03C. Este cierre no diseña ni aplica SQL. Biblioteca continúa como único flujo visual principal; las unidades A/B fueron precondiciones externas read-only para exámenes. No se ejecutaron generación, workers, SSE, Storage ni OpenAI.
+
+## Repeticion posterior a 03D3A
+
+Pendiente de ejecucion real. Cada uno de los doce casos relacionales declara su
+unica constraint educativo_ia esperada para planeacion_id, unidad_id o batch_id.
+Un 23503 equivocado o no identificable permanece INCONCLUSIVE. Se mantienen
+before/after, restauracion, cleanup y recovery.
+
+## Cierre posterior 03D3B
+
+La repeticion real posterior se completo con 72/72 PASS. Los doce casos relacionales fueron rechazados por sus seis constraints exactas; cleanup completo, ledgers vacios y exit 0. Se conserva la evidencia historica de aceptacion. Estado actual: remediado y verificado en Supabase test, pendiente de produccion. Vease [03D3B](ISOLATION_03D3B.md).

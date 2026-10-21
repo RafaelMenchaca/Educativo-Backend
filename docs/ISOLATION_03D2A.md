@@ -91,3 +91,14 @@ Los guards exigen `APP_ENV=test`, Supabase test exacto, API local exacta, clave 
 - La integridad relacional batch–planeación falló y permanece abierta.
 - La ejecución no acredita atomicidad ni corrige policies, grants o constraints.
 - 03D2B debe cubrir recursos vigentes derivados; 03D3 debe corregir y probar la relación batch–planeación, además del hardening ya transferido; la regresión completa de Biblioteca permanece para 03F.
+
+## Repeticion posterior a 03D3A
+
+Pendiente de ejecucion real. Los tres casos batch-planeacion esperan
+exclusivamente educativo_ia_planeaciones_batch_owner_fkey. Un 23503 solo es
+PASS con ese nombre exacto y snapshots limpios; cualquier otra FK queda
+INCONCLUSIVE. Cleanup y recovery no cambian.
+
+## Cierre posterior 03D3B
+
+La repeticion real posterior se completo con 42/42 PASS, incluidos los tres rechazos relacionales por `educativo_ia_planeaciones_batch_owner_fkey`; cleanup completo, ledgers vacios y exit 0. Se conserva el hallazgo historico como evidencia anterior a la correccion. Estado actual: remediado y verificado en Supabase test, pendiente de produccion. Vease [03D3B](ISOLATION_03D3B.md).

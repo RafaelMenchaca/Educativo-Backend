@@ -6,6 +6,8 @@ Fecha: 2026-10-07; estado actualizado el 2026-10-19. Fases 00–02 cerradas seg�
 
 03D2C completó 26 casos reales sobre jobs/items de examen y `examenes.generation_job_id`: 22 PASS y cuatro FAIL de propietario común, sin inconclusos, errores ni residuos. La primera corrida quedó como diagnóstico del UNIQUE enmascarante y no se duplica. Las tablas métricas no recibieron fixtures por carecer de cleanup A/B reversible; pasan a 03D3 junto con las relaciones confirmadas.
 
+03D3A dejó preparado offline el [diseño de propietario común](ISOLATION_03D3A.md), con preflight read-only, migración transaccional, post-verificación y rollback. No se ejecutó SQL remoto; la aplicación y regresión en Supabase test corresponden a 03D3B.
+
 ## Puerta y límites de evidencia
 
 | Repositorio | Rama | HEAD real | status inicial | origin/main...HEAD tras fetch |
@@ -107,3 +109,9 @@ Decisiones abiertas: whitelist de edición, si el batch explícito incompatible 
 Backend: un enlace de seguimiento en ENVIRONMENT_SCHEMA_READINESS.md; cinco documentos nuevos ISOLATION_03A* (auditoría, inventario, matriz CSV, explicación/fixtures y guía); cuatro utilidades/pruebas nuevas en tests/isolation (harness.js, run.js, guards.test.js, start-local.ps1). Frontend sin modificaciones. Todo permanece sin stage. `git diff --stat` no incluye los nueve archivos nuevos no rastreados; contabilizarlos además de las dos líneas del enlace. No hay cambios en package.json, src, schema, policies, funciones, configuración remota ni comportamiento funcional.
 
 Confirmaciones de ejecución 03A: no se probaron destinos productivos; no se invocó OpenAI; no se leyeron ni modificaron backend/.env ni frontend/js/core/config.local.js; no se cambiaron servicios remotos ni se hizo stage, commit, push, PR, merge o despliegue. Los únicos accesos remotos fueron los fetch Git exigidos por la puerta. No hay residuos remotos de esta sesión. El cierre Git incluye diff --check, diff --stat, diff --cached --stat y status --short en ambos repositorios; resultado detallado entregado en el reporte final.
+
+Estado 03D3B: migracion 03D3A aplicada y post-verificada 14/14 en Supabase test; rollback no ejecutado. La repeticion real de 03D2A/B/C termino 140 PASS, cero FAIL/INCONCLUSIVE y cleanups completos. La matriz reclasifica solo las 18 correspondencias exactas; produccion permanece pendiente.
+
+## Estado 03D3B
+
+La integridad de propietario comun fue aplicada y validada en Supabase test. Las repeticiones 03D2A/B/C sumaron 140 PASS, cero FAIL/INCONCLUSIVE y cero residuos conocidos. Los hallazgos historicos permanecen trazables y ahora estan remediados en test; produccion y Fase 03 siguen pendientes. Vease [03D3B](ISOLATION_03D3B.md).

@@ -1,5 +1,7 @@
 # Inicialización revisable de pruebas — sesión 02C
 
+El [paquete 03D3A de propietario común](../ISOLATION_03D3A.md) contiene preflight read-only, migración transaccional, post-verificación y rollback para nueve relaciones confirmadas. Está preparado offline y no debe ejecutarse antes de la sesión manual 03D3B en Supabase test.
+
 Cierre posterior 02E/02F (2026-10-06): implementación de aislamiento y validación conectada completadas en el alcance de la [evidencia canónica](../ENVIRONMENT_SCHEMA_READINESS.md#cierre-02e02f--evidencia-manual-y-alcance-aprobado). Frontend/backend locales operan contra test; login, aprovisionamiento, API, aislamiento visual básico y Storage funcional aprobados por el usuario. Las listas históricas de pendientes de este documento quedan actualizadas por ese cierre; no se certifica la matriz adversarial RLS de Fase 03 ni se autoriza repetir el inicializador.
 
 **Esquema inicializado y postflight aprobado en pruebas**, según evidencia manual proporcionada por el usuario desde Supabase SQL Editor el **2026-09-28**: `educativo-backend-test` / `gwdtlbisykzzplgzczzq` / `us-east-2` / PostgreSQL 17.6. **No volver a ejecutar el inicializador sobre este proyecto.** Producción prohibida: `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`. No es una autorización de lanzamiento.
@@ -118,3 +120,7 @@ En 02C.1 se revisó estáticamente el paquete para PostgreSQL 15.8 → 17.6 y se
 La creación/configuración del bucket y recopilación de Auth que figuraban pendientes abajo ya se completaron según evidencia del usuario. Permanecen pendientes los cambios Auth que se decidan y todas las pruebas funcionales/conexiones. La lista siguiente se conserva como estado histórico del cierre 02C.2.
 
 Siguen pendientes la configuración de Supabase Auth; creación/configuración en pruebas del bucket privado `planeacion-actividades` (10 MB, `image/*`, carga manual y URLs firmadas); pruebas de Storage con dos usuarios; pruebas RLS A/B/anon; datos de referencia, incluido `ai_model_prices`; resolución de `ia_metrics` frente a `ia_metrics_legacy`; configuración explícita por ambiente; conexión del backend local y frontend de pruebas; cambios en Render y Vercel; registro, recuperación, contacto, planes, cuotas y pagos. No crear `avatars`; generación de imágenes con IA fuera de alcance. La aprobación del postflight no resuelve ni autoriza por sí sola estos trabajos. La prueba manual de 00.1 continúa pendiente.
+
+## Integridad de propietario comun 03D3B
+
+El paquete [03D3A](../ISOLATION_03D3A.md) fue aplicado y verificado manualmente en Supabase test. El [cierre 03D3B](../ISOLATION_03D3B.md) registra 14/14 constraints y la repeticion 42/72/26 PASS de los harnesses. Rollback no ejecutado; produccion pendiente.
