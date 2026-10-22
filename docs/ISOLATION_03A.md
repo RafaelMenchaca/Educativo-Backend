@@ -115,3 +115,5 @@ Estado 03D3B: migracion 03D3A aplicada y post-verificada 14/14 en Supabase test;
 ## Estado 03D3B
 
 La integridad de propietario comun fue aplicada y validada en Supabase test. Las repeticiones 03D2A/B/C sumaron 140 PASS, cero FAIL/INCONCLUSIVE y cero residuos conocidos. Los hallazgos historicos permanecen trazables y ahora estan remediados en test; produccion y Fase 03 siguen pendientes. Vease [03D3B](ISOLATION_03D3B.md).
+
+El hardening restante se encuentra en fase de diseno: [03D3C Scope](ISOLATION_03D3C_SCOPE.md) separa funciones/search_path, grants/policies y metricas/legacy. No se aplicaron cambios adicionales ni se altero la matriz.

@@ -46,3 +46,5 @@ Quedaron confirmadas en test las constraints validadas, el rechazo de las 19 aso
 
 No quedaron confirmados produccion, la regresion E2E completa de Biblioteca/Quick Create/generacion, workers reales, todas las acciones CASCADE/SET NULL mediante pruebas funcionales, Storage, navegador, hardening de grants/policies/functions ni las tablas metricas excluidas. Las acciones referenciales funcionales completas pertenecen a 03F. El minimo privilegio, funciones y pendientes tecnicos continuan en 03D3C. La Fase 03 permanece abierta.
 
+El alcance de ese trabajo posterior esta delimitado en [03D3C Scope](ISOLATION_03D3C_SCOPE.md). El documento separa funciones, grants/policies y metricas/legacy; no aplica cambios ni altera la evidencia de 03D3B.
+
