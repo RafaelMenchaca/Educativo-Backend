@@ -6,7 +6,7 @@ Fecha: 2026-10-07; estado actualizado el 2026-10-19. Fases 00–02 cerradas seg�
 
 03D2C completó 26 casos reales sobre jobs/items de examen y `examenes.generation_job_id`: 22 PASS y cuatro FAIL de propietario común, sin inconclusos, errores ni residuos. La primera corrida quedó como diagnóstico del UNIQUE enmascarante y no se duplica. Las tablas métricas no recibieron fixtures por carecer de cleanup A/B reversible; pasan a 03D3 junto con las relaciones confirmadas.
 
-03D3A dejó preparado offline el [diseño de propietario común](ISOLATION_03D3A.md), con preflight read-only, migración transaccional, post-verificación y rollback. No se ejecutó SQL remoto; la aplicación y regresión en Supabase test corresponden a 03D3B.
+03D3A dejo preparado offline el [diseno de propietario comun](ISOLATION_03D3A.md), posteriormente aplicado y validado en Supabase test durante 03D3B. Produccion sigue pendiente y el rollback no se ejecuto.
 
 ## Puerta y límites de evidencia
 
@@ -117,3 +117,7 @@ Estado 03D3B: migracion 03D3A aplicada y post-verificada 14/14 en Supabase test;
 La integridad de propietario comun fue aplicada y validada en Supabase test. Las repeticiones 03D2A/B/C sumaron 140 PASS, cero FAIL/INCONCLUSIVE y cero residuos conocidos. Los hallazgos historicos permanecen trazables y ahora estan remediados en test; produccion y Fase 03 siguen pendientes. Vease [03D3B](ISOLATION_03D3B.md).
 
 El hardening restante se encuentra en fase de diseno: [03D3C Scope](ISOLATION_03D3C_SCOPE.md) separa funciones/search_path, grants/policies y metricas/legacy. No se aplicaron cambios adicionales ni se altero la matriz.
+
+[03D3C1](ISOLATION_03D3C1.md) aplico y verifico en Supabase test el hardening de funciones trigger. Ownership, Auth reversible, `updated_at` y cleanup quedaron aprobados; produccion sigue pendiente.
+
+Estado final 03D3C1: preflight aprobado, migracion aplicada y postverify 6/6 funciones y 16/16 triggers en test; 140 PASS de regresion, 22 PASS de ownership y siete PASS Auth contabilizados, con cleanups verificados y cero residuos conocidos. [Validacion](ISOLATION_03D3C1_VALIDATION.md). 03D3C2/03D3C3, 03E y 03F siguen pendientes; produccion intacta.

@@ -1,6 +1,6 @@
 # Inicialización revisable de pruebas — sesión 02C
 
-El [paquete 03D3A de propietario común](../ISOLATION_03D3A.md) contiene preflight read-only, migración transaccional, post-verificación y rollback para nueve relaciones confirmadas. Está preparado offline y no debe ejecutarse antes de la sesión manual 03D3B en Supabase test.
+El [paquete 03D3A de propietario comun](../ISOLATION_03D3A.md) contiene preflight read-only, migracion transaccional, post-verificacion y rollback para nueve relaciones confirmadas. Fue aplicado y validado en Supabase test durante 03D3B; produccion sigue pendiente y el rollback no se ejecuto.
 
 Cierre posterior 02E/02F (2026-10-06): implementación de aislamiento y validación conectada completadas en el alcance de la [evidencia canónica](../ENVIRONMENT_SCHEMA_READINESS.md#cierre-02e02f--evidencia-manual-y-alcance-aprobado). Frontend/backend locales operan contra test; login, aprovisionamiento, API, aislamiento visual básico y Storage funcional aprobados por el usuario. Las listas históricas de pendientes de este documento quedan actualizadas por ese cierre; no se certifica la matriz adversarial RLS de Fase 03 ni se autoriza repetir el inicializador.
 
@@ -124,3 +124,7 @@ Siguen pendientes la configuración de Supabase Auth; creación/configuración e
 ## Integridad de propietario comun 03D3B
 
 El paquete [03D3A](../ISOLATION_03D3A.md) fue aplicado y verificado manualmente en Supabase test. El [cierre 03D3B](../ISOLATION_03D3B.md) registra 14/14 constraints y la repeticion 42/72/26 PASS de los harnesses. Rollback no ejecutado; produccion pendiente.
+
+## Funciones trigger 03D3C1
+
+El [paquete 03D3C1](../ISOLATION_03D3C1.md) fue completado en Supabase test: 6/6 funciones, 16/16 triggers, 140 PASS de regresion, 22 PASS de ownership y siete PASS Auth contabilizados. Todos los cleanups quedaron verificados y no hay residuos conocidos. Rollback no ejecutado; produccion intacta y pendiente de promocion controlada.

@@ -2,7 +2,7 @@
 
 Fecha: 2026-10-21.
 
-Estado: **03D3B completada en Supabase test; 03D3C en analisis; produccion pendiente; Fase 03 abierta.** Este documento delimita trabajo futuro. No contiene ni autoriza una migracion, no cambia grants, policies, funciones, datos o codigo funcional.
+Estado: **03D3B y 03D3C1 completadas en Supabase test; 03D3C permanece abierta por 03D3C2 y 03D3C3; produccion pendiente; Fase 03 abierta.** Este documento conserva el alcance del hardening restante.
 
 Biblioteca sigue siendo el unico flujo visual principal. Archivados permanece independiente. Planteles, grados, materias, unidades y temas son una capa relacional congelada: se preservan los contratos internos vigentes sin reintroducir Explorer ni crear funcionalidad jerarquica.
 
@@ -109,7 +109,7 @@ Esto es C4: arquitectura operativa, no hardening de ACL. Debe transferirse a una
 | jobs/calls metricos | policies de usuario; uso admin exclusivo | superficie confirmada, explotacion funcional no probada | retirar acceso user y definir retencion | tests admin mock + verificacion test sin fixtures residuales | restaurar policies/grants | C2 / 03D3C3 |
 | relaciones metricas | nullable/sin owner comun general | integridad potencial; no explotada | contrato y constraints posteriores | preflight agregado y compatibilidad servicios | constraints separadas | C2/C3 / 03D3C3 |
 | `ai_model_prices` | SELECT auth y admin | lectura auth sin consumidor; sensibilidad baja | conservar hasta decision de producto | cache/admin y decision de datos | grant/policy previos | C5 temporal |
-| profiles/settings | S/I/U propias; trigger crea | PII/config; sin UI | no reducir sin prueba Auth | alta y lectura propia sintetica | ACL/policies previas | C2 / 03D3C3 |
+| profiles/settings | S/I/U propias; trigger crea | PII/config; sin UI | aprovisionamiento Auth ya validado; cualquier reduccion requiere decision de consumidor | conservar regresion Auth y probar ACL/policies candidatas | ACL/policies previas | C2 / 03D3C3 |
 | `user_profiles` | expuesta, sin consumidor | legacy confirmada; abuso no probado | retirar o eliminar solo con decision | inventario y aprobacion destructiva | plan de datos | C3 |
 | `ia_metrics_legacy` / `ia_metrics` | tabla live distinta del nombre escrito | metricas perdidas o error tolerado | decision de consolidacion/retiro | observabilidad y datos | migracion de datos separada | C3 |
 | timers/retries/reconciliacion | in-process/no durable | riesgo operativo residual confirmado por diseño | arquitectura durable | pruebas de reinicio/idempotencia | feature flags/rollback app | C4 fuera de 03D3C |
@@ -123,10 +123,14 @@ Esto es C4: arquitectura operativa, no hardening de ACL. Debe transferirse a una
 - Preflight: firma, owner, lenguaje, `prosecdef`, `proconfig`, ACL, trigger y definicion esperada.
 - Cambio: `ALTER FUNCTION` con search_path fijo donde se apruebe; REVOKE EXECUTE directo innecesario. Sin `CREATE OR REPLACE` salvo drift documentado.
 - Postverify: atributos y ACL exactos; triggers intactos.
-- Pruebas: validador SQL offline, CRUD propio que active triggers; alta Auth sintetica para `handle_new_user` antes de produccion o parada expresa.
+- Pruebas completadas en test: validador SQL, CRUD propio que activa triggers y alta Auth sintetica para `handle_new_user`. Deben repetirse de forma controlada antes de produccion.
 - Rollback: restaurar `proconfig` y ACL observadas, sin tocar cuerpos/triggers.
 - Stop: firma/owner/body inesperado, trigger adicional, fallo de aprovisionamiento o CRUD.
 - Biblioteca: ningun cambio esperado; regresion de creacion/edicion de sus recursos.
+
+Historia del paquete [03D3C1](ISOLATION_03D3C1.md): la primera ejecucion fallo con `42883` por `name[] = text[]`. Tras corregir el cast, las sentencias 2–4 y todos los predicados estructurales de la sentencia 1 pasaron, pero los seis hashes LF no coincidian con `prosrc`. El analisis offline reprodujo los seis hashes live mediante una unica transformacion representacional CRLF. En ese momento no se aplico la migracion y se exigio repetir el preflight completo.
+
+Estado final: el preflight completo fue aprobado, la migracion se aplico y el postverify confirmo 6/6 funciones y 16/16 triggers. Las regresiones 03D2A/B/C sumaron 140 PASS; el [harness runtime](ISOLATION_03D3C1_VALIDATION.md) agrego 22 PASS de ownership y siete PASS Auth contabilizados, con todos los cleanups verificados y cero residuos conocidos. Los dos intentos Auth previos quedaron como diagnosticos sin `RUN`/login y tambien con cleanup agregado verificado. **03D3C1 esta completada en test.** Rollback no ejecutado; 03D3C2 y 03D3C3 siguen pendientes.
 
 ### 03D3C2 - grants base, secuencia y policies tecnicas
 
@@ -164,4 +168,4 @@ PostgreSQL 15.8/17.6 comparten ALTER FUNCTION SET, REVOKE/GRANT y ALTER POLICY r
 
 ## Limites
 
-No se conecto Supabase/API, no se ejecuto SQL, generacion, workers, SSE, Storage u OpenAI. No se modifico frontend, codigo funcional, schema, policies, grants, funciones, datos ni la matriz CSV. 03D3C no esta implementada ni aplicada. Produccion sigue sin las 14 constraints de 03D3A y sin el hardening aqui propuesto.
+Durante la sesion de scope no se conecto Supabase/API ni se ejecuto SQL. Con posterioridad, 03D3C1 fue aplicada solo en test conforme al paquete revisado. Produccion sigue sin las 14 constraints de 03D3A y sin 03D3C1; 03D3C2/03D3C3 siguen sin implementar.

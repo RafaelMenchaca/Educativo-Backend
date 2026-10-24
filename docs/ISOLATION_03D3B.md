@@ -48,3 +48,5 @@ No quedaron confirmados produccion, la regresion E2E completa de Biblioteca/Quic
 
 El alcance de ese trabajo posterior esta delimitado en [03D3C Scope](ISOLATION_03D3C_SCOPE.md). El documento separa funciones, grants/policies y metricas/legacy; no aplica cambios ni altera la evidencia de 03D3B.
 
+[03D3C1](ISOLATION_03D3C1.md) fue aplicada y completada solo en test: 6/6 funciones, 16/16 triggers, 22 PASS de ownership y siete PASS Auth contabilizados, con cleanups verificados. Produccion conserva las ACL/configuraciones anteriores; rollback no ejecutado. 03D3C sigue abierta por 03D3C2 y 03D3C3.
+
