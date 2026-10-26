@@ -1,6 +1,7 @@
 // Educativo IA 03D2A. Importing this module performs no I/O.
 import { randomUUID } from 'node:crypto';
 import { OWNER_CONSTRAINTS, classifyOwnerConstraintRejection } from './owner-constraint-errors.js';
+import { classifyPostB0AnonRejection, normalizeB0CurrentMode } from './b0-current-anon-errors.js';
 
 export const BIB_TEST_URL = 'https://gwdtlbisykzzplgzczzq.supabase.co';
 export const BIB_API_URL = 'http://127.0.0.1:3000';
@@ -9,7 +10,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const DECIMAL_ID = /^[1-9][0-9]{0,14}$/;
 export const MAX_PLANEACION_ID = 999999999999999;
 const PHASES = ['config', 'auth', 'prepare', 'execute', 'cleanup'];
-const REASONS = ['http', 'identity_mismatch', 'anonymous_identity', 'invalid_json', 'redirect', 'timeout', 'network', 'unexpected_response', 'invalid_state', 'related_rows', 'rls', 'foreign_key', 'unique', 'check', 'owner_constraint'];
+const REASONS = ['http', 'identity_mismatch', 'anonymous_identity', 'invalid_json', 'redirect', 'timeout', 'network', 'unexpected_response', 'invalid_state', 'related_rows', 'rls', 'foreign_key', 'unique', 'check', 'owner_constraint', 'b0_case_mismatch', 'b0_rejection_unverified', 'b0_grant_revoked'];
 const TABLES = ['planeacion_batches', 'planeaciones'];
 
 const caseRows = [
@@ -194,6 +195,7 @@ export function createBibliotecaHarness(env, {
     emit(safeBibliotecaEvent({ caseId: 'DIAGNOSTIC', ...(error?.diagnostic || { phase: 'config', reason: 'invalid_state' }) }));
     throw error;
   }
+  const b0Mode = normalizeB0CurrentMode(env.EIA_B0_CURRENT_MODE);
   const runId = uuid().toLowerCase();
   if (!UUID.test(runId)) fail({ phase: 'config', reason: 'invalid_state' });
   const ledger = new Map();
@@ -329,6 +331,14 @@ export function createBibliotecaHarness(env, {
   function fixture(table, actor, suffix = 'base') { return [...ledger.values()].find(e => e.table === table && e.actor === actor && e.suffix === suffix) || [...ledger.values()].find(e => e.table === table && e.actor === actor && !e.suffix); }
   async function visibleCase(caseId, table, owner, viewer, shouldSee) {
     const entry = fixture(table, owner);
+    if (viewer === 'anon' && b0Mode === 'post_b0_current') {
+      const before = await snapshot(entry);
+      const response = await request('supabase', rowPath(table, entry.id), viewer, 'GET', undefined, { phase: 'execute' });
+      const afterRows = await rows(table, entry.id, entry.actor, 'execute');
+      const clean = afterRows.length === 1 && JSON.stringify(afterRows[0]) === JSON.stringify(before);
+      const verdict = classifyPostB0AnonRejection({mode:b0Mode,caseId,actor:viewer,table,operation:'SELECT',response,snapshotClean:clean,uncertainPending:uncertain.size>0});
+      reportCase({caseId,actor:viewer,table,status:response.status,...verdict}); return;
+    }
     const data = await rows(table, entry.id, viewer, 'execute');
     reportCase({ caseId, actor: viewer, table, result: (shouldSee ? data.length === 1 && exact(entry, data[0]) : data.length === 0) ? 'PASS' : 'FAIL' });
   }
@@ -342,6 +352,10 @@ export function createBibliotecaHarness(env, {
     const response = await request('supabase', rowPath(entry.table, entry.id).replace('&select=*', ''), attacker, method, body, { phase: 'execute' });
     const afterRows = await rows(entry.table, entry.id, entry.actor, 'execute');
     const unchanged = afterRows.length === 1 && exact(entry, afterRows[0]) && JSON.stringify(afterRows[0]) === JSON.stringify(before);
+    if(attacker==='anon'&&b0Mode==='post_b0_current'){
+      const verdict=classifyPostB0AnonRejection({mode:b0Mode,caseId,actor:attacker,table:entry.table,operation:method==='DELETE'?'DELETE':'UPDATE',response,snapshotClean:unchanged,uncertainPending:uncertain.size>0});
+      reportCase({caseId,actor:attacker,table:entry.table,status:response.status,...verdict}); return;
+    }
     reportCase({ caseId, actor: attacker, table: entry.table, status: response.status, result: unchanged ? 'PASS' : 'FAIL' });
   }
   async function listCase(caseId, table, actor) {
@@ -370,6 +384,10 @@ export function createBibliotecaHarness(env, {
       reportCase({ caseId, actor, table, status: response.status, result: 'FAIL' });
     } else if (visibleActors.length === 0 && observations.A.length === 0 && observations.B.length === 0 && !response.ok) {
       uncertain.delete(`${table}:${entry.id}`);
+      if(actor==='anon'&&b0Mode==='post_b0_current'){
+        const verdict=classifyPostB0AnonRejection({mode:b0Mode,caseId,actor,table,operation:'INSERT',response,snapshotClean:true,uncertainPending:uncertain.has(`${table}:${entry.id}`)});
+        reportCase({caseId,actor,table,status:response.status,...verdict}); return;
+      }
       reportCase({ caseId, actor, table, status: response.status, result: 'PASS' });
     } else reportCase({ caseId, actor, table, status: response.status, result: 'INCONCLUSIVE' });
   }

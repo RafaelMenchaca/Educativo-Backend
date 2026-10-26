@@ -2,6 +2,8 @@
 
 Seguimiento actualizado 2026-10-24: [03A](ISOLATION_03A.md), [03B](ISOLATION_03B.md), [03C](ISOLATION_03C.md) y [03D1](ISOLATION_03D1.md) estan completadas. [03D3B](ISOLATION_03D3B.md) verifico en test la remediacion relacional. [03D3C1](ISOLATION_03D3C1.md) esta completada en test con 6/6 funciones, 16/16 triggers, 140 PASS de regresion, [ownership y Auth](ISOLATION_03D3C1_VALIDATION.md) aprobados y cleanups verificados. Produccion continua pendiente; 03D3C2/03D3C3, Storage 03E y regresion E2E 03F siguen abiertas. Fase 03 sigue abierta.
 
+La [auditoria 03D3C2A](ISOLATION_03D3C2A.md) conserva el inventario live de 19 tablas, 49 policies, una secuencia, MAINTAIN y 96 default privileges. B0-current esta completado en test con postverify 15/15 y 140 PASS runtime; defaults y superficies C2/C3 permanecen pendientes. Produccion conserva sus ACL previas.
+
 03D3A preparo el paquete de constraints compuestas para nueve relaciones confirmadas y 03D3B lo aplico y valido en Supabase test. Incluye preflight agregado, migracion one-shot, post-verificacion y rollback; produccion sigue pendiente y el rollback no se ejecuto.
 
 Inicio del inventario: 2026-09-23. Cierre documental al 2026-10-06: **02E completada (implementación de aislamiento) y 02F completada (validación conectada local contra Supabase test), según pruebas automáticas y evidencia manual aportada por el usuario.** Auth/login, aprovisionamiento, API, aislamiento visual básico y Storage funcional aprobados en el alcance descrito abajo. La evidencia posterior de Fase 03 incluye 03D2A, 03D2B y 03D2C completadas: el aislamiento de filas pasó en su alcance, pero se confirmaron relaciones entre owners distintos que requieren hardening en 03D3. Biblioteca permanece como flujo principal, la jerarquía visual está retirada y congelada, y todos los fixtures de esas ejecuciones fueron limpiados. Producción no modificada; cambios de código todavía sin stage ni despliegue.
@@ -404,3 +406,6 @@ Salida esperada de 02B: mapa de ambientes respaldado por evidencia, informe de s
 ## Supabase test tras 03D3B
 
 La migracion de propietario comun esta aplicada y post-verificada en test: 14/14 constraints coincidentes y validadas. Las repeticiones adversariales sumaron 140 PASS, cero FAIL/INCONCLUSIVE y cero residuos conocidos. Produccion no fue modificada; rollback no ejecutado. Vease [03D3B](ISOLATION_03D3B.md).
+
+
+El [paquete 03D3C2-B0-current](ISOLATION_03D3C2_B0.md) esta completado en test. El primer falso fue un defecto public-only del postverify, no drift; el diagnostico confirmo 6/6 funciones y 16/16 triggers, el postverify corregido aprobo 15/15 y las regresiones sumaron 140 PASS con cero residuos. Rollback no ejecutado y produccion intacta.

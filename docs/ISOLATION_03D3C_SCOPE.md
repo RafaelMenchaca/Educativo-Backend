@@ -4,6 +4,8 @@ Fecha: 2026-10-21.
 
 Estado: **03D3B y 03D3C1 completadas en Supabase test; 03D3C permanece abierta por 03D3C2 y 03D3C3; produccion pendiente; Fase 03 abierta.** Este documento conserva el alcance del hardening restante.
 
+La [auditoria ejecutable 03D3C2A](ISOLATION_03D3C2A.md) delimito grants, secuencia y 49 policies. B0-current fue aplicado, post-verificado y regresado en test: 140 PASS, cero FAIL/INCONCLUSIVE y cero residuos. Defaults, EXECUTE futuro, service_role y B1-B4 siguen separados y pendientes.
+
 Biblioteca sigue siendo el unico flujo visual principal. Archivados permanece independiente. Planteles, grados, materias, unidades y temas son una capa relacional congelada: se preservan los contratos internos vigentes sin reintroducir Explorer ni crear funcionalidad jerarquica.
 
 ## Base de evidencia
@@ -169,3 +171,6 @@ PostgreSQL 15.8/17.6 comparten ALTER FUNCTION SET, REVOKE/GRANT y ALTER POLICY r
 ## Limites
 
 Durante la sesion de scope no se conecto Supabase/API ni se ejecuto SQL. Con posterioridad, 03D3C1 fue aplicada solo en test conforme al paquete revisado. Produccion sigue sin las 14 constraints de 03D3A y sin 03D3C1; 03D3C2/03D3C3 siguen sin implementar.
+
+
+El [paquete B0-current](ISOLATION_03D3C2_B0.md) esta completado en Supabase test. El diagnostico corrigio el contador public-only sin aceptar drift, el postverify tuvo 15/15 predicados verdaderos y 03D2A/B/C sumaron 140 PASS en modo `post_b0_current`. Rollback no ejecutado; produccion intacta; 03D3C2 y 03D3C permanecen abiertas.

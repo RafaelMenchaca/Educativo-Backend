@@ -128,3 +128,10 @@ El paquete [03D3A](../ISOLATION_03D3A.md) fue aplicado y verificado manualmente 
 ## Funciones trigger 03D3C1
 
 El [paquete 03D3C1](../ISOLATION_03D3C1.md) fue completado en Supabase test: 6/6 funciones, 16/16 triggers, 140 PASS de regresion, 22 PASS de ownership y siete PASS Auth contabilizados. Todos los cleanups quedaron verificados y no hay residuos conocidos. Rollback no ejecutado; produccion intacta y pendiente de promocion controlada.
+
+## Auditoria ACL/policies 03D3C2A
+
+El primer [preflight 03D3C2A](03d3c2a_acl_policy_preflight.sql) confirmó 19 tablas, 49 policies, una secuencia y 96 default privileges, y descubrió MAINTAIN en PostgreSQL 17. El paquete fue ampliado para PG15/PG17 y debe repetirse desde el inicio. No aplica cambios; B0 y 03D3C2 permanecen pendientes.
+
+
+El [paquete B0-current](../ISOLATION_03D3C2_B0.md) esta completado en Supabase test. El diagnostico [read-only](03d3c2_b0_current_trigger_diagnostic.sql) confirmo 6/6 funciones y 16/16 triggers; el postverify corregido aprobo 15/15 predicados y las regresiones post-B0 sumaron 140 PASS con cleanups completos. Rollback no ejecutado; defaults, service_role, policies y B1-B4 siguen separados.

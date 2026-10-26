@@ -121,3 +121,8 @@ El hardening restante se encuentra en fase de diseno: [03D3C Scope](ISOLATION_03
 [03D3C1](ISOLATION_03D3C1.md) aplico y verifico en Supabase test el hardening de funciones trigger. Ownership, Auth reversible, `updated_at` y cleanup quedaron aprobados; produccion sigue pendiente.
 
 Estado final 03D3C1: preflight aprobado, migracion aplicada y postverify 6/6 funciones y 16/16 triggers en test; 140 PASS de regresion, 22 PASS de ownership y siete PASS Auth contabilizados, con cleanups verificados y cero residuos conocidos. [Validacion](ISOLATION_03D3C1_VALIDATION.md). 03D3C2/03D3C3, 03E y 03F siguen pendientes; produccion intacta.
+
+[03D3C2A](ISOLATION_03D3C2A.md) conserva la auditoria base de 19 tablas, 49 policies, una secuencia, MAINTAIN y 96 default privileges. B0-current quedo completado en test; defaults y superficies C2/C3 siguen abiertos. No cambia evidencia del CSV.
+
+
+[03D3C2-B0-current](ISOLATION_03D3C2_B0.md) fue aplicado y post-verificado en test. El contador public-only defectuoso se corrigio mediante el manifiesto exacto 6/6 funciones y 16/16 triggers. Las regresiones definitivas sumaron 140 PASS, cero FAIL/INCONCLUSIVE y cleanups completos. Produccion y el resto de 03D3C2 siguen pendientes.
