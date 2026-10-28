@@ -176,6 +176,8 @@ Durante la sesion de scope no se conecto Supabase/API ni se ejecuto SQL. Con pos
 El [paquete B0-current](ISOLATION_03D3C2_B0.md) esta completado en Supabase test. El diagnostico corrigio el contador public-only sin aceptar drift, el postverify tuvo 15/15 predicados verdaderos y 03D2A/B/C sumaron 140 PASS en modo `post_b0_current`. Rollback no ejecutado; produccion intacta; 03D3C2 y 03D3C permanecen abiertas.
 
 La auditoria B1 quedo comprometida en `cb4d01bad40fc92a555a7c352afeab4ba3c621c8`. Su [diseno C2](ISOLATION_03D3C2_B1_C2_DESIGN.md) delimita el futuro ciclo test-only para ocho operaciones sin consumidor productivo; no implementa runner ni revocaciones y mantiene 03D3C2 abierta.
+
+El [runner B1-C2](ISOLATION_03D3C2_B1_C2_RUNNER.md) esta implementado y probado solo offline. No fue conectado, no revoca grants y no forma parte del runtime.
 ## Apertura 03D3C2-B1
 
 El commit B0-current `bbe9dc3b571399552f1d7b326f732d7d304133a9` cerro las revocaciones estructurales en test. La [auditoria B1](ISOLATION_03D3C2_B1.md) inventaria 19 tablas x 4 DML authenticated: 40 KEEP, ocho dependencias exclusivas de pruebas, 21 decisiones B4 y siete grants ya ausentes. No existe todavia un B1-C1 inequ?voco; no se preparo migracion.

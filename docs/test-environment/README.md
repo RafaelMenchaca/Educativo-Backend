@@ -140,3 +140,5 @@ El [paquete B0-current](../ISOLATION_03D3C2_B0.md) esta completado en Supabase t
 El [preflight read-only B1](03d3c2_b1_authenticated_dml_preflight.sql) inventaria 19 tablas x cuatro operaciones authenticated, policies, RLS y memberships. Su owner es [ISOLATION_03D3C2_B1](../ISOLATION_03D3C2_B1.md). Devuelve `apt_to_apply=false` mientras sigan abiertas dependencias de pruebas y decisiones B4; no incluye migracion. B0-current fue cerrado por `bbe9dc3b571399552f1d7b326f732d7d304133a9`.
 
 El [diseno B1-C2](../ISOLATION_03D3C2_B1_C2_DESIGN.md) es declarativo: especifica ocho operaciones test-only, grafo, guardas y olas futuras. No contiene SQL mutante, runner conectado, credenciales ni autorizacion para revocar.
+
+El [runner/recovery B1-C2](../ISOLATION_03D3C2_B1_C2_RUNNER.md) implementa el ciclo futuro con transporte inyectable y launchers test-only. No ha sido ejecutado contra Supabase; no es una migracion ni autoriza T1/T2/T3.

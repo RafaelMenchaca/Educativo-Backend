@@ -128,4 +128,6 @@ Estado final 03D3C1: preflight aprobado, migracion aplicada y postverify 6/6 fun
 [03D3C2-B0-current](ISOLATION_03D3C2_B0.md) fue aplicado y post-verificado en test. El contador public-only defectuoso se corrigio mediante el manifiesto exacto 6/6 funciones y 16/16 triggers. Las regresiones definitivas sumaron 140 PASS, cero FAIL/INCONCLUSIVE y cleanups completos. Produccion y el resto de 03D3C2 siguen pendientes.
 [03D3C2-B1](ISOLATION_03D3C2_B1.md) abre la auditoria DML authenticated despues del commit B0-current `bbe9dc3b571399552f1d7b326f732d7d304133a9`. El preflight es read-only y mantiene `apt_to_apply=false`; no cambia el CSV ni evidencia real.
 
-El [diseno B1-C2](ISOLATION_03D3C2_B1_C2_DESIGN.md), basado en el commit B1 `cb4d01bad40fc92a555a7c352afeab4ba3c621c8`, delimita ocho operaciones exclusivamente requeridas por harness/recovery. Sigue sin implementacion ni revocaciones y no reclasifica filas 03A.
+El [diseno B1-C2](ISOLATION_03D3C2_B1_C2_DESIGN.md), basado en el commit B1 `cb4d01bad40fc92a555a7c352afeab4ba3c621c8`, delimita ocho operaciones exclusivamente requeridas por harness/recovery. No existen revocaciones y no reclasifica filas 03A.
+
+El [runner/recovery B1-C2](ISOLATION_03D3C2_B1_C2_RUNNER.md) fue implementado exclusivamente bajo tests y validado offline. No fue conectado, no cambia grants ni reclasifica el CSV.

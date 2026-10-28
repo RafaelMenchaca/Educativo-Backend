@@ -74,6 +74,6 @@ Stop ante target no test, credencial persistida, fila sin marcador, owner/cardin
 
 - B0-current: completado en test.
 - B1: auditoria completada, sin revocaciones.
-- B1-C2: diseno offline; implementacion/prueba pendientes.
+- B1-C2: [runner/recovery implementados offline](ISOLATION_03D3C2_B1_C2_RUNNER.md); validacion conectada pendiente.
 - 03D3C2, 03D3C y Fase 03: abiertas; produccion intacta.
 - CSV 03A: sin cambios.

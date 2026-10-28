@@ -412,3 +412,5 @@ El [paquete 03D3C2-B0-current](ISOLATION_03D3C2_B0.md) esta completado en test. 
 La [auditoria 03D3C2-B1](ISOLATION_03D3C2_B1.md) separa DML authenticated productivo, administrativo, worker, pruebas y ausencia de consumidor. B0-current corresponde al commit `bbe9dc3b571399552f1d7b326f732d7d304133a9`; B1 no esta aplicado, produccion sigue pendiente y Fase 03 abierta.
 
 El [diseno B1-C2](ISOLATION_03D3C2_B1_C2_DESIGN.md) propone un ciclo administrativo local y exclusivo de test para retirar en el futuro ocho grants usados solo por fixtures. No existe runner conectado ni migracion; los grants se conservan hasta demostrar prepare, cleanup y recovery seguros.
+
+El [runner B1-C2](ISOLATION_03D3C2_B1_C2_RUNNER.md) esta implementado solo como herramienta de pruebas y permanece sin ejecucion remota. Produccion y ACL permanecen intactas.

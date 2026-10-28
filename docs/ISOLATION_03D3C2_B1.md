@@ -2,7 +2,9 @@
 
 Fecha: 2026-10-27. Estado: **auditoria y preflight read-only preparados offline; B1 no aplicado**. B0-current fue cerrado en test por el commit `bbe9dc3b571399552f1d7b326f732d7d304133a9` (`fix(security): revoke unnecessary runtime grants`). Produccion permanece intacta; 03D3C2, 03D3C y Fase 03 siguen abiertas.
 
-El commit de esta auditoria es `cb4d01bad40fc92a555a7c352afeab4ba3c621c8`. El [diseno B1-C2](ISOLATION_03D3C2_B1_C2_DESIGN.md) confirma las ocho dependencias test-only y recomienda un runner/recovery administrativo local, exclusivo de test y separado del runtime antes de cualquier revocacion. B1-C2 no esta implementada.
+El commit de esta auditoria es `cb4d01bad40fc92a555a7c352afeab4ba3c621c8`. El [diseno B1-C2](ISOLATION_03D3C2_B1_C2_DESIGN.md) confirma las ocho dependencias test-only y recomienda un runner/recovery administrativo local, exclusivo de test y separado del runtime antes de cualquier revocacion. La validacion conectada B1-C2 sigue pendiente.
+
+El [paquete de runner/recovery](ISOLATION_03D3C2_B1_C2_RUNNER.md) implementa esa separacion solo bajo tests y permanece sin ejecucion conectada. Los ocho grants siguen presentes; no existe migracion B1.
 
 Biblioteca sigue siendo el flujo visual principal; Archivados permanece independiente y la jerarquia se conserva como dependencia congelada. Esta auditoria no cambia grants, policies, RLS, secuencias, defaults, funciones, triggers, constraints, datos ni codigo funcional.
 
