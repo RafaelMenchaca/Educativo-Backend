@@ -410,3 +410,5 @@ La migracion de propietario comun esta aplicada y post-verificada en test: 14/14
 
 El [paquete 03D3C2-B0-current](ISOLATION_03D3C2_B0.md) esta completado en test. El primer falso fue un defecto public-only del postverify, no drift; el diagnostico confirmo 6/6 funciones y 16/16 triggers, el postverify corregido aprobo 15/15 y las regresiones sumaron 140 PASS con cero residuos. Rollback no ejecutado y produccion intacta.
 La [auditoria 03D3C2-B1](ISOLATION_03D3C2_B1.md) separa DML authenticated productivo, administrativo, worker, pruebas y ausencia de consumidor. B0-current corresponde al commit `bbe9dc3b571399552f1d7b326f732d7d304133a9`; B1 no esta aplicado, produccion sigue pendiente y Fase 03 abierta.
+
+El [diseno B1-C2](ISOLATION_03D3C2_B1_C2_DESIGN.md) propone un ciclo administrativo local y exclusivo de test para retirar en el futuro ocho grants usados solo por fixtures. No existe runner conectado ni migracion; los grants se conservan hasta demostrar prepare, cleanup y recovery seguros.
