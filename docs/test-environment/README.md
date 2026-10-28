@@ -135,3 +135,6 @@ El primer [preflight 03D3C2A](03d3c2a_acl_policy_preflight.sql) confirmó 19 tab
 
 
 El [paquete B0-current](../ISOLATION_03D3C2_B0.md) esta completado en Supabase test. El diagnostico [read-only](03d3c2_b0_current_trigger_diagnostic.sql) confirmo 6/6 funciones y 16/16 triggers; el postverify corregido aprobo 15/15 predicados y las regresiones post-B0 sumaron 140 PASS con cleanups completos. Rollback no ejecutado; defaults, service_role, policies y B1-B4 siguen separados.
+## Preflight 03D3C2-B1
+
+El [preflight read-only B1](03d3c2_b1_authenticated_dml_preflight.sql) inventaria 19 tablas x cuatro operaciones authenticated, policies, RLS y memberships. Su owner es [ISOLATION_03D3C2_B1](../ISOLATION_03D3C2_B1.md). Devuelve `apt_to_apply=false` mientras sigan abiertas dependencias de pruebas y decisiones B4; no incluye migracion. B0-current fue cerrado por `bbe9dc3b571399552f1d7b326f732d7d304133a9`.
