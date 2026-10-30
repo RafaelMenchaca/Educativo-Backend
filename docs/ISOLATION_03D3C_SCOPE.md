@@ -178,6 +178,8 @@ El [paquete B0-current](ISOLATION_03D3C2_B0.md) esta completado en Supabase test
 La auditoria B1 quedo comprometida en `cb4d01bad40fc92a555a7c352afeab4ba3c621c8`. Su [diseno C2](ISOLATION_03D3C2_B1_C2_DESIGN.md) delimita el futuro ciclo test-only para ocho operaciones sin consumidor productivo; no implementa runner ni revocaciones y mantiene 03D3C2 abierta.
 
 El [runner B1-C2](ISOLATION_03D3C2_B1_C2_RUNNER.md) esta implementado y probado solo offline. No fue conectado, no revoca grants y no forma parte del runtime.
+
+El [paquete B2](ISOLATION_03D3C2_B2.md) esta completado en Supabase test: diagnostico 24/24, preflight 16/16, baseline identity 2 PASS, migracion minima, postverify completo, runtime posterior 2 PASS y regresion Biblioteca 42 PASS. Conserva USAGE y retiro solo SELECT/UPDATE de authenticated/service_role. Rollback no ejecutado y produccion pendiente. B1-C2 sigue diferida a 03F; B3, B4 y defaults permanecen abiertos.
 ## Apertura 03D3C2-B1
 
 El commit B0-current `bbe9dc3b571399552f1d7b326f732d7d304133a9` cerro las revocaciones estructurales en test. La [auditoria B1](ISOLATION_03D3C2_B1.md) inventaria 19 tablas x 4 DML authenticated: 40 KEEP, ocho dependencias exclusivas de pruebas, 21 decisiones B4 y siete grants ya ausentes. No existe todavia un B1-C1 inequ?voco; no se preparo migracion.

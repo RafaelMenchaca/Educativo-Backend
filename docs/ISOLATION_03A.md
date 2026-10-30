@@ -131,3 +131,5 @@ Estado final 03D3C1: preflight aprobado, migracion aplicada y postverify 6/6 fun
 El [diseno B1-C2](ISOLATION_03D3C2_B1_C2_DESIGN.md), basado en el commit B1 `cb4d01bad40fc92a555a7c352afeab4ba3c621c8`, delimita ocho operaciones exclusivamente requeridas por harness/recovery. No existen revocaciones y no reclasifica filas 03A.
 
 El [runner/recovery B1-C2](ISOLATION_03D3C2_B1_C2_RUNNER.md) fue implementado exclusivamente bajo tests y validado offline. No fue conectado, no cambia grants ni reclasifica el CSV.
+
+[03D3C2-B2](ISOLATION_03D3C2_B2.md) quedo completado en Supabase test: conserva USAGE y retiro solo SELECT/UPDATE de authenticated/service_role; baseline y runtime posterior acreditaron identity y cleanup con 2 PASS cada uno, y Biblioteca conservo 42 PASS. Los dos valores consumidos son huecos legitimos que no se reparan. Produccion permanece pendiente; no cambia evidencia del CSV.

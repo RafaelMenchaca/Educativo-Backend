@@ -142,3 +142,5 @@ El [preflight read-only B1](03d3c2_b1_authenticated_dml_preflight.sql) inventari
 El [diseno B1-C2](../ISOLATION_03D3C2_B1_C2_DESIGN.md) es declarativo: especifica ocho operaciones test-only, grafo, guardas y olas futuras. No contiene SQL mutante, runner conectado, credenciales ni autorizacion para revocar.
 
 El [runner/recovery B1-C2](../ISOLATION_03D3C2_B1_C2_RUNNER.md) implementa el ciclo futuro con transporte inyectable y launchers test-only. No ha sido ejecutado contra Supabase; no es una migracion ni autoriza T1/T2/T3.
+
+El [paquete 03D3C2-B2](../ISOLATION_03D3C2_B2.md) quedo completado en Supabase test: diagnostico 24/24, preflight 16/16, baseline `pre_migration` 2 PASS, migracion minima, postverify completo, `post_migration` 2 PASS y regresion Biblioteca 42 PASS. Revoco solo SELECT/UPDATE de authenticated/service_role y conservo USAGE. Los dos huecos identity son legitimos y no se reajustan; rollback no ejecutado y produccion pendiente.
