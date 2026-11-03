@@ -4,7 +4,7 @@ Fecha: 2026-10-21.
 
 Estado: **03D3B y 03D3C1 completadas en Supabase test; 03D3C permanece abierta por 03D3C2 y 03D3C3; produccion pendiente; Fase 03 abierta.** Este documento conserva el alcance del hardening restante.
 
-La [auditoria ejecutable 03D3C2A](ISOLATION_03D3C2A.md) delimito grants, secuencia y 49 policies. B0-current fue aplicado, post-verificado y regresado en test: 140 PASS, cero FAIL/INCONCLUSIVE y cero residuos. Defaults, EXECUTE futuro, service_role y B1-B4 siguen separados y pendientes.
+La [auditoria ejecutable 03D3C2A](ISOLATION_03D3C2A.md) delimito grants, secuencia y 49 policies. B0-current fue aplicado, post-verificado y regresado en test: 140 PASS, cero FAIL/INCONCLUSIVE y cero residuos. B2 y B3 tambien quedaron validados en test (cierres abajo); defaults, EXECUTE futuro, service_role, B4 y dependencias B1-C2 diferidas a 03F siguen separados y pendientes.
 
 Biblioteca sigue siendo el unico flujo visual principal. Archivados permanece independiente. Planteles, grados, materias, unidades y temas son una capa relacional congelada: se preservan los contratos internos vigentes sin reintroducir Explorer ni crear funcionalidad jerarquica.
 
@@ -183,3 +183,11 @@ El [paquete B2](ISOLATION_03D3C2_B2.md) esta completado en Supabase test: diagno
 ## Apertura 03D3C2-B1
 
 El commit B0-current `bbe9dc3b571399552f1d7b326f732d7d304133a9` cerro las revocaciones estructurales en test. La [auditoria B1](ISOLATION_03D3C2_B1.md) inventaria 19 tablas x 4 DML authenticated: 40 KEEP, ocho dependencias exclusivas de pruebas, 21 decisiones B4 y siete grants ya ausentes. No existe todavia un B1-C1 inequ?voco; no se preparo migracion.
+
+## 03D3C2-B3 validado en Supabase test
+
+Cierre documental 2026-11-02 segun evidencia live confirmada por el usuario: [B3-R1](ISOLATION_03D3C2_B3.md) fue aplicado y postverificado exclusivamente en educativo-backend-test. Se estrecharon exactamente 26 policies de public a authenticated; inventario final 49/49 en 19 tablas, 27 authenticated y 22 public. postverify_ok=true, apt_to_apply=false deliberado; fingerprint esperado/observado 3c533f67f0e5cbeee119171f9e4a30bf; cero faltantes/adicionales y todos los invariantes de roles, allowlist, tablas, funciones/triggers, grants B0, secuencia B2, owners, RLS/FORCE y bypass aprobados.
+
+Regresiones definitivas en test: 03D2A 42 PASS, 03D2B 72 PASS, 03D2C 26 PASS y ownership 03D3C1 22 PASS: **162 PASS**, cero FAIL/INCONCLUSIVE/commandErrors, ejecucion y limpieza completas, sin fixturesPending ni uncertainPending, exitosas y exit code=0. A/B/C usaron EIA_B0_CURRENT_MODE=post_b0_current. El primer intento 03D2B omitio ese modo: 9 PASS parciales, commandErrors=1, executeCompleted=false y exit code=1 al recibir correctamente HTTP 401 para anon post-B0; cleanupCompleted=true y ambos pendientes vacios. Fue incompatibilidad de modo del harness, no regresion B3; el rerun correcto obtuvo 72 PASS. Los 9 parciales no se suman al total definitivo.
+
+Clasificacion conservada para trazabilidad: 26 NARROW_CANDIDATE ya aplicadas, 22 LEGACY_OR_DEFERRED sin cambios, una ALREADY_AUTHENTICATED, cero DECISION_REQUIRED/KEEP_PUBLIC. C1 demuestra provisioning definer postgres; profiles/settings siguen B4 y no requirieron repetir Auth. B3 validado en test no cierra 03D3C2: B0-defaults, B4 y superficies posteriores/deferidas siguen pendientes; B1-C2 y sus ocho grants permanecen diferidos a 03F. CSV intacto y Fase 03 abierta. Produccion intacta; rollback preparado, no ejecutado. Esta consolidacion solo modifica documentacion y valida offline; no ejecuta operaciones live, harnesses ni SQL. Todo sin stage.
