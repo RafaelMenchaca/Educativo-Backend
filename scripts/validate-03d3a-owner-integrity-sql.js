@@ -8,6 +8,7 @@ export const FILES=Object.freeze({
   postverify:'docs/test-environment/03d3a_owner_integrity_postverify.sql',
   rollback:'docs/test-environment/03d3a_owner_integrity_rollback.sql'
 });
+export const PRODUCTION_PREFLIGHT='docs/production/03d3a_owner_integrity_prod_preflight.sql';
 export const RELATIONS=Object.freeze([
  'planeaciones.batch_id','anexos.planeacion_id','anexos.batch_id',
  'listas_cotejo.planeacion_id','listas_cotejo.batch_id','examenes.unidad_id',
@@ -94,10 +95,29 @@ export function validateOwnerIntegrityPackage(files){
  need(drops.slice(10).every(s=>/_id_user_key$/.test(s)),'rollback: parent unique keys must be removed last',errors);
  return errors;
 }
+export function validateProductionPreflight(sql){
+ const errors=[],statements=splitSqlStatements(sql),normalized=strip(sql);
+ need(statements.length===1,'production preflight: expected one statement',errors);
+ need(/^WITH\b/i.test(statements[0]||'')&&/\bSELECT\s+jsonb_build_object\s*\(/i.test(normalized),'production preflight: one structured SELECT required',errors);
+ need(!/\b(INSERT|UPDATE|DELETE|MERGE|TRUNCATE|ALTER|CREATE|DROP|GRANT|REVOKE|COMMENT|CALL|DO|COPY|BEGIN|COMMIT|ROLLBACK|SECURITY\s+DEFINER|set_config|pg_sleep|dblink|http_|net\.)\b/i.test(normalized),'production preflight: read-only contract violated',errors);
+ need(sql.includes("'expected_project_name','educativo-backend'")&&sql.includes("'expected_project_ref','bfnkaqmhcsyxdxoqnahk'"),'production preflight: expected production identity missing',errors);
+ need(sql.includes("'project_ref_verified_by_sql',false")&&sql.includes("'visual_project_ref_confirmation_required',true")&&sql.includes("'catalog_check_does_not_verify_project_ref',true"),'production preflight: project identity boundary missing',errors);
+ need(count(sql,/AS check_name/g)===1&&count(sql,/SELECT '\w[^']*\.[^']*'/g)>=8,'production preflight: nine integrity checks required',errors);
+ for(const rel of RELATIONS)need(sql.includes(`'${rel}'`),`production preflight: missing ${rel}`,errors);
+ for(const field of ['mismatch_count','orphan_count','child_owner_null_count','parent_owner_null_count','parent_key_duplicate_count','optional_reference_count'])need(sql.includes(`'${field}'`),`production preflight: missing ${field}`,errors);
+ need(count(sql,/educativo_ia_[a-z_]+/g)>=14,'production preflight: complete target constraint manifest required',errors);
+ for(const field of ['expected_tables','expected_columns','expected_baseline_constraints','missing_table_count','missing_or_changed_column_count','missing_or_changed_constraint_count','present_target_constraint_count','unexpected_relevant_constraint_count','catalog_context_matches'])need(sql.includes(field),`production preflight: missing catalog contract ${field}`,errors);
+ need(/'apt_to_apply',catalog_context_matches\s+AND\s+check_count=9\s+AND\s+total_blocking_count=0/i.test(sql),'production preflight: fail-closed apt_to_apply missing',errors);
+ need(!/SELECT\s+[^;]*(?:c|p)\.(?:id|user_id)\s*(?:,|AS)/i.test(sql),'production preflight: row identifiers exposed',errors);
+ return errors;
+}
 export function loadPackage(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')){
  return Object.fromEntries(Object.entries(FILES).map(([k,f])=>[k,fs.readFileSync(path.join(root,f),'utf8')]));
 }
+export function loadProductionPreflight(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')){
+ return fs.readFileSync(path.join(root,PRODUCTION_PREFLIGHT),'utf8');
+}
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- const errors=validateOwnerIntegrityPackage(loadPackage());
+ const errors=[...validateOwnerIntegrityPackage(loadPackage()),...validateProductionPreflight(loadProductionPreflight())];
  if(errors.length){for(const e of errors)console.error(e);process.exitCode=1}else console.log('03D3A owner-integrity SQL package: PASS');
 }

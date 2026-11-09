@@ -29,6 +29,7 @@ Las FK simples y compuestas coexistentes tienen iguales acciones DELETE y UPDATE
 ## Paquete
 
 - [Preflight](test-environment/03d3a_owner_integrity_preflight.sql): nueve SELECT agregados. Exige cero mismatch, orphan, child owner null, parent owner null y parent key duplicates. optional_reference_count es informativo.
+- [Preflight productivo](production/03d3a_owner_integrity_prod_preflight.sql): SELECT unico y read-only que conserva los nueve agregados, valida tablas/columnas, baseline historico y ausencia de estado 03D3A parcial o conflictivo, y devuelve una fila JSON con `apt_to_apply`. El preflight anterior permanece exclusivamente test-only. Antes de ejecutarlo, el operador debe confirmar visualmente proyecto `educativo-backend`, Project ref exacto `bfnkaqmhcsyxdxoqnahk` y region `us-east-2`; PostgreSQL no acredita ese Project ref y el contexto catalogal no sustituye la comprobacion visual.
 - [Migracion](test-environment/03d3a_owner_integrity_migration.sql): transaccion one-shot; 14 constraints; cero DML de aplicacion.
 - [Postverify](test-environment/03d3a_owner_integrity_postverify.sql): compara tablas, columnas ordenadas, tipos, confmatchtype, confupdtype, confdeltype, confdelsetcols, validacion, UNIQUE y CHECK.
 - [Rollback](test-environment/03d3a_owner_integrity_rollback.sql): no ejecutado. Elimina primero nueve FK child, despues el CHECK y finalmente cuatro UNIQUE parent; sin CASCADE.
@@ -67,3 +68,5 @@ Las simulaciones offline terminan 42/42 PASS en 03D2A, 72/72 PASS en 03D2B y 26/
 ## Estado
 
 03D3B quedo completada: [el cierre live](ISOLATION_03D3B.md) registra 140 PASS, cero FAIL/INCONCLUSIVE, tres cleanups completos y cero residuos conocidos. Los 19 intentos relacionales fueron rechazados por su constraint exacta. Produccion permanece pendiente y Fase 03 continua abierta.
+
+El preflight productivo solo es apto cuando `catalog_context_matches=true`, existen exactamente los prerequisitos esperados, coinciden las 12 constraints historicas relevantes, no existe ninguna de las 14 constraints 03D3A ni una alternativa conflictiva, hay nueve chequeos y `total_blocking_count=0`. Cualquier error, salida incompleta, diferencia catalogal o `apt_to_apply=false` detiene la promocion. Ninguna migracion 03D3A ha sido ejecutada en produccion.
