@@ -213,6 +213,12 @@ export function validateProductionFunctionPackage(files,sourceSql){
  need((m.match(/REVOKE EXECUTE ON FUNCTION public\./g)||[]).length===6,'production migration: six revocations required',e);
  need((r.match(/ALTER FUNCTION public\.handle_new_user\(\) RESET search_path/g)||[]).length===1,'production rollback: exact search_path inverse missing',e);
  need((r.match(/GRANT EXECUTE ON FUNCTION public\./g)||[]).length===6,'production rollback: six grants required',e);
+ need(!/\b(?:FROM|TO)\s+"PUBLIC"\b/i.test(scanSql(m+r))&&!/\b(?:GRANT|REVOKE)\b[^;]*"PUBLIC"/i.test(scanSql(m+r)),'production package: PUBLIC must be the unquoted special grantee',e);
+ need((m.match(/FROM PUBLIC, anon, authenticated, service_role/g)||[]).length===6,'production migration: exact unquoted PUBLIC and explicit role list required',e);
+ need((r.match(/TO PUBLIC, anon, authenticated, service_role/g)||[]).length===6,'production rollback: exact unquoted PUBLIC and explicit role list required',e);
+ need(!/has_schema_privilege\(\s*['"]PUBLIC['"]/i.test(m+p+r),'production package: PUBLIC cannot be resolved as a role name',e);
+ need(/x\.grantee=0[\s\S]*x\.privilege_type='CREATE'/.test(m),'production migration: PUBLIC schema privilege must use catalog grantee zero',e);
+ need(/'PUBLIC'/.test(m+p+r),'production package: textual PUBLIC catalog representation missing',e);
  for(const name of FUNCTIONS){for(const [kind,sql] of Object.entries(files))need(sql.includes(name),`production ${kind}: missing ${name}`,e)}
  need(TRIGGERS.every(name=>m.includes(name)&&p.includes(name)&&r.includes(name)),'production package: exact trigger manifest incomplete',e);
  for(const sql of [m,p,r])need((sql.match(/'educativo_ia_/g)||[]).length>=14,'production package: 03D3A manifest incomplete',e);

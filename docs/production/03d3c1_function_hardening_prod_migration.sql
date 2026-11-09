@@ -95,7 +95,9 @@ constraint_gate AS (
 context_gate AS (
  SELECT current_setting('server_version_num')::integer=150008
    AND current_user='postgres' AND session_user='postgres'
-   AND NOT pg_catalog.has_schema_privilege('PUBLIC','public','CREATE')
+   AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_namespace n,
+     LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl,pg_catalog.acldefault('n',n.nspowner))) x
+     WHERE n.nspname='public' AND x.grantee=0 AND x.privilege_type='CREATE')
    AND NOT pg_catalog.has_schema_privilege('anon','public','CREATE')
    AND NOT pg_catalog.has_schema_privilege('authenticated','public','CREATE') context_exact
 )

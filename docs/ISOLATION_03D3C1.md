@@ -122,6 +122,12 @@ El cambio productivo por funcion es exacto: `handle_new_user()` conserva SECURIT
 
 La transaccion toma `ACCESS SHARE` sobre las tablas del grafo C1/03D3A: impide DDL concurrente y permite INSERT/UPDATE/DELETE normales. Los `ALTER FUNCTION`/`REVOKE` adquieren sus locks catalogales al ejecutarse. Un alta concurrente en `auth.users` no queda bloqueada por el lock de tabla; puede esperar brevemente por el lock de funcion y observar el estado completo anterior o posterior, nunca una instalacion parcial. Un timeout, error o gate distinto de uno aborta la transaccion completa. Se recomienda una ventana breve de baja actividad para reducir espera, no por riesgo de estado parcial.
 
+## Primer intento productivo C1 abortado
+
+El primer intento de migracion productiva termino con PostgreSQL `42704: role "PUBLIC" does not exist`. La causa fue la comprobacion de schema de la puerta inmediata: `has_schema_privilege('PUBLIC',...)` interpreta el argumento textual como un rol real, pero `PUBLIC` es un grantee especial y no existe como rol catalogal. Las sentencias ACL ya usaban correctamente `FROM PUBLIC`; no llegaron a ejecutarse. El correctivo consulta el privilegio de PUBLIC mediante `aclexplode(...).grantee=0`, manteniendo `'PUBLIC'` exclusivamente como representacion textual en arrays y comparaciones.
+
+Como todo ocurrio dentro de `BEGIN` y antes de la primera mutacion, la transaccion fue abortada y C1 no quedo aplicado. No se ejecuto postverify ni rollback. Antes de cualquier reintento debe repetirse exclusivamente el preflight productivo read-only y confirmar que el baseline anterior permanece intacto.
+
 | Archivo | Sentencias | Contrato |
 | --- | ---: | --- |
 | [preflight](test-environment/03d3c1_function_hardening_preflight.sql) | 4 | SELECT/CTE read-only: funciones/ACL/hashes, 16 triggers, CREATE sobre public y resolucion de objetos |

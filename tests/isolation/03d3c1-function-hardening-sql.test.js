@@ -121,3 +121,19 @@ test('production postverify is one read-only structured result',()=>{assert.equa
 test('production rollback is gated and symmetric',()=>{assert.ok(productionPackage.rollback.indexOf('immediate_rollback_gate')<productionPackage.rollback.indexOf('ALTER FUNCTION'));assert.equal((productionPackage.rollback.match(/GRANT EXECUTE ON FUNCTION/g)||[]).length,6);assert.match(productionPackage.rollback,/RESET search_path/)});
 test('production artifacts retain six functions sixteen triggers and fourteen ownership constraints',()=>{for(const sql of Object.values(productionPackage)){for(const name of FUNCTIONS)assert.match(sql,new RegExp(name));for(const name of TRIGGERS)assert.match(sql,new RegExp(name));assert.ok((sql.match(/'educativo_ia_/g)||[]).length>=14)}});
 test('production package rejects drift in fingerprints, trigger graph and transaction boundaries',()=>{assert.ok(validateProductionFunctionPackage({...productionPackage,migration:productionPackage.migration.replace('f97d9b07b705d78bd7dbaf5c960c543c','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')},sourceSql).length);assert.ok(validateProductionFunctionPackage({...productionPackage,postverify:productionPackage.postverify.replace('on_auth_user_created','missing_trigger')},sourceSql).length);assert.ok(validateProductionFunctionPackage({...productionPackage,rollback:productionPackage.rollback.replace('BEGIN;','')},sourceSql).length)});
+test('production executable SQL uses unquoted PUBLIC and exact explicit roles',()=>{
+ assert.equal((productionPackage.migration.match(/FROM PUBLIC, anon, authenticated, service_role/g)||[]).length,6);
+ assert.equal((productionPackage.rollback.match(/TO PUBLIC, anon, authenticated, service_role/g)||[]).length,6);
+ for(const sql of Object.values(productionPackage))assert.doesNotMatch(scanSql(sql),/\b(?:FROM|TO)\s+"PUBLIC"\b|\b(?:GRANT|REVOKE)\b[^;]*"PUBLIC"/i);
+ for(const quoted of ['FROM "PUBLIC"','TO "PUBLIC"']){
+  const key=quoted.startsWith('FROM')?'migration':'rollback';
+  const correct=key==='migration'?'FROM PUBLIC':'TO PUBLIC';
+  assert.ok(validateProductionFunctionPackage({...productionPackage,[key]:productionPackage[key].replace(correct,quoted)},sourceSql).length);
+ }
+});
+test('PUBLIC catalog checks never resolve a literal role named PUBLIC',()=>{
+ assert.doesNotMatch(productionPackage.migration,/has_schema_privilege\(\s*['"]PUBLIC['"]/i);
+ assert.match(productionPackage.migration,/x\.grantee=0[\s\S]*x\.privilege_type='CREATE'/);
+ assert.match(productionPackage.postverify,/'PUBLIC'/);
+ assert.ok(validateProductionFunctionPackage({...productionPackage,migration:productionPackage.migration.replace("x.grantee=0 AND x.privilege_type='CREATE'","pg_catalog.has_schema_privilege('PUBLIC','public','CREATE')")},sourceSql).length);
+});
