@@ -9,6 +9,11 @@ export const FILES=Object.freeze({
   rollback:'docs/test-environment/03d3a_owner_integrity_rollback.sql'
 });
 export const PRODUCTION_PREFLIGHT='docs/production/03d3a_owner_integrity_prod_preflight.sql';
+export const PRODUCTION_FILES=Object.freeze({
+ migration:'docs/production/03d3a_owner_integrity_prod_migration.sql',
+ postverify:'docs/production/03d3a_owner_integrity_prod_postverify.sql',
+ rollback:'docs/production/03d3a_owner_integrity_prod_rollback.sql'
+});
 export const RELATIONS=Object.freeze([
  'planeaciones.batch_id','anexos.planeacion_id','anexos.batch_id',
  'listas_cotejo.planeacion_id','listas_cotejo.batch_id','examenes.unidad_id',
@@ -111,13 +116,49 @@ export function validateProductionPreflight(sql){
  need(!/SELECT\s+[^;]*(?:c|p)\.(?:id|user_id)\s*(?:,|AS)/i.test(sql),'production preflight: row identifiers exposed',errors);
  return errors;
 }
+export function validateProductionChangePackage(files){
+ const errors=[],m=files.migration,v=files.postverify,r=files.rollback;
+ for(const [name,text] of Object.entries(files))need(typeof text==='string'&&text.trim(),`production ${name}: missing`,errors);
+ const ms=strip(m),vs=strip(v),rs=strip(r),mStatements=splitSqlStatements(m),vStatements=splitSqlStatements(v),rStatements=splitSqlStatements(r);
+ need(/migracion productiva/i.test(m)&&/postverify productivo/i.test(v)&&/rollback productivo/i.test(r),'production package: classification missing',errors);
+ need(mStatements.length===18,'production migration: expected eighteen statements',errors);
+ need(vStatements.length===1,'production postverify: expected one statement',errors);
+ need(rStatements.length===18,'production rollback: expected eighteen statements',errors);
+ need(/^\s*BEGIN;/m.test(m)&&/COMMIT;\s*$/m.test(m),'production migration: transaction required',errors);
+ need(/^\s*BEGIN;/m.test(r)&&/COMMIT;\s*$/m.test(r),'production rollback: transaction required',errors);
+ need(/LOCK TABLE[\s\S]+IN ACCESS EXCLUSIVE MODE/i.test(m)&&/LOCK TABLE[\s\S]+IN ACCESS EXCLUSIVE MODE/i.test(r),'production package: explicit locks required',errors);
+ need(/immediate_baseline_gate/.test(m)&&/1\s*\/\s*CASE WHEN[\s\S]+THEN 1 ELSE 0 END/.test(m),'production migration: fail-closed immediate gate required',errors);
+ need(m.indexOf('immediate_baseline_gate')<m.indexOf('ADD CONSTRAINT'),'production migration: gate must precede mutation',errors);
+ need(count(m,/ADD CONSTRAINT educativo_ia_/g)===14,'production migration: fourteen constraints required',errors);
+ need(count(m,/ADD CONSTRAINT educativo_ia_\w+_owner_fkey/g)===9,'production migration: nine owner foreign keys required',errors);
+ need(count(m,/UNIQUE \(id, user_id\)/g)>=5,'production migration: four unique constraints plus baseline required',errors);
+ need(count(m,/MATCH SIMPLE ON UPDATE NO ACTION ON DELETE/g)===9,'production migration: referential semantics required',errors);
+ for(const field of ['expected_columns','expected_baseline','target_constraints','relevant_child_columns','columns_exact','baseline_exact','target_absent','no_conflicting_composites','integrity_exact'])need(m.includes(field),`production migration: missing gate ${field}`,errors);
+ need(!/^\s*(?:INSERT|UPDATE|DELETE|MERGE|TRUNCATE|GRANT|REVOKE|CREATE|DROP)\b/im.test(ms),'production migration: unrelated mutation forbidden',errors);
+ need(!/\b(?:FUNCTION|PROCEDURE|TRIGGER|POLICY|SECURITY\s+DEFINER|EXECUTE|DO|CALL|COPY|format\s*\(|quote_ident)\b/i.test(ms),'production migration: expanded scope forbidden',errors);
+ need(count(v,/\('educativo_ia_[a-z_]+/g)===14,'production postverify: exact fourteen-object manifest required',errors);
+ need(/matched_constraint_count=14 AND missing_or_changed_constraint_count=0 AND unexpected_03d3a_constraint_count=0/.test(v),'production postverify: exact success gate required',errors);
+ need(!/\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|TRUNCATE|GRANT|REVOKE|BEGIN|COMMIT|ROLLBACK)\b/i.test(vs),'production postverify: read-only required',errors);
+ need(/rollback_baseline_gate/.test(r)&&r.indexOf('rollback_baseline_gate')<r.indexOf('DROP CONSTRAINT'),'production rollback: exact gate must precede drops',errors);
+ need(count(r,/DROP CONSTRAINT educativo_ia_/g)===14,'production rollback: exactly fourteen constraints required',errors);
+ need(!/DROP\s+[^;]*CASCADE/i.test(rs)&&!/DROP CONSTRAINT (?!educativo_ia_)/i.test(rs),'production rollback: foreign object removal forbidden',errors);
+ const drops=rStatements.slice(3,-1);
+ need(drops.length===14&&drops.slice(0,9).every(s=>/_owner_fkey$/.test(s)),'production rollback: owner foreign keys first',errors);
+ need(drops[9]?.endsWith('educativo_ia_planeaciones_batch_owner_present'),'production rollback: check after foreign keys',errors);
+ need(drops.slice(10).every(s=>/_id_user_key$/.test(s)),'production rollback: unique constraints last',errors);
+ for(const sql of Object.values(files))need(!/\b(?:MERGE|NULLS\s+NOT\s+DISTINCT|PERIOD|ENFORCED)\b/i.test(strip(sql)),'production package: syntax outside PostgreSQL 15 contract',errors);
+ return errors;
+}
 export function loadPackage(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')){
  return Object.fromEntries(Object.entries(FILES).map(([k,f])=>[k,fs.readFileSync(path.join(root,f),'utf8')]));
 }
 export function loadProductionPreflight(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')){
  return fs.readFileSync(path.join(root,PRODUCTION_PREFLIGHT),'utf8');
 }
+export function loadProductionChangePackage(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')){
+ return Object.fromEntries(Object.entries(PRODUCTION_FILES).map(([k,f])=>[k,fs.readFileSync(path.join(root,f),'utf8')]));
+}
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- const errors=[...validateOwnerIntegrityPackage(loadPackage()),...validateProductionPreflight(loadProductionPreflight())];
+ const errors=[...validateOwnerIntegrityPackage(loadPackage()),...validateProductionPreflight(loadProductionPreflight()),...validateProductionChangePackage(loadProductionChangePackage())];
  if(errors.length){for(const e of errors)console.error(e);process.exitCode=1}else console.log('03D3A owner-integrity SQL package: PASS');
 }
