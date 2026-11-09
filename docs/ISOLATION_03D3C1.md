@@ -112,6 +112,8 @@ GRANT/REVOKE soportan restauracion de privilegios efectivos. No se promete ident
 
 ## Manifiesto SQL
 
+El [preflight productivo](production/03d3c1_function_hardening_prod_preflight.sql) es un SELECT unico y read-only separado del preflight test-only. Exige confirmacion visual de `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`; SQL no acredita el Project ref. Resume seis funciones, 16 triggers, ACL/config/hash baseline, seguridad del schema, resolucion de `handle_new_user`, actor/version y las 14 constraints 03D3A. `apt_to_apply=true` requiere coincidencia exacta y ausencia de estado parcial. Su preparacion no autoriza migracion, postverify o rollback C1.
+
 | Archivo | Sentencias | Contrato |
 | --- | ---: | --- |
 | [preflight](test-environment/03d3c1_function_hardening_preflight.sql) | 4 | SELECT/CTE read-only: funciones/ACL/hashes, 16 triggers, CREATE sobre public y resolucion de objetos |

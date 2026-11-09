@@ -9,6 +9,7 @@ export const FILES=Object.freeze({
  postverify:'docs/test-environment/03d3c1_function_hardening_postverify.sql',
  rollback:'docs/test-environment/03d3c1_function_hardening_rollback.sql'
 });
+export const PRODUCTION_PREFLIGHT='docs/production/03d3c1_function_hardening_prod_preflight.sql';
 export const FUNCTIONS=Object.freeze([
  'handle_new_user','set_updated_at','enforce_grado_ownership','enforce_materia_ownership',
  'enforce_tema_ownership','enforce_planeacion_tema_ownership'
@@ -163,13 +164,45 @@ export function validateFunctionHardeningPackage(files,sourceSql){
  need(/PostgreSQL 15\.8[\s\S]*17\.6|PG15[\s\S]*PG17/i.test(p+m+v+r),'package: PG15/PG17 compatibility declaration missing',e);
  return e;
 }
+export function validateProductionFunctionPreflight(sql,sourceSql){
+ const e=[];let statements;try{statements=splitSqlStatements(sql)}catch(err){return [err.message]}
+ need(statements.length===1,'production preflight: one statement required',e);
+ need(/^WITH\b/i.test(statements[0]||'')&&/AS production_preflight_result/.test(sql),'production preflight: one structured output required',e);
+ const forbidden=/\b(?:INSERT|UPDATE|DELETE|MERGE|TRUNCATE|ALTER|CREATE|DROP|GRANT|REVOKE|CALL|DO|COPY|LOCK|BEGIN|COMMIT|ROLLBACK|set_config|pg_sleep|dblink|http_|net\.)\b/i;
+ need(!forbidden.test(scanSql(sql)),'production preflight: read-only contract violated',e);
+ need(/preflight productivo/i.test(sql)&&!/Execute only in Supabase test|Do not execute in production/i.test(sql),'production preflight: classification invalid',e);
+ need(sql.includes("'expected_project_name','educativo-backend'")&&sql.includes("'expected_project_ref','bfnkaqmhcsyxdxoqnahk'")&&sql.includes("'expected_region','us-east-2'"),'production preflight: expected identity missing',e);
+ need(sql.includes("'project_ref_verified_by_sql',false")&&sql.includes("'visual_project_ref_confirmation_required',true")&&sql.includes("'catalog_check_does_not_verify_project_ref',true"),'production preflight: human identity boundary missing',e);
+ need((sql.match(/^ \('(?:enforce_|handle_new_user|set_updated_at)/gm)||[]).length===6,'production preflight: six-function manifest required',e);
+ need(FUNCTIONS.every(name=>sql.includes(`'${name}'`)), 'production preflight: function inventory incomplete',e);
+ need(TRIGGERS.every(name=>sql.includes(`'${name}'`)), 'production preflight: trigger inventory incomplete',e);
+ need((sql.match(/^ \('(?:auth|public)','[^']+','(?:on_auth|set_|trg_)/gm)||[]).length===16,'production preflight: sixteen-trigger manifest required',e);
+ for(const field of ['owner_name','identity_arguments','result_type','language_name','function_kind','security_definer','volatility','parallel_safety','proconfig','expected_body_md5','observed_body_md5','execute_grantees','matches_baseline'])need(sql.includes(field),`production preflight: missing function field ${field}`,e);
+ if(typeof sourceSql==='string'){
+  let hashes;try{hashes=fingerprintVersionedFunctionBodies(sourceSql)}catch(err){e.push(err.message)}
+  if(hashes)for(const [name,hash] of Object.entries(hashes))need(new RegExp(`['"]${name}['"]\s*,\s*['"]${hash}['"]`).test(sql),`production preflight: ${name} fingerprint not derived`,e);
+ }
+ need(/unexpected_trigger_count=0/.test(sql),'production preflight: alternative trigger detection missing',e);
+ need(/matched_03d3a_constraint_count=14[\s\S]*changed_03d3a_constraint_count=0[\s\S]*unexpected_03d3a_constraint_count=0/.test(sql),'production preflight: 03D3A exact baseline missing',e);
+ need(/current_setting\('server_version_num'\)::integer=150008/.test(sql),'production preflight: PostgreSQL 15.8 gate missing',e);
+ need(/current_user='postgres' AND session_user='postgres'/.test(sql),'production preflight: authority gate missing',e);
+ need(/'apt_to_apply',catalog_context_matches AND server_context_matches AND authority_context_matches/.test(sql),'production preflight: fail-closed decision missing',e);
+ need(!/pg_get_functiondef/i.test(sql),'production preflight: raw function definitions forbidden',e);
+ need(!/SELECT[\s\S]*\bp\.prosrc\b(?!\s*\))/i.test(scanSql(sql)),'production preflight: raw function body output forbidden',e);
+ need(!/\b(?:NULLS\s+NOT\s+DISTINCT|PERIOD|ENFORCED)\b/i.test(scanSql(sql)),'production preflight: syntax outside PostgreSQL 15 contract',e);
+ return e;
+}
 export function loadPackage(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')){
  return Object.fromEntries(Object.entries(FILES).map(([k,f])=>[k,fs.readFileSync(path.join(root,f),'utf8')]));
 }
 export function loadVersionedFunctionSource(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')){
  return fs.readFileSync(path.join(root,FUNCTION_SOURCE),'utf8');
 }
+export function loadProductionPreflight(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')){
+ return fs.readFileSync(path.join(root,PRODUCTION_PREFLIGHT),'utf8');
+}
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- const errors=validateFunctionHardeningPackage(loadPackage(),loadVersionedFunctionSource());
+ const source=loadVersionedFunctionSource();
+ const errors=[...validateFunctionHardeningPackage(loadPackage(),source),...validateProductionFunctionPreflight(loadProductionPreflight(),source)];
  if(errors.length){for(const x of errors)console.error(x);process.exitCode=1}else console.log('03D3C1 function-hardening SQL package: PASS');
 }

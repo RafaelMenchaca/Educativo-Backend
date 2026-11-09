@@ -72,6 +72,12 @@ Las simulaciones offline terminan 42/42 PASS en 03D2A, 72/72 PASS en 03D2B y 26/
 
 03D3B quedo completada: [el cierre live](ISOLATION_03D3B.md) registra 140 PASS, cero FAIL/INCONCLUSIVE, tres cleanups completos y cero residuos conocidos. Los 19 intentos relacionales fueron rechazados por su constraint exacta. Produccion permanece pendiente y Fase 03 continua abierta.
 
-El preflight productivo solo es apto cuando `catalog_context_matches=true`, existen exactamente los prerequisitos esperados, coinciden las 12 constraints historicas relevantes, no existe ninguna de las 14 constraints 03D3A ni una alternativa conflictiva, hay nueve chequeos y `total_blocking_count=0`. Cualquier error, salida incompleta, diferencia catalogal o `apt_to_apply=false` detiene la promocion. Ninguna migracion 03D3A ha sido ejecutada en produccion.
+El preflight productivo solo es apto cuando `catalog_context_matches=true`, existen exactamente los prerequisitos esperados, coinciden las 12 constraints historicas relevantes, no existe ninguna de las 14 constraints 03D3A ni una alternativa conflictiva, hay nueve chequeos y `total_blocking_count=0`. Cualquier error, salida incompleta, diferencia catalogal o `apt_to_apply=false` detiene la promocion.
 
-Evidencia productiva read-only aportada por el operador: `apt_to_apply=true`, `catalog_context_matches=true`, tablas 8/8, columnas 21/21, baseline 12/12, cero constraints target/conflictivas, nueve chequeos, `total_blocking_count=0`, 280 referencias opcionales informativas, actor postgres y PostgreSQL 15.8. El Project ref no fue acreditado por SQL y conserva la confirmacion visual obligatoria. Esta evidencia permite preparar la solicitud de migracion, pero no autoriza ejecutar los tres candidatos productivos ni cierra 03D3A/F03.
+Evidencia productiva read-only aportada por el operador: `apt_to_apply=true`, `catalog_context_matches=true`, tablas 8/8, columnas 21/21, baseline 12/12, cero constraints target/conflictivas, nueve chequeos, `total_blocking_count=0`, 280 referencias opcionales informativas, actor postgres y PostgreSQL 15.8. El Project ref no fue acreditado por SQL y conservo la confirmacion visual obligatoria.
+
+## Cierre productivo 2026-11-08
+
+El operador confirmo visualmente `educativo-backend`, Project ref `bfnkaqmhcsyxdxoqnahk`, region `us-east-2`, y ejecuto manualmente el paquete productivo 03D3A en PostgreSQL 15.8 (`150008`). El preflight fue apto; la migracion devolvio `immediate_baseline_gate=1`; el postverify devolvio `postverify_ok=true`, 14/14 constraints exactas y validadas, cero faltantes/cambiadas y cero adicionales. `current_user=session_user=postgres`. Rollback no ejecutado.
+
+03D3A queda aplicado y postverificado exclusivamente en produccion `educativo-backend`. Produccion queda en el baseline esperado para evaluar el preflight productivo 03D3C1. Este cierre no autoriza C1, B0, B2 o B3 y no cierra F03.
