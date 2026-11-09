@@ -10,6 +10,11 @@ export const FILES=Object.freeze({
  rollback:'docs/test-environment/03d3c1_function_hardening_rollback.sql'
 });
 export const PRODUCTION_PREFLIGHT='docs/production/03d3c1_function_hardening_prod_preflight.sql';
+export const PRODUCTION_FILES=Object.freeze({
+ migration:'docs/production/03d3c1_function_hardening_prod_migration.sql',
+ postverify:'docs/production/03d3c1_function_hardening_prod_postverify.sql',
+ rollback:'docs/production/03d3c1_function_hardening_prod_rollback.sql'
+});
 export const FUNCTIONS=Object.freeze([
  'handle_new_user','set_updated_at','enforce_grado_ownership','enforce_materia_ownership',
  'enforce_tema_ownership','enforce_planeacion_tema_ownership'
@@ -192,6 +197,40 @@ export function validateProductionFunctionPreflight(sql,sourceSql){
  need(!/\b(?:NULLS\s+NOT\s+DISTINCT|PERIOD|ENFORCED)\b/i.test(scanSql(sql)),'production preflight: syntax outside PostgreSQL 15 contract',e);
  return e;
 }
+export function validateProductionFunctionPackage(files,sourceSql){
+ const e=[];for(const k of Object.keys(PRODUCTION_FILES))need(typeof files[k]==='string'&&files[k].trim(),`production ${k}: missing`,e);
+ if(e.length)return e;
+ const {migration:m,postverify:p,rollback:r}=files;let ms,ps,rs;
+ try{ms=splitSqlStatements(m);ps=splitSqlStatements(p);rs=splitSqlStatements(r)}catch(err){return [err.message]}
+ need(ms[0]&&norm(ms[0])==='begin'&&norm(ms.at(-1))==='commit','production migration: one transaction required',e);
+ need(rs[0]&&norm(rs[0])==='begin'&&norm(rs.at(-1))==='commit','production rollback: one transaction required',e);
+ need(ps.length===1&&/^WITH\b/i.test(ps[0])&&/AS production_postverify_result/.test(p),'production postverify: one structured statement required',e);
+ need((m.match(/\bLOCK TABLE\b/g)||[]).length===1&&/IN ACCESS SHARE MODE/.test(m),'production migration: minimal DDL-stability lock missing',e);
+ need((r.match(/\bLOCK TABLE\b/g)||[]).length===1&&/IN ACCESS SHARE MODE/.test(r),'production rollback: minimal DDL-stability lock missing',e);
+ need(m.indexOf('AS immediate_baseline_gate')>0&&m.indexOf('AS immediate_baseline_gate')<m.indexOf('ALTER FUNCTION'),'production migration: baseline gate must precede mutation',e);
+ need(r.indexOf('AS immediate_rollback_gate')>0&&r.indexOf('AS immediate_rollback_gate')<r.indexOf('ALTER FUNCTION'),'production rollback: installed-state gate must precede mutation',e);
+ need((m.match(/ALTER FUNCTION public\.handle_new_user\(\) SET search_path = pg_catalog, public/g)||[]).length===1,'production migration: exact search_path change missing',e);
+ need((m.match(/REVOKE EXECUTE ON FUNCTION public\./g)||[]).length===6,'production migration: six revocations required',e);
+ need((r.match(/ALTER FUNCTION public\.handle_new_user\(\) RESET search_path/g)||[]).length===1,'production rollback: exact search_path inverse missing',e);
+ need((r.match(/GRANT EXECUTE ON FUNCTION public\./g)||[]).length===6,'production rollback: six grants required',e);
+ for(const name of FUNCTIONS){for(const [kind,sql] of Object.entries(files))need(sql.includes(name),`production ${kind}: missing ${name}`,e)}
+ need(TRIGGERS.every(name=>m.includes(name)&&p.includes(name)&&r.includes(name)),'production package: exact trigger manifest incomplete',e);
+ for(const sql of [m,p,r])need((sql.match(/'educativo_ia_/g)||[]).length>=14,'production package: 03D3A manifest incomplete',e);
+ need(/function_count=6 AND matched_function_count=6/.test(p)&&/matched_trigger_count=16/.test(p)&&/matched_03d3a_constraint_count=14/.test(p),'production postverify: exact counts missing',e);
+ need(/'postverify_ok'/.test(p)&&/unexpected_function_count/.test(p)&&/unexpected_trigger_count/.test(p)&&/unexpected_03d3a_constraint_count/.test(p),'production postverify: fail-closed output missing',e);
+ const forbiddenRead=/\b(?:INSERT|UPDATE|DELETE|MERGE|TRUNCATE|ALTER|CREATE|DROP|GRANT|REVOKE|CALL|DO|COPY|LOCK|BEGIN|COMMIT|ROLLBACK|set_config|pg_sleep|dblink|http_|net\.)\b/i;
+ need(!forbiddenRead.test(scanSql(p)),'production postverify: read-only contract violated',e);
+ need(!/\b(?:INSERT|UPDATE|DELETE|MERGE|TRUNCATE|CREATE|DROP|CALL|DO|COPY)\b/i.test(scanSql(m+r)),'production mutation package: out-of-scope command',e);
+ need(!/\b(?:ALTER TABLE|ALTER TRIGGER|CREATE OR REPLACE|CASCADE)\b/i.test(scanSql(m+r)),'production mutation package: unrelated DDL/CASCADE forbidden',e);
+ need(!/pg_get_functiondef/i.test(m+p+r)&&!/SELECT[\s\S]*\bp\.prosrc\b(?!\s*\))/i.test(scanSql(m+p+r)),'production package: raw bodies forbidden',e);
+ need(!/\b(?:email|full_name|token|password|authorization|contenido|tabla_ia)\b/i.test(m+p+r),'production package: sensitive fields forbidden',e);
+ need(!/\b(?:NULLS\s+NOT\s+DISTINCT|PERIOD|ENFORCED)\b/i.test(scanSql(m+p+r)),'production package: syntax outside PostgreSQL 15',e);
+ if(typeof sourceSql==='string'){
+  let hashes;try{hashes=fingerprintVersionedFunctionBodies(sourceSql)}catch(err){e.push(err.message)}
+  if(hashes)for(const [name,hash] of Object.entries(hashes))for(const [kind,sql] of Object.entries(files))need(sql.includes(`'${name}','${hash}'`),`production ${kind}: ${name} fingerprint not derived`,e);
+ }
+ return e;
+}
 export function loadPackage(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')){
  return Object.fromEntries(Object.entries(FILES).map(([k,f])=>[k,fs.readFileSync(path.join(root,f),'utf8')]));
 }
@@ -201,8 +240,11 @@ export function loadVersionedFunctionSource(root=path.resolve(path.dirname(fileU
 export function loadProductionPreflight(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')){
  return fs.readFileSync(path.join(root,PRODUCTION_PREFLIGHT),'utf8');
 }
+export function loadProductionPackage(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')){
+ return Object.fromEntries(Object.entries(PRODUCTION_FILES).map(([k,f])=>[k,fs.readFileSync(path.join(root,f),'utf8')]));
+}
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const source=loadVersionedFunctionSource();
- const errors=[...validateFunctionHardeningPackage(loadPackage(),source),...validateProductionFunctionPreflight(loadProductionPreflight(),source)];
+ const errors=[...validateFunctionHardeningPackage(loadPackage(),source),...validateProductionFunctionPreflight(loadProductionPreflight(),source),...validateProductionFunctionPackage(loadProductionPackage(),source)];
  if(errors.length){for(const x of errors)console.error(x);process.exitCode=1}else console.log('03D3C1 function-hardening SQL package: PASS');
 }

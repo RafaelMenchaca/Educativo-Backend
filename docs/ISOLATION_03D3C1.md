@@ -1,8 +1,8 @@
 # 03D3C1 - funciones trigger y search_path
 
-Fecha: 2026-10-22.
+Fecha: 2026-11-08.
 
-Estado: **03D3C1 completada: hardening de funciones aplicado y verificado en Supabase test, con ownership, aprovisionamiento Auth, updated_at y cleanup aprobados. Pendiente de promocion controlada a produccion. Fase 03 continua abierta.** Rollback no ejecutado; produccion permanece intacta y sin 03D3A/03D3C1.
+Estado: **03D3C1 completada en Supabase test. Preflight productivo aprobado el 2026-11-08; migracion, postverify y rollback productivos preparados pero no ejecutados. Fase 03 continua abierta.** 03D3A ya esta instalado y postverificado en produccion; 03D3C1 permanece pendiente de autorizacion y aplicacion.
 
 ## Objetivo y limites
 
@@ -113,6 +113,14 @@ GRANT/REVOKE soportan restauracion de privilegios efectivos. No se promete ident
 ## Manifiesto SQL
 
 El [preflight productivo](production/03d3c1_function_hardening_prod_preflight.sql) es un SELECT unico y read-only separado del preflight test-only. Exige confirmacion visual de `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`; SQL no acredita el Project ref. Resume seis funciones, 16 triggers, ACL/config/hash baseline, seguridad del schema, resolucion de `handle_new_user`, actor/version y las 14 constraints 03D3A. `apt_to_apply=true` requiere coincidencia exacta y ausencia de estado parcial. Su preparacion no autoriza migracion, postverify o rollback C1.
+
+El operador ejecuto manualmente ese preflight en produccion el 2026-11-08, tras confirmar visualmente el proyecto y Project ref. La evidencia entregada fue: `apt_to_apply=true`; contexto de catalogo, servidor, autoridad, schema y resolucion en `true`; funciones 6/6; triggers 16/16, cero inesperados; constraints 03D3A 14/14, cero cambiadas y cero inesperadas; PostgreSQL `150008`; `current_user=session_user=postgres`. Este resultado aprueba exclusivamente el baseline previo. No se ha ejecutado 03D3C1 migration, postverify ni rollback en produccion.
+
+Los equivalentes productivos son [migration](production/03d3c1_function_hardening_prod_migration.sql), [postverify](production/03d3c1_function_hardening_prod_postverify.sql) y [rollback](production/03d3c1_function_hardening_prod_rollback.sql). La migracion vuelve a comprobar dentro de su transaccion las seis funciones y fingerprints, ACL/config/atributos, 16 bindings de triggers, 14 constraints 03D3A, actor, version y permisos CREATE antes de la primera mutacion. El postverify exige coincidencia total y una unica salida JSON con `postverify_ok=true`. El rollback solo admite el estado posterior exacto, restaura `search_path` y privilegios efectivos previos, y falla cerrado ante drift. Los tres requieren revision y autorizacion separadas.
+
+El cambio productivo por funcion es exacto: `handle_new_user()` conserva SECURITY DEFINER, owner, firma, retorno, lenguaje, volatilidad, parallel safety y cuerpo; fija `search_path=pg_catalog, public` y revoca EXECUTE a PUBLIC, anon, authenticated y service_role. Las otras cinco funciones conservan SECURITY INVOKER, `proconfig` nulo y todos sus atributos/cuerpos; solo reciben esas cuatro revocaciones. No se recrea ni altera ningun trigger o constraint.
+
+La transaccion toma `ACCESS SHARE` sobre las tablas del grafo C1/03D3A: impide DDL concurrente y permite INSERT/UPDATE/DELETE normales. Los `ALTER FUNCTION`/`REVOKE` adquieren sus locks catalogales al ejecutarse. Un alta concurrente en `auth.users` no queda bloqueada por el lock de tabla; puede esperar brevemente por el lock de funcion y observar el estado completo anterior o posterior, nunca una instalacion parcial. Un timeout, error o gate distinto de uno aborta la transaccion completa. Se recomienda una ventana breve de baja actividad para reducir espera, no por riesgo de estado parcial.
 
 | Archivo | Sentencias | Contrato |
 | --- | ---: | --- |
