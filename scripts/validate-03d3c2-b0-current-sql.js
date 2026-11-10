@@ -13,6 +13,11 @@ export const FILES=Object.freeze({
  rollback:path.resolve(here,'../docs/test-environment/03d3c2_b0_current_rollback.sql'),
 });
 export const PRODUCTION_PREFLIGHT=path.resolve(here,'../docs/production/03d3c2_b0_current_prod_preflight.sql');
+export const PRODUCTION_FILES=Object.freeze({
+ migration:path.resolve(here,'../docs/production/03d3c2_b0_current_prod_migration.sql'),
+ postverify:path.resolve(here,'../docs/production/03d3c2_b0_current_prod_postverify.sql'),
+ rollback:path.resolve(here,'../docs/production/03d3c2_b0_current_prod_rollback.sql')
+});
 export const TARGET_TABLES=Object.freeze(['ai_generation_calls','ai_generation_jobs','anexos','examen_generation_items','examen_generation_jobs','examenes','grados','listas_cotejo','materias','planeacion_batches','planeaciones','planteles','profiles','temas','unidades','user_profiles','user_settings']);
 export const PORTABLE=Object.freeze(['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']);
 export const HARDENED_FUNCTIONS=Object.freeze([
@@ -154,5 +159,41 @@ export function validateProductionPreflight(sql=fs.readFileSync(PRODUCTION_PREFL
  if(/pg_get_functiondef|\bp\.prosrc\s+AS\b/i.test(clean)||/\b(?:email|full_name|password|authorization|contenido|tabla_ia)\b/i.test(clean))errors.push('sensitive or raw body output forbidden');
  return errors;
 }
-function main(){const r=validatePackage(),errors=[...r.errors,...validateProductionPreflight()];if(errors.length){for(const e of errors)process.stderr.write(`ERROR ${e}\n`);process.exitCode=1}else process.stdout.write(`PASS targets=${TARGET_TABLES.length} statements=1/5/1/5 production=1\n`)}
+export function validateProductionPackage(contents=Object.fromEntries(Object.entries(PRODUCTION_FILES).map(([k,v])=>[k,fs.readFileSync(v,'utf8')]))){
+ const errors=[];const {migration,postverify,rollback}=contents;let ms=[],ps=[],rs=[];
+ try{ms=statements(migration);ps=statements(postverify);rs=statements(rollback)}catch(error){return [error.message]}
+ if(ms.length!==7||ms[0].toUpperCase()!=='BEGIN;'||ms.at(-1).toUpperCase()!=='COMMIT;')errors.push('production migration must be one transaction with seven statements');
+ if(rs.length!==7||rs[0].toUpperCase()!=='BEGIN;'||rs.at(-1).toUpperCase()!=='COMMIT;')errors.push('production rollback must be one transaction with seven statements');
+ if(ps.length!==1||!/^WITH RECURSIVE\b/i.test(ps[0])||!/AS production_postverify_result/.test(postverify))errors.push('production postverify must be one structured read-only statement');
+ if(!/IN ACCESS SHARE MODE/i.test(ms[1]||'')||!/IN ACCESS SHARE MODE/i.test(rs[1]||''))errors.push('production ACCESS SHARE locks missing');
+ const allTables=[...TARGET_TABLES,'ai_model_prices','ia_metrics_legacy'];
+ for(const [name,statement] of [['migration',ms[1]||''],['rollback',rs[1]||'']])for(const table of allTables)if(!statement.includes(`public.${table}`))errors.push(`${name} lock manifest missing ${table}`);
+ if(!/AS immediate_baseline_gate/.test(ms[2]||'')||migration.indexOf('immediate_baseline_gate')>migration.indexOf('REVOKE SELECT'))errors.push('production migration gate must precede first REVOKE');
+ if(!/AS immediate_rollback_gate/.test(rs[2]||'')||rollback.indexOf('immediate_rollback_gate')>rollback.indexOf('GRANT SELECT'))errors.push('production rollback gate must precede first GRANT');
+ for(const [name,sql] of [['migration',migration],['postverify',postverify],['rollback',rollback]]){
+  for(const token of ['policy_manifest_md5','policy_definition_md5','default_privilege_count','matched_03d3a_constraint_count','matched_function_count','matched_trigger_count'])if(!sql.includes(token))errors.push(`${name} baseline missing ${token}`);
+  if(!sql.includes("current_setting('server_version_num')::integer=150008")||!sql.includes("current_user='postgres' AND session_user='postgres'"))errors.push(`${name} PG15.8 authority gate missing`);
+  if(/\b(?:CREATE|DROP|ALTER POLICY|ALTER DEFAULT PRIVILEGES|CREATE OR REPLACE|CASCADE)\b/i.test(strip(sql)))errors.push(`${name} contains out-of-scope mutation`);
+ }
+ if(/\b(?:ALTER|CREATE|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE|TRUNCATE|LOCK|BEGIN|COMMIT|ROLLBACK|CALL|DO|COPY)\b/i.test(strip(postverify)))errors.push('production postverify is not read-only');
+ for(const index of [3,4]){const found=[...new Set(tableNames(ms[index]||''))].sort();if(JSON.stringify(found)!==JSON.stringify([...TARGET_TABLES].sort()))errors.push(`production migration target mismatch at ${index}`)}
+ for(const index of [3,4]){const found=[...new Set(tableNames(rs[index]||''))].sort();if(JSON.stringify(found)!==JSON.stringify([...TARGET_TABLES].sort()))errors.push(`production rollback target mismatch at ${index}`)}
+ const exactCommands=[
+  [/REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER[\s\S]*FROM anon;/i,migration,'migration anon revoke'],
+  [/REVOKE TRUNCATE, REFERENCES, TRIGGER[\s\S]*FROM authenticated;/i,migration,'migration authenticated revoke'],
+  [/REVOKE USAGE, SELECT, UPDATE ON SEQUENCE public\.planeaciones_id_seq FROM anon;/i,migration,'migration sequence revoke'],
+  [/GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER[\s\S]*TO anon;/i,rollback,'rollback anon grant'],
+  [/GRANT TRUNCATE, REFERENCES, TRIGGER[\s\S]*TO authenticated;/i,rollback,'rollback authenticated grant'],
+  [/GRANT USAGE, SELECT, UPDATE ON SEQUENCE public\.planeaciones_id_seq TO anon;/i,rollback,'rollback sequence grant']
+ ];
+ for(const [pattern,sql,label] of exactCommands)if(!pattern.test(sql))errors.push(`${label} mismatch`);
+ if(!/expected_table_grant_count=505 AND matched_table_grant_count=505/.test(migration)||!/matched_sequence_grant_count=12/.test(migration))errors.push('migration pre-B0 baseline mismatch');
+ for(const [name,sql] of [['postverify',postverify],['rollback',rollback]])if(!/expected_table_grant_count=335 AND matched_table_grant_count=335/.test(sql)||!/matched_sequence_grant_count=9/.test(sql))errors.push(`${name} post-B0 baseline mismatch`);
+ for(const token of ['anon_table_grant_count','authenticated_table_grant_count','service_role_table_grant_count','postgres_table_grant_count','anon_sequence_grant_count','authenticated_sequence_grant_count','postverify_ok'])if(!postverify.includes(token))errors.push(`postverify output missing ${token}`);
+ if(!/'postverify_ok',catalog_context_matches AND server_context_matches AND authority_context_matches/.test(postverify))errors.push('postverify fail-closed formula missing');
+ for(const [name,sql] of Object.entries(contents)){let calls=[];try{calls=analyzeFunctionCalls(sql)}catch(error){errors.push(`${name}: ${error.message}`)}for(const call of calls)if(call.argumentCount>=100)errors.push(`${name}: ${call.name} has ${call.argumentCount} arguments`) }
+ if(/"(?:anon|authenticated|service_role|postgres|PUBLIC)"/.test(strip(migration+rollback)))errors.push('quoted role identifier forbidden');
+ return errors;
+}
+function main(){const r=validatePackage(),errors=[...r.errors,...validateProductionPreflight(),...validateProductionPackage()];if(errors.length){for(const e of errors)process.stderr.write(`ERROR ${e}\n`);process.exitCode=1}else process.stdout.write(`PASS targets=${TARGET_TABLES.length} statements=1/5/1/5 production=1/7/1/7\n`)}
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url))main();

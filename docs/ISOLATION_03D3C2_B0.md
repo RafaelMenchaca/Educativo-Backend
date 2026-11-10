@@ -1,6 +1,6 @@
 # 03D3C2-B0-current - grants de objetos existentes
 
-Fecha: 2026-11-09. Estado: **03D3C2-B0-current COMPLETADO EN SUPABASE TEST; PRIMER PREFLIGHT PRODUCTIVO READ-ONLY FALLIDO, CORRECTIVO PENDIENTE DE COMMIT Y RERUN.** B0 no fue aplicado. 03D3C2, 03D3C y Fase 03 continuan abiertas.
+Fecha: 2026-11-09. Estado: **03D3C2-B0-current COMPLETADO EN SUPABASE TEST; PREFLIGHT PRODUCTIVO READ-ONLY APROBADO; MIGRACION PRODUCTIVA AUN NO APLICADA.** 03D3C2, 03D3C y Fase 03 continuan abiertas.
 
 ## Evidencia de entrada
 
@@ -22,7 +22,11 @@ Quedan excluidos `ai_model_prices`, `ia_metrics_legacy`, DML authenticated, serv
 
 El [preflight productivo](production/03d3c2_b0_current_prod_preflight.sql) es un SELECT unico separado del preflight test-only. Exige confirmacion visual de `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`; SQL no verifica el Project ref. Para PostgreSQL 15.8 exige 19 tablas publicas y 17 targets B0 exactos, owners/RLS/ACL previas, grants directos y efectivos sin herencia ni PUBLIC, 49 policies sin aplicar B3, una secuencia y sus 12 grants previos sin aplicar B2, 88 default privileges PG15 sin modificarlos, 14 constraints 03D3A y el estado posterior exacto de seis funciones/16 triggers C1. `apt_to_apply=true` requiere coincidencia total. Su preparacion no autoriza migration, postverify o rollback B0.
 
-La primera ejecucion productiva read-only termino antes de producir salida con PostgreSQL `54023: cannot pass more than 100 arguments to a function`. La causa fue una unica llamada final a `jsonb_build_object` con mas de 100 argumentos; cada pareja clave/valor consume dos. No hubo mutaciones y no se ejecutaron migration, postverify ni rollback B0. El correctivo conserva los CTE, calculos, 56 claves, valores y decisiones, y concatena cinco objetos JSONB; la mayor llamada tiene 32 argumentos. Quedan pendientes el commit correctivo y un rerun exclusivo del preflight read-only.
+La primera ejecucion productiva read-only termino antes de producir salida con PostgreSQL `54023: cannot pass more than 100 arguments to a function`. La causa fue una unica llamada final a `jsonb_build_object` con mas de 100 argumentos; cada pareja clave/valor consume dos. No hubo mutaciones y no se ejecutaron migration, postverify ni rollback B0. El correctivo comprometido en `4ac2275` conserva los CTE, calculos, 56 claves, valores y decisiones, y concatena cinco objetos JSONB; la mayor llamada tiene 32 argumentos.
+
+El rerun read-only en `educativo-backend`, con Project ref `bfnkaqmhcsyxdxoqnahk` confirmado visualmente, fue aprobado: `apt_to_apply=true`, contextos de catalogo/servidor/autoridad verdaderos, 19 tablas publicas y 17 targets, 505/505 grants de tabla, cero grants inesperados/PUBLIC/heredados, 49 policies con fingerprints esperados, una secuencia con 12/12 grants, 88/88 default privileges, 14/14 constraints 03D3A y 6/6 funciones mas 16/16 triggers C1. PostgreSQL reporto `150008`. Esta evidencia autoriza preparar el paquete, no ejecutarlo.
+
+Los artefactos productivos preparados son [migration](production/03d3c2_b0_current_prod_migration.sql), [postverify](production/03d3c2_b0_current_prod_postverify.sql) y [rollback](production/03d3c2_b0_current_prod_rollback.sql). Migration revalida dentro de una unica transaccion todo el baseline aprobado antes del primer `REVOKE` y emite `immediate_baseline_gate=1`. Postverify exige exactamente 335 grants de tabla y nueve de secuencia posteriores, preservando policies, defaults, 03D3A y C1. Rollback exige primero ese estado posterior exacto y restaura solo los tres grupos de grants de B0. Ninguno ha sido ejecutado en produccion.
 
 - [Preflight](test-environment/03d3c2_b0_current_preflight.sql): una sentencia read-only y fail-closed. Exige PG17 test, autoridad postgres, 19/17 tablas exactas, ACL previas exactas, ausencia MAINTAIN runtime, cero memberships directas/transitivas, 49 policies, una secuencia y 96 defaults.
 - [Migración](test-environment/03d3c2_b0_current_migration.sql): transacción con tres REVOKE explícitos.
@@ -70,4 +74,4 @@ Ambos tuvieron `executeCompleted=false`, un `commandError`, `successful=false` y
 
 ## Estado y pendientes separados
 
-**03D3C2-B0-current esta completado en test y pendiente de preflight productivo manual.** Siguen abiertos B0-defaults de `postgres`, B0-defaults de `supabase_admin`, B0-functions-default, B0-service-role, B1 DML authenticated por tabla, B2 secuencia authenticated/service_role, B3 policies tecnicas y B4 metricas/precios/perfiles/legacy. 03D3C2, 03D3C y Fase 03 siguen abiertas. No se preparo ni ejecuto migration/postverify/rollback productivo B0.
+**03D3C2-B0-current esta completado en test, con preflight productivo aprobado y paquete productivo pendiente de revision, commit y autorizacion de ejecucion.** Siguen abiertos B0-defaults de `postgres`, B0-defaults de `supabase_admin`, B0-functions-default, B0-service-role, B1 DML authenticated por tabla, B2 secuencia authenticated/service_role, B3 policies tecnicas y B4 metricas/precios/perfiles/legacy. 03D3C2, 03D3C y Fase 03 siguen abiertas. No se ejecuto migration, postverify ni rollback productivo B0.
