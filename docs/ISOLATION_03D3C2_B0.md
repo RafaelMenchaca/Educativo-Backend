@@ -1,6 +1,6 @@
 # 03D3C2-B0-current - grants de objetos existentes
 
-Fecha: 2026-11-09. Estado: **03D3C2-B0-current COMPLETADO EN SUPABASE TEST; PREFLIGHT PRODUCTIVO READ-ONLY APROBADO; MIGRACION PRODUCTIVA AUN NO APLICADA.** 03D3C2, 03D3C y Fase 03 continuan abiertas.
+Fecha: 2026-11-09. Estado: **03D3C2-B0-current APLICADO Y POSTVERIFICADO EN PRODUCCION.** 03D3C2, 03D3C y Fase 03 continuan abiertas.
 
 ## Evidencia de entrada
 
@@ -26,7 +26,9 @@ La primera ejecucion productiva read-only termino antes de producir salida con P
 
 El rerun read-only en `educativo-backend`, con Project ref `bfnkaqmhcsyxdxoqnahk` confirmado visualmente, fue aprobado: `apt_to_apply=true`, contextos de catalogo/servidor/autoridad verdaderos, 19 tablas publicas y 17 targets, 505/505 grants de tabla, cero grants inesperados/PUBLIC/heredados, 49 policies con fingerprints esperados, una secuencia con 12/12 grants, 88/88 default privileges, 14/14 constraints 03D3A y 6/6 funciones mas 16/16 triggers C1. PostgreSQL reporto `150008`. Esta evidencia autoriza preparar el paquete, no ejecutarlo.
 
-Los artefactos productivos preparados son [migration](production/03d3c2_b0_current_prod_migration.sql), [postverify](production/03d3c2_b0_current_prod_postverify.sql) y [rollback](production/03d3c2_b0_current_prod_rollback.sql). Migration revalida dentro de una unica transaccion todo el baseline aprobado antes del primer `REVOKE` y emite `immediate_baseline_gate=1`. Postverify exige exactamente 335 grants de tabla y nueve de secuencia posteriores, preservando policies, defaults, 03D3A y C1. Rollback exige primero ese estado posterior exacto y restaura solo los tres grupos de grants de B0. Ninguno ha sido ejecutado en produccion.
+Los artefactos productivos son [migration](production/03d3c2_b0_current_prod_migration.sql), [postverify](production/03d3c2_b0_current_prod_postverify.sql) y [rollback](production/03d3c2_b0_current_prod_rollback.sql). Migration revalida dentro de una unica transaccion todo el baseline aprobado antes del primer `REVOKE` y emite `immediate_baseline_gate=1`. Postverify exige exactamente 335 grants de tabla y nueve de secuencia posteriores, preservando policies, defaults, 03D3A y C1. Rollback exige primero ese estado posterior exacto y restaura solo los tres grupos de grants de B0.
+
+La migracion B0 fue aplicada en `educativo-backend`, Project ref `bfnkaqmhcsyxdxoqnahk` confirmado visualmente, con `immediate_baseline_gate=1`. El postverify devolvio `postverify_ok=true`: 335/335 grants de tabla, cero inesperados, anon 0, authenticated 69, service_role 133 y postgres 133; una secuencia con nueve grants (anon 0 y tres para cada rol restante); 49 policies, 48 PUBLIC, 88 defaults, 14 constraints 03D3A, seis funciones y 16 triggers C1. `catalog_context_matches=true` en PostgreSQL `150008`. Rollback no fue ejecutado y produccion quedo lista para evaluar B2.
 
 - [Preflight](test-environment/03d3c2_b0_current_preflight.sql): una sentencia read-only y fail-closed. Exige PG17 test, autoridad postgres, 19/17 tablas exactas, ACL previas exactas, ausencia MAINTAIN runtime, cero memberships directas/transitivas, 49 policies, una secuencia y 96 defaults.
 - [Migración](test-environment/03d3c2_b0_current_migration.sql): transacción con tres REVOKE explícitos.
@@ -74,4 +76,4 @@ Ambos tuvieron `executeCompleted=false`, un `commandError`, `successful=false` y
 
 ## Estado y pendientes separados
 
-**03D3C2-B0-current esta completado en test, con preflight productivo aprobado y paquete productivo pendiente de revision, commit y autorizacion de ejecucion.** Siguen abiertos B0-defaults de `postgres`, B0-defaults de `supabase_admin`, B0-functions-default, B0-service-role, B1 DML authenticated por tabla, B2 secuencia authenticated/service_role, B3 policies tecnicas y B4 metricas/precios/perfiles/legacy. 03D3C2, 03D3C y Fase 03 siguen abiertas. No se ejecuto migration, postverify ni rollback productivo B0.
+**03D3C2-B0-current esta completado en test y produccion.** Siguen abiertos B0-defaults de `postgres`, B0-defaults de `supabase_admin`, B0-functions-default, B0-service-role, B1 DML authenticated por tabla, B2 secuencia authenticated/service_role, B3 policies tecnicas y B4 metricas/precios/perfiles/legacy. 03D3C2, 03D3C y Fase 03 siguen abiertas. Rollback productivo B0 no fue ejecutado.

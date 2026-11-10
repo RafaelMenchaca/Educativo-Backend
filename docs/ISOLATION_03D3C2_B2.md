@@ -1,6 +1,12 @@
 # 03D3C2-B2: privilegios de `planeaciones_id_seq`
 
-Estado: **COMPLETADO EN SUPABASE TEST; PENDIENTE DE PROMOCION CONTROLADA A PRODUCCION**. B0-current continua completado en test. B1-C2 se difirio a 03F con sus ocho grants intactos. Rollback no ejecutado; produccion permanece intacta.
+Estado: **COMPLETADO EN SUPABASE TEST; PREFLIGHT PRODUCTIVO PREPARADO, NO EJECUTADO**. B0-current esta aplicado y postverificado en produccion. B1-C2 se difirio a 03F con sus ocho grants intactos. B2 productivo no ha sido aplicado y F03 continua abierta.
+
+## Contrato productivo confirmado
+
+La decision productiva replica exactamente la semantica validada en test: anon permanece sin privilegios; authenticated y service_role conservan solo USAGE y pierden SELECT/UPDATE; postgres conserva USAGE/SELECT/UPDATE. El baseline previo posterior a B0 contiene nueve grants directos (0+3+3+3) y el objetivo B2 contiene cinco (0+1+1+3). La instruccion anterior de conservar los tres privilegios de service_role fue revocada por ser incompatible con migration, postverify, rollback y evidencia canonica.
+
+El [preflight productivo](production/03d3c2_b2_sequence_prod_preflight.sql) es una unica sentencia read-only para PostgreSQL 15.8. Exige confirmacion visual de `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`; SQL no afirma verificar el Project ref. Comprueba objeto, owner, parametros, dependencia identity interna con `public.planeaciones.id`, ACL directas/efectivas, PUBLIC y membresias, el estado B0 de 335 grants de tabla, 49 policies y sus fingerprints, 88 defaults, 14 constraints 03D3A y seis funciones/16 triggers C1. Declara el objetivo de cinco grants sin aplicarlo. `apt_to_apply=true` requiere coincidencia total. No se prepararon migration, postverify ni rollback productivos B2.
 
 ## Diagnostico de `context_ok`
 
