@@ -1,8 +1,8 @@
 # 03D3C1 - funciones trigger y search_path
 
-Fecha: 2026-11-08.
+Fecha: 2026-11-09.
 
-Estado: **03D3C1 completada en Supabase test. Preflight productivo aprobado el 2026-11-08; migracion, postverify y rollback productivos preparados pero no ejecutados. Fase 03 continua abierta.** 03D3A ya esta instalado y postverificado en produccion; 03D3C1 permanece pendiente de autorizacion y aplicacion.
+Estado: **03D3C1 aplicada y postverificada en produccion `educativo-backend`; rollback no ejecutado. Fase 03 continua abierta.** 03D3A y 03D3C1 quedaron intactas y produccion esta lista para evaluar el preflight B0-current.
 
 ## Objetivo y limites
 
@@ -114,7 +114,7 @@ GRANT/REVOKE soportan restauracion de privilegios efectivos. No se promete ident
 
 El [preflight productivo](production/03d3c1_function_hardening_prod_preflight.sql) es un SELECT unico y read-only separado del preflight test-only. Exige confirmacion visual de `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`; SQL no acredita el Project ref. Resume seis funciones, 16 triggers, ACL/config/hash baseline, seguridad del schema, resolucion de `handle_new_user`, actor/version y las 14 constraints 03D3A. `apt_to_apply=true` requiere coincidencia exacta y ausencia de estado parcial. Su preparacion no autoriza migracion, postverify o rollback C1.
 
-El operador ejecuto manualmente ese preflight en produccion el 2026-11-08, tras confirmar visualmente el proyecto y Project ref. La evidencia entregada fue: `apt_to_apply=true`; contexto de catalogo, servidor, autoridad, schema y resolucion en `true`; funciones 6/6; triggers 16/16, cero inesperados; constraints 03D3A 14/14, cero cambiadas y cero inesperadas; PostgreSQL `150008`; `current_user=session_user=postgres`. Este resultado aprueba exclusivamente el baseline previo. No se ha ejecutado 03D3C1 migration, postverify ni rollback en produccion.
+El operador ejecuto manualmente ese preflight en produccion el 2026-11-08, tras confirmar visualmente el proyecto y Project ref. La evidencia entregada fue: `apt_to_apply=true`; contexto de catalogo, servidor, autoridad, schema y resolucion en `true`; funciones 6/6; triggers 16/16, cero inesperados; constraints 03D3A 14/14, cero cambiadas y cero inesperadas; PostgreSQL `150008`; `current_user=session_user=postgres`. Tras el intento atomico fallido descrito abajo, el preflight read-only se repitio y confirmo que el baseline anterior seguia intacto.
 
 Los equivalentes productivos son [migration](production/03d3c1_function_hardening_prod_migration.sql), [postverify](production/03d3c1_function_hardening_prod_postverify.sql) y [rollback](production/03d3c1_function_hardening_prod_rollback.sql). La migracion vuelve a comprobar dentro de su transaccion las seis funciones y fingerprints, ACL/config/atributos, 16 bindings de triggers, 14 constraints 03D3A, actor, version y permisos CREATE antes de la primera mutacion. El postverify exige coincidencia total y una unica salida JSON con `postverify_ok=true`. El rollback solo admite el estado posterior exacto, restaura `search_path` y privilegios efectivos previos, y falla cerrado ante drift. Los tres requieren revision y autorizacion separadas.
 
@@ -128,6 +128,8 @@ El primer intento de migracion productiva termino con PostgreSQL `42704: role "P
 
 Como todo ocurrio dentro de `BEGIN` y antes de la primera mutacion, la transaccion fue abortada y C1 no quedo aplicado. No se ejecuto postverify ni rollback. Antes de cualquier reintento debe repetirse exclusivamente el preflight productivo read-only y confirmar que el baseline anterior permanece intacto.
 
+El correctivo quedo comprometido como `25c400b` (`fix(security): correct production function privilege gate`). Despues del rerun read-only apto, la migracion corregida fue aplicada y devolvio `immediate_baseline_gate=1`. El postverify devolvio `postverify_ok=true`: 6/6 funciones exactas, cero faltantes/cambiadas/adicionales; 16/16 triggers exactos, cero faltantes/cambiados/adicionales; y 14/14 constraints 03D3A exactas, cero faltantes/cambiadas/adicionales. `handle_new_user()` conserva SECURITY DEFINER y usa `search_path=pg_catalog, public`; las seis funciones conservan owner, firma, retorno, lenguaje, volatilidad, parallel safety y fingerprints, con EXECUTE directo unicamente para `postgres`. Rollback no fue ejecutado.
+
 | Archivo | Sentencias | Contrato |
 | --- | ---: | --- |
 | [preflight](test-environment/03d3c1_function_hardening_preflight.sql) | 4 | SELECT/CTE read-only: funciones/ACL/hashes, 16 triggers, CREATE sobre public y resolucion de objetos |
@@ -139,7 +141,7 @@ Los SELECT no devuelven cuerpos ni datos de usuario. La migracion es one-shot: u
 
 ## Procedimiento aplicado y validacion restante
 
-Los pasos de preflight, migracion, postverify, regresiones 03D2A/B/C, ownership runtime y Auth definitivo ya se completaron en test. Los dos intentos Auth previos se conservan solo como diagnostico: ambos terminaron antes de `RUN`/login, sus identidades se eliminaron y sus cleanups agregados quedaron verificados. La ejecucion definitiva termino con siete PASS contabilizados, cero FAIL/INCONCLUSIVE, exit 0 y ausencia final confirmada. Vease la [validacion runtime](ISOLATION_03D3C1_VALIDATION.md). No se autoriza promocion a produccion en este cierre.
+Los pasos de preflight, migracion y postverify se completaron en test y produccion. Las regresiones 03D2A/B/C, ownership runtime y Auth definitivo permanecen respaldadas por la evidencia de test ya aprobada. Los dos intentos Auth previos se conservan solo como diagnostico: ambos terminaron antes de `RUN`/login, sus identidades se eliminaron y sus cleanups agregados quedaron verificados. Vease la [validacion runtime](ISOLATION_03D3C1_VALIDATION.md). El siguiente paquete es exclusivamente la evaluacion read-only B0-current; F03 aun no esta cerrada.
 
 ## Validacion offline y limites
 

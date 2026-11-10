@@ -1,6 +1,6 @@
 # 03D3C2-B0-current - grants de objetos existentes
 
-Fecha: 2026-10-25. Estado: **03D3C2-B0-current COMPLETADO EN SUPABASE TEST**. Preflight, migracion, diagnostico corregido, postverify y regresiones runtime fueron aprobados. Rollback no ejecutado. Produccion permanece intacta. 03D3C2, 03D3C y Fase 03 continuan abiertas.
+Fecha: 2026-11-09. Estado: **03D3C2-B0-current COMPLETADO EN SUPABASE TEST; PREFLIGHT PRODUCTIVO READ-ONLY PREPARADO, NO EJECUTADO.** Produccion conserva el baseline previo a B0-current. 03D3C2, 03D3C y Fase 03 continuan abiertas.
 
 ## Evidencia de entrada
 
@@ -19,6 +19,8 @@ Las 17 tablas target son: `ai_generation_calls`, `ai_generation_jobs`, `anexos`,
 Quedan excluidos `ai_model_prices`, `ia_metrics_legacy`, DML authenticated, service_role, postgres, policies, defaults, funciones y MAINTAIN. No se usa `ALL PRIVILEGES`: en PG17 concedería MAINTAIN durante rollback.
 
 ## Paquete SQL
+
+El [preflight productivo](production/03d3c2_b0_current_prod_preflight.sql) es un SELECT unico separado del preflight test-only. Exige confirmacion visual de `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`; SQL no verifica el Project ref. Para PostgreSQL 15.8 exige 19 tablas publicas y 17 targets B0 exactos, owners/RLS/ACL previas, grants directos y efectivos sin herencia ni PUBLIC, 49 policies sin aplicar B3, una secuencia y sus 12 grants previos sin aplicar B2, 88 default privileges PG15 sin modificarlos, 14 constraints 03D3A y el estado posterior exacto de seis funciones/16 triggers C1. `apt_to_apply=true` requiere coincidencia total. Su preparacion no autoriza migration, postverify o rollback B0.
 
 - [Preflight](test-environment/03d3c2_b0_current_preflight.sql): una sentencia read-only y fail-closed. Exige PG17 test, autoridad postgres, 19/17 tablas exactas, ACL previas exactas, ausencia MAINTAIN runtime, cero memberships directas/transitivas, 49 policies, una secuencia y 96 defaults.
 - [Migración](test-environment/03d3c2_b0_current_migration.sql): transacción con tres REVOKE explícitos.
@@ -66,4 +68,4 @@ Ambos tuvieron `executeCompleted=false`, un `commandError`, `successful=false` y
 
 ## Estado y pendientes separados
 
-**03D3C2-B0-current esta completado en test.** Siguen abiertos B0-defaults de `postgres`, B0-defaults de `supabase_admin`, B0-functions-default, B0-service-role, B1 DML authenticated por tabla, B2 secuencia authenticated/service_role, B3 policies tecnicas y B4 metricas/precios/perfiles/legacy. 03D3C2, 03D3C y Fase 03 siguen abiertas. Produccion permanece pendiente e intacta.
+**03D3C2-B0-current esta completado en test y pendiente de preflight productivo manual.** Siguen abiertos B0-defaults de `postgres`, B0-defaults de `supabase_admin`, B0-functions-default, B0-service-role, B1 DML authenticated por tabla, B2 secuencia authenticated/service_role, B3 policies tecnicas y B4 metricas/precios/perfiles/legacy. 03D3C2, 03D3C y Fase 03 siguen abiertas. No se preparo ni ejecuto migration/postverify/rollback productivo B0.

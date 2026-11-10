@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -11,6 +12,7 @@ export const FILES=Object.freeze({
  diagnostic:path.resolve(here,'../docs/test-environment/03d3c2_b0_current_trigger_diagnostic.sql'),
  rollback:path.resolve(here,'../docs/test-environment/03d3c2_b0_current_rollback.sql'),
 });
+export const PRODUCTION_PREFLIGHT=path.resolve(here,'../docs/production/03d3c2_b0_current_prod_preflight.sql');
 export const TARGET_TABLES=Object.freeze(['ai_generation_calls','ai_generation_jobs','anexos','examen_generation_items','examen_generation_jobs','examenes','grados','listas_cotejo','materias','planeacion_batches','planeaciones','planteles','profiles','temas','unidades','user_profiles','user_settings']);
 export const PORTABLE=Object.freeze(['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']);
 export const HARDENED_FUNCTIONS=Object.freeze([
@@ -25,6 +27,12 @@ export const HARDENED_TRIGGERS=Object.freeze([
  ['public','planeaciones','trg_planeaciones_updated_at','set_updated_at',19],['public','planteles','trg_planteles_updated_at','set_updated_at',19],['public','profiles','trg_profiles_updated_at','set_updated_at',19],
  ['public','temas','trg_tema_ownership','enforce_tema_ownership',23],['public','temas','trg_temas_updated_at','set_updated_at',19],['public','unidades','trg_unidades_updated_at','set_updated_at',19],['public','user_settings','trg_user_settings_updated_at','set_updated_at',19],
 ]);
+export function derivePolicyDefinitionHash(source){
+ const pattern=/CREATE POLICY "([^"]+)" ON "public"\."([^"]+)" AS PERMISSIVE FOR (ALL|SELECT|INSERT|UPDATE|DELETE) TO (PUBLIC|"authenticated")(?: USING \((.*?)\))?(?: WITH CHECK \((.*?)\))?;/gs;
+ const rows=[...source.matchAll(pattern)].map(m=>[m[2],m[1],m[3],m[4].replaceAll('"','').toLowerCase(),m[5]??'<null>',m[6]??'<null>'].join('|')).sort();
+ if(rows.length!==49)throw new Error(`expected 49 versioned policies, found ${rows.length}`);
+ return crypto.createHash('md5').update(rows.join('\n')).digest('hex');
+}
 export function evaluateHardenedContext(state){
  const functionsExact=state.functions.length===6&&HARDENED_FUNCTIONS.every(([name,hash,definer,config])=>{const rows=state.functions.filter(x=>x.name===name);return rows.length===1&&rows[0].hash===hash&&rows[0].definer===definer&&rows[0].config===config&&rows[0].owner==='postgres'&&rows[0].postgresExecute===true&&rows[0].runtimeExecute===false});
  const triggersExact=state.triggers.length===16&&HARDENED_TRIGGERS.every(([schema,table,trigger,fn,tgtype])=>{const rows=state.triggers.filter(x=>x.schema===schema&&x.table===table&&x.trigger===trigger);return rows.length===1&&rows[0].fn===fn&&rows[0].tgtype===tgtype&&rows[0].enabled===true});
@@ -74,5 +82,32 @@ export function validatePackage(contents=Object.fromEntries(Object.entries(FILES
  for(const token of ['function_name','object_count','overload_count','owner_matches','body_hash_matches','security_matches','config_matches','execute_acl_matches','schema_name','table_name','trigger_name','function_name','enabled_matches','event_matches','binding_matches','six_functions_exact','sixteen_triggers_exact','trigger_context_matches_expected'])if(!diagnostic.includes(token))errors.push(`diagnostic missing ${token}`);
  if(/pg_get_functiondef|\bp\.prosrc\s+AS\b/i.test(strip(diagnostic)))errors.push('diagnostic exposes function bodies');
  return {errors,statementCounts:{preflight:statements(preflight).length,migration:statements(migration).length,postverify:statements(postverify).length,rollback:statements(rollback).length}}}
-function main(){const r=validatePackage();if(r.errors.length){for(const e of r.errors)process.stderr.write(`ERROR ${e}\n`);process.exitCode=1}else process.stdout.write(`PASS targets=${TARGET_TABLES.length} statements=1/5/1/5\n`)}
+export function validateProductionPreflight(sql=fs.readFileSync(PRODUCTION_PREFLIGHT,'utf8'),source=fs.readFileSync(path.resolve(here,'../docs/test-environment/initialize_application.sql'),'utf8')){
+ const errors=[];const clean=strip(sql);const parsed=statements(sql);
+ if(parsed.length!==1||!/^WITH RECURSIVE\b/i.test(parsed[0])||!/AS production_preflight_result/.test(sql))errors.push('production preflight must be one structured WITH statement');
+ if(/\b(?:ALTER|CREATE|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE|TRUNCATE|CALL|DO|COPY|LOCK|BEGIN|COMMIT|ROLLBACK|set_config|pg_sleep|dblink|http_|net\.)\b/i.test(clean))errors.push('production preflight is not strictly read-only');
+ if(!/preflight productivo estrictamente READ-ONLY/i.test(sql)||/PostgreSQL test 17\.x only|Supabase test only/i.test(sql))errors.push('production classification mismatch');
+ for(const [token,value] of [['expected_project_name','educativo-backend'],['expected_project_ref','bfnkaqmhcsyxdxoqnahk'],['expected_region','us-east-2']])if(!sql.includes(`'${token}','${value}'`))errors.push(`production identity missing ${token}`);
+ for(const token of ["'project_ref_verified_by_sql',false","'visual_project_ref_confirmation_required',true","'catalog_check_does_not_verify_project_ref',true"])if(!sql.includes(token))errors.push(`human project boundary missing ${token}`);
+ if((sql.match(/\('[a-z_]+',(true|false)\)/g)||[]).length!==19)errors.push('production preflight requires exact 19-table manifest');
+ for(const table of TARGET_TABLES)if(!sql.includes(`('${table}',true)`))errors.push(`production target missing ${table}`);
+ for(const table of ['ai_model_prices','ia_metrics_legacy'])if(!sql.includes(`('${table}',false)`))errors.push(`production excluded table missing ${table}`);
+ for(const token of ['owner_name','relrowsecurity','relforcerowsecurity','direct_privileges','effective_privileges','inherited_or_public_effect_count','runtime_membership_count'])if(!sql.includes(token))errors.push(`table/role context missing ${token}`);
+ for(const role of ['anon','authenticated','service_role','postgres'])if(!sql.includes(`('${role}')`))errors.push(`role manifest missing ${role}`);
+ if(!/expected_table_grant_count=505 AND matched_table_grant_count=505 AND unexpected_table_grant_count=0 AND public_table_grant_count=0/.test(sql))errors.push('exact pre-B0 grant baseline missing');
+ let policyDefinitionHash;try{policyDefinitionHash=derivePolicyDefinitionHash(source)}catch(error){errors.push(error.message)}
+ if(!/policy_count=49 AND public_policy_count=48 AND authenticated_price_policy_count=1/.test(sql)||!sql.includes("policy_manifest_md5='221d334d3db5913257ac610efba163a9'")||!policyDefinitionHash||!sql.includes(`policy_definition_md5='${policyDefinitionHash}'`)||!sql.includes("'using_expression'")||!sql.includes("'with_check_expression'"))errors.push('policy baseline missing');
+ if(!/sequence_count=1 AND matched_sequence_object_count=1 AND matched_sequence_grant_count=12 AND unexpected_sequence_grant_count=0 AND public_sequence_grant_count=0/.test(sql)||!sql.includes('planeaciones_id_seq'))errors.push('sequence baseline missing');
+ if(!/default_privilege_count=88 AND matched_default_privilege_count=88/.test(sql)||!sql.includes('postgres_default_privilege_count=44')||!sql.includes('supabase_admin_default_privilege_count=44')||!sql.includes('table_default_privilege_count=56'))errors.push('PG15 default privilege baseline missing');
+ if(/\bMAINTAIN\b/i.test(clean)||/\b(?:NULLS\s+NOT\s+DISTINCT|PERIOD|ENFORCED)\b/i.test(clean))errors.push('syntax or privileges outside PostgreSQL 15 contract');
+ if((sql.match(/\('educativo_ia_/g)||[]).length!==14||!/matched_03d3a_constraint_count=14 AND changed_03d3a_constraint_count=0 AND unexpected_03d3a_constraint_count=0/.test(sql))errors.push('03D3A baseline missing');
+ for(const [name,hash] of HARDENED_FUNCTIONS)if(!sql.includes(`('${name}','${hash}'`))errors.push(`C1 function baseline missing ${name}`);
+ for(const [schema,table,trigger,fn,tgtype] of HARDENED_TRIGGERS)if(!sql.includes(`('${schema}','${table}','${trigger}','${fn}',${tgtype})`))errors.push(`C1 trigger baseline missing ${trigger}`);
+ if(!/matched_function_count=6 AND relevant_function_count=6 AND matched_trigger_count=16 AND relevant_trigger_count=16/.test(sql))errors.push('C1 fail-closed counts missing');
+ if(!/current_setting\('server_version_num'\)::integer=150008/.test(sql)||!/current_user='postgres' AND session_user='postgres'/.test(sql))errors.push('PG15.8/authority gate missing');
+ if(!/'apt_to_apply',catalog_context_matches AND server_context_matches AND authority_context_matches/.test(sql))errors.push('fail-closed apt_to_apply missing');
+ if(/pg_get_functiondef|\bp\.prosrc\s+AS\b/i.test(clean)||/\b(?:email|full_name|password|authorization|contenido|tabla_ia)\b/i.test(clean))errors.push('sensitive or raw body output forbidden');
+ return errors;
+}
+function main(){const r=validatePackage(),errors=[...r.errors,...validateProductionPreflight()];if(errors.length){for(const e of errors)process.stderr.write(`ERROR ${e}\n`);process.exitCode=1}else process.stdout.write(`PASS targets=${TARGET_TABLES.length} statements=1/5/1/5 production=1\n`)}
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url))main();
