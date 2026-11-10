@@ -228,15 +228,18 @@ SELECT jsonb_build_object(
  'catalog_check_does_not_verify_project_ref',true,'current_user',current_user,'session_user',session_user,
  'server_version_num',current_setting('server_version_num')::integer,'server_context_matches',server_context_matches,
  'authority_context_matches',authority_context_matches,'public_table_count',public_table_count,
- 'b0_target_table_count',b0_target_table_count,'b0_target_tables',(SELECT jsonb_agg(table_name ORDER BY table_name) FROM expected_tables WHERE is_b0_target),
+ 'b0_target_table_count',b0_target_table_count,'b0_target_tables',(SELECT jsonb_agg(table_name ORDER BY table_name) FROM expected_tables WHERE is_b0_target)
+) || jsonb_build_object(
  'table_context',(SELECT jsonb_agg(jsonb_build_object('table_name',e.table_name,'b0_target',e.is_b0_target,'owner',t.owner_name,
    'rls_enabled',t.relrowsecurity,'force_rls',t.relforcerowsecurity) ORDER BY e.table_name) FROM expected_tables e LEFT JOIN public_tables t USING(table_name)),
  'expected_table_grant_count',expected_table_grant_count,'matched_table_grant_count',matched_table_grant_count,
  'unexpected_table_grant_count',unexpected_table_grant_count,'public_table_grant_count',public_table_grant_count,
  'inherited_or_public_effect_count',inherited_or_public_effect_count,
- 'runtime_membership_count',runtime_membership_count,'table_grants',(SELECT jsonb_agg(to_jsonb(m) ORDER BY table_name,role_name) FROM table_acl_matrix m),
+ 'runtime_membership_count',runtime_membership_count,'table_grants',(SELECT jsonb_agg(to_jsonb(m) ORDER BY table_name,role_name) FROM table_acl_matrix m)
+) || jsonb_build_object(
  'policy_count',policy_count,'public_policy_count',public_policy_count,'authenticated_price_policy_count',authenticated_price_policy_count,
- 'policy_manifest_md5',policy_manifest_md5,'policy_definition_md5',policy_definition_md5,'policies',(SELECT policies FROM policy_state),
+ 'policy_manifest_md5',policy_manifest_md5,'policy_definition_md5',policy_definition_md5,'policies',(SELECT policies FROM policy_state)
+) || jsonb_build_object(
  'sequence_count',sequence_count,'matched_sequence_object_count',matched_sequence_object_count,
  'matched_sequence_grant_count',matched_sequence_grant_count,'unexpected_sequence_grant_count',unexpected_sequence_grant_count,
  'public_sequence_grant_count',public_sequence_grant_count,
@@ -247,7 +250,8 @@ SELECT jsonb_build_object(
  'supabase_admin_default_privilege_count',supabase_admin_default_privilege_count,'function_default_privilege_count',function_default_privilege_count,
  'table_default_privilege_count',table_default_privilege_count,'sequence_default_privilege_count',sequence_default_privilege_count,
  'unexpected_default_privilege_count',unexpected_default_privilege_count,
- 'default_privileges',(SELECT jsonb_agg(to_jsonb(d) ORDER BY grantor,schema_name,object_type,grantee,privilege_name) FROM defaults d),
+ 'default_privileges',(SELECT jsonb_agg(to_jsonb(d) ORDER BY grantor,schema_name,object_type,grantee,privilege_name) FROM defaults d)
+) || jsonb_build_object(
  'expected_03d3a_constraint_count',14,'matched_03d3a_constraint_count',matched_03d3a_constraint_count,
  'changed_03d3a_constraint_count',changed_03d3a_constraint_count,'unexpected_03d3a_constraint_count',unexpected_03d3a_constraint_count,
  'expected_c1_function_count',6,'matched_c1_function_count',matched_function_count,'relevant_c1_function_count',relevant_function_count,

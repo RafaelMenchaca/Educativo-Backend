@@ -27,6 +27,47 @@ export const HARDENED_TRIGGERS=Object.freeze([
  ['public','planeaciones','trg_planeaciones_updated_at','set_updated_at',19],['public','planteles','trg_planteles_updated_at','set_updated_at',19],['public','profiles','trg_profiles_updated_at','set_updated_at',19],
  ['public','temas','trg_tema_ownership','enforce_tema_ownership',23],['public','temas','trg_temas_updated_at','set_updated_at',19],['public','unidades','trg_unidades_updated_at','set_updated_at',19],['public','user_settings','trg_user_settings_updated_at','set_updated_at',19],
 ]);
+export const PRODUCTION_OUTPUT_KEYS=Object.freeze([
+ 'expected_project_name','expected_project_ref','expected_region','project_ref_verified_by_sql','visual_project_ref_confirmation_required',
+ 'catalog_check_does_not_verify_project_ref','current_user','session_user','server_version_num','server_context_matches','authority_context_matches',
+ 'public_table_count','b0_target_table_count','b0_target_tables','table_context','expected_table_grant_count','matched_table_grant_count',
+ 'unexpected_table_grant_count','public_table_grant_count','inherited_or_public_effect_count','runtime_membership_count','table_grants',
+ 'policy_count','public_policy_count','authenticated_price_policy_count','policy_manifest_md5','policy_definition_md5','policies',
+ 'sequence_count','matched_sequence_object_count','matched_sequence_grant_count','unexpected_sequence_grant_count','public_sequence_grant_count',
+ 'sequence_context','sequence_grants','default_privilege_count','matched_default_privilege_count','postgres_default_privilege_count',
+ 'supabase_admin_default_privilege_count','function_default_privilege_count','table_default_privilege_count','sequence_default_privilege_count',
+ 'unexpected_default_privilege_count','default_privileges','expected_03d3a_constraint_count','matched_03d3a_constraint_count',
+ 'changed_03d3a_constraint_count','unexpected_03d3a_constraint_count','expected_c1_function_count','matched_c1_function_count',
+ 'relevant_c1_function_count','expected_c1_trigger_count','matched_c1_trigger_count','relevant_c1_trigger_count','catalog_context_matches','apt_to_apply'
+]);
+function maskNonCode(sql){
+ const chars=[...sql];let i=0,state='code',depth=0;
+ while(i<chars.length){const c=chars[i],n=chars[i+1];
+  if(state==='line'){if(c==='\n'){state='code'}else chars[i]=' ';i++;continue}
+  if(state==='block'){chars[i]=' ';if(c==='/'&&n==='*'){chars[i+1]=' ';depth++;i+=2;continue}if(c==='*'&&n==='/'){chars[i+1]=' ';depth--;i+=2;if(!depth)state='code';continue}i++;continue}
+  if(state==='single'){chars[i]=' ';if(c==="'"&&n==="'"){chars[i+1]=' ';i+=2;continue}if(c==="'")state='code';i++;continue}
+  if(state==='double'){chars[i]=' ';if(c==='"'&&n==='"'){chars[i+1]=' ';i+=2;continue}if(c==='"')state='code';i++;continue}
+  if(c==='-'&&n==='-'){chars[i]=chars[i+1]=' ';state='line';i+=2;continue}
+  if(c==='/'&&n==='*'){chars[i]=chars[i+1]=' ';state='block';depth=1;i+=2;continue}
+  if(c==="'"){chars[i]=' ';state='single';i++;continue}if(c==='"'){chars[i]=' ';state='double';i++;continue}i++;
+ }
+ if(!['code','line'].includes(state))throw new Error(`unterminated SQL ${state}`);return chars.join('');
+}
+export function analyzeFunctionCalls(sql,names=['jsonb_build_object','json_build_object','jsonb_build_array','json_build_array','format']){
+ const masked=maskNonCode(sql),pattern=new RegExp(`\\b(${names.join('|')})\\s*\\(`,'gi'),calls=[];let match;
+ while((match=pattern.exec(masked))){const open=masked.indexOf('(',match.index),parts=[];let start=open+1,paren=1,bracket=0,i=open+1;
+  for(;i<masked.length&&paren;i++){const c=masked[i];if(c==='(')paren++;else if(c===')')paren--;else if(c==='[')bracket++;else if(c===']')bracket--;else if(c===','&&paren===1&&bracket===0){parts.push(sql.slice(start,i).trim());start=i+1}}
+  if(paren)throw new Error(`unterminated ${match[1]} call`);const tail=sql.slice(start,i-1).trim();if(tail||parts.length)parts.push(tail);
+  calls.push(Object.freeze({name:match[1].toLowerCase(),start:match.index,end:i,argumentCount:parts.length,arguments:Object.freeze(parts)}));
+ }
+ return Object.freeze(calls);
+}
+export function productionOutputKeys(sql){
+ const start=sql.lastIndexOf('SELECT jsonb_build_object('),suffix=sql.slice(start);
+ const calls=analyzeFunctionCalls(suffix,['jsonb_build_object']);
+ const outer=calls.filter(call=>!calls.some(parent=>parent!==call&&parent.start<call.start&&parent.end>call.end));
+ return Object.freeze(outer.flatMap(call=>call.arguments.filter((_,index)=>index%2===0).map(value=>value.match(/^'([^']+)'$/)?.[1]).filter(Boolean)));
+}
 export function derivePolicyDefinitionHash(source){
  const pattern=/CREATE POLICY "([^"]+)" ON "public"\."([^"]+)" AS PERMISSIVE FOR (ALL|SELECT|INSERT|UPDATE|DELETE) TO (PUBLIC|"authenticated")(?: USING \((.*?)\))?(?: WITH CHECK \((.*?)\))?;/gs;
  const rows=[...source.matchAll(pattern)].map(m=>[m[2],m[1],m[3],m[4].replaceAll('"','').toLowerCase(),m[5]??'<null>',m[6]??'<null>'].join('|')).sort();
@@ -106,6 +147,10 @@ export function validateProductionPreflight(sql=fs.readFileSync(PRODUCTION_PREFL
  if(!/matched_function_count=6 AND relevant_function_count=6 AND matched_trigger_count=16 AND relevant_trigger_count=16/.test(sql))errors.push('C1 fail-closed counts missing');
  if(!/current_setting\('server_version_num'\)::integer=150008/.test(sql)||!/current_user='postgres' AND session_user='postgres'/.test(sql))errors.push('PG15.8/authority gate missing');
  if(!/'apt_to_apply',catalog_context_matches AND server_context_matches AND authority_context_matches/.test(sql))errors.push('fail-closed apt_to_apply missing');
+ let calls=[];try{calls=analyzeFunctionCalls(sql)}catch(error){errors.push(error.message)}
+ for(const call of calls)if(call.argumentCount>=100)errors.push(`${call.name} has ${call.argumentCount} arguments; must stay below 100`);
+ let outputKeys=[];try{outputKeys=productionOutputKeys(sql)}catch(error){errors.push(error.message)}
+ if(JSON.stringify(outputKeys)!==JSON.stringify(PRODUCTION_OUTPUT_KEYS))errors.push('production output key contract changed');
  if(/pg_get_functiondef|\bp\.prosrc\s+AS\b/i.test(clean)||/\b(?:email|full_name|password|authorization|contenido|tabla_ia)\b/i.test(clean))errors.push('sensitive or raw body output forbidden');
  return errors;
 }

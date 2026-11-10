@@ -1,6 +1,6 @@
 # 03D3C2-B0-current - grants de objetos existentes
 
-Fecha: 2026-11-09. Estado: **03D3C2-B0-current COMPLETADO EN SUPABASE TEST; PREFLIGHT PRODUCTIVO READ-ONLY PREPARADO, NO EJECUTADO.** Produccion conserva el baseline previo a B0-current. 03D3C2, 03D3C y Fase 03 continuan abiertas.
+Fecha: 2026-11-09. Estado: **03D3C2-B0-current COMPLETADO EN SUPABASE TEST; PRIMER PREFLIGHT PRODUCTIVO READ-ONLY FALLIDO, CORRECTIVO PENDIENTE DE COMMIT Y RERUN.** B0 no fue aplicado. 03D3C2, 03D3C y Fase 03 continuan abiertas.
 
 ## Evidencia de entrada
 
@@ -21,6 +21,8 @@ Quedan excluidos `ai_model_prices`, `ia_metrics_legacy`, DML authenticated, serv
 ## Paquete SQL
 
 El [preflight productivo](production/03d3c2_b0_current_prod_preflight.sql) es un SELECT unico separado del preflight test-only. Exige confirmacion visual de `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`; SQL no verifica el Project ref. Para PostgreSQL 15.8 exige 19 tablas publicas y 17 targets B0 exactos, owners/RLS/ACL previas, grants directos y efectivos sin herencia ni PUBLIC, 49 policies sin aplicar B3, una secuencia y sus 12 grants previos sin aplicar B2, 88 default privileges PG15 sin modificarlos, 14 constraints 03D3A y el estado posterior exacto de seis funciones/16 triggers C1. `apt_to_apply=true` requiere coincidencia total. Su preparacion no autoriza migration, postverify o rollback B0.
+
+La primera ejecucion productiva read-only termino antes de producir salida con PostgreSQL `54023: cannot pass more than 100 arguments to a function`. La causa fue una unica llamada final a `jsonb_build_object` con mas de 100 argumentos; cada pareja clave/valor consume dos. No hubo mutaciones y no se ejecutaron migration, postverify ni rollback B0. El correctivo conserva los CTE, calculos, 56 claves, valores y decisiones, y concatena cinco objetos JSONB; la mayor llamada tiene 32 argumentos. Quedan pendientes el commit correctivo y un rerun exclusivo del preflight read-only.
 
 - [Preflight](test-environment/03d3c2_b0_current_preflight.sql): una sentencia read-only y fail-closed. Exige PG17 test, autoridad postgres, 19/17 tablas exactas, ACL previas exactas, ausencia MAINTAIN runtime, cero memberships directas/transitivas, 49 policies, una secuencia y 96 defaults.
 - [Migración](test-environment/03d3c2_b0_current_migration.sql): transacción con tres REVOKE explícitos.
