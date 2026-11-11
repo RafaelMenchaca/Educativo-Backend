@@ -1,12 +1,16 @@
 # 03D3C2-B2: privilegios de `planeaciones_id_seq`
 
-Estado: **COMPLETADO EN SUPABASE TEST; PREFLIGHT PRODUCTIVO PREPARADO, NO EJECUTADO**. B0-current esta aplicado y postverificado en produccion. B1-C2 se difirio a 03F con sus ocho grants intactos. B2 productivo no ha sido aplicado y F03 continua abierta.
+Estado: **COMPLETADO EN SUPABASE TEST; PREFLIGHT PRODUCTIVO APROBADO; MIGRACION PRODUCTIVA NO EJECUTADA**. B0-current esta aplicado y postverificado en produccion. B1-C2 se difirio a 03F con sus ocho grants intactos. B2 productivo no ha sido aplicado y F03 continua abierta.
 
 ## Contrato productivo confirmado
 
 La decision productiva replica exactamente la semantica validada en test: anon permanece sin privilegios; authenticated y service_role conservan solo USAGE y pierden SELECT/UPDATE; postgres conserva USAGE/SELECT/UPDATE. El baseline previo posterior a B0 contiene nueve grants directos (0+3+3+3) y el objetivo B2 contiene cinco (0+1+1+3). La instruccion anterior de conservar los tres privilegios de service_role fue revocada por ser incompatible con migration, postverify, rollback y evidencia canonica.
 
-El [preflight productivo](production/03d3c2_b2_sequence_prod_preflight.sql) es una unica sentencia read-only para PostgreSQL 15.8. Exige confirmacion visual de `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`; SQL no afirma verificar el Project ref. Comprueba objeto, owner, parametros, dependencia identity interna con `public.planeaciones.id`, ACL directas/efectivas, PUBLIC y membresias, el estado B0 de 335 grants de tabla, 49 policies y sus fingerprints, 88 defaults, 14 constraints 03D3A y seis funciones/16 triggers C1. Declara el objetivo de cinco grants sin aplicarlo. `apt_to_apply=true` requiere coincidencia total. No se prepararon migration, postverify ni rollback productivos B2.
+El [preflight productivo](production/03d3c2_b2_sequence_prod_preflight.sql) es una unica sentencia read-only para PostgreSQL 15.8. Exige confirmacion visual de `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`; SQL no afirma verificar el Project ref. Comprueba objeto, owner, parametros, dependencia identity interna con `public.planeaciones.id`, ACL directas/efectivas, PUBLIC y membresias, el estado B0 de 335 grants de tabla, 49 policies y sus fingerprints, 88 defaults, 14 constraints 03D3A y seis funciones/16 triggers C1. Declara el objetivo de cinco grants sin aplicarlo. `apt_to_apply=true` requiere coincidencia total.
+
+El preflight fue ejecutado manualmente en `educativo-backend`, con Project ref `bfnkaqmhcsyxdxoqnahk` confirmado visualmente, y devolvio `apt_to_apply=true`, `catalog_context_matches=true` y PostgreSQL `150008`. Confirmo una secuencia y objeto/dependencia exactos, nueve grants previos 0/3/3/3 con directos iguales a efectivos, cero PUBLIC, B0 335/335, 49 policies y fingerprints, 88 defaults, 14 constraints 03D3A, seis funciones y 16 triggers C1. El objetivo declarado fue cinco grants.
+
+Se prepararon [migration](production/03d3c2_b2_sequence_prod_migration.sql), [postverify](production/03d3c2_b2_sequence_prod_postverify.sql) y [rollback](production/03d3c2_b2_sequence_prod_rollback.sql). Migration revalida el baseline completo dentro de una unica transaccion antes de revocar exclusivamente SELECT/UPDATE a authenticated y service_role. Postverify exige 0/1/1/3 y cinco grants totales. Rollback exige primero ese estado exacto y restaura solo los cuatro grants revocados. Ninguno fue ejecutado en produccion; F03 permanece abierta.
 
 ## Diagnostico de `context_ok`
 

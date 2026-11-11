@@ -6,6 +6,7 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 export const FILES=Object.freeze(['preflight','migration','postverify','rollback'].map(x=>`docs/test-environment/03d3c2_b2_sequence_${x}.sql`));
 export const DIAGNOSTIC_FILE='docs/test-environment/03d3c2_b2_context_diagnostic.sql';
 export const PRODUCTION_PREFLIGHT='docs/production/03d3c2_b2_sequence_prod_preflight.sql';
+export const PRODUCTION_FILES=Object.freeze(Object.fromEntries(['migration','postverify','rollback'].map(x=>[x,`docs/production/03d3c2_b2_sequence_prod_${x}.sql`])));
 export const CONTEXT_KEYS=Object.freeze(['tables_exact','policies_exact','rls_exact','defaults_exact','post_b0_grants_exact']);
 export function evaluateB2Context(state){return CONTEXT_KEYS.every(key=>state?.[key]===true)}
 const mutating=/(?:^|;)\s*(insert|update|delete|truncate|alter|create|drop)\b|\b(setval|nextval|currval)\s*\(/im;
@@ -20,4 +21,16 @@ export function validateProductionPreflight(sql=fs.readFileSync(path.join(root,P
  if(/\blast_value\b|\b(?:setval|nextval|currval)\s*\(/i.test(sql)||/pg_get_functiondef|\bp\.prosrc\s+AS\b/i.test(sql))errors.push('production_sensitive');
  try{for(const call of analyzeFunctionCalls(sql))if(call.argumentCount>=100)errors.push(`production_variadic:${call.name}:${call.argumentCount}`)}catch(error){errors.push(error.message)}
  return Object.freeze(errors)}
-if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){const e=[...validateB2Sql(),...validateProductionPreflight()];if(e.length){console.error(e.join('\n'));process.exitCode=1}else console.log('03D3C2-B2 SQL: OK production=1')}
+export function validateProductionPackage(contents=Object.fromEntries(Object.entries(PRODUCTION_FILES).map(([k,f])=>[k,fs.readFileSync(path.join(root,f),'utf8')]))){const errors=[],{migration,postverify,rollback}=contents;
+ const clean=s=>s.replace(/--[^\r\n]*/g,' ').replace(/'(?:''|[^'])*'/g,"''");
+ for(const [name,sql] of Object.entries(contents)){if(/\blast_value\b|\b(?:setval|nextval|currval)\s*\(/i.test(sql))errors.push(`${name}:sequence_value`);try{for(const call of analyzeFunctionCalls(sql))if(call.argumentCount>=100)errors.push(`${name}:variadic:${call.argumentCount}`)}catch(error){errors.push(`${name}:${error.message}`)}}
+ for(const [name,sql,gate] of [['migration',migration,'immediate_baseline_gate'],['rollback',rollback,'immediate_rollback_gate']]){if(!/^\s*--[^\n]*\n(?:--[^\n]*\n)?BEGIN;/i.test(sql)||!/COMMIT;\s*$/i.test(sql))errors.push(`${name}:transaction`);if(sql.indexOf(gate)<0)errors.push(`${name}:gate`)}
+ if((migration.match(/\bREVOKE\b/g)||[]).length!==2||!/REVOKE SELECT, UPDATE ON SEQUENCE public\.planeaciones_id_seq FROM authenticated;/.test(migration)||!/REVOKE SELECT, UPDATE ON SEQUENCE public\.planeaciones_id_seq FROM service_role;/.test(migration))errors.push('migration:revokes');
+ if(/REVOKE\s+USAGE|FROM\s+(?:anon|postgres|PUBLIC)/i.test(clean(migration).slice(clean(migration).indexOf('REVOKE'))))errors.push('migration:scope');
+ if((rollback.match(/\bGRANT\b/g)||[]).length!==2||!/GRANT SELECT, UPDATE ON SEQUENCE public\.planeaciones_id_seq TO authenticated;/.test(rollback)||!/GRANT SELECT, UPDATE ON SEQUENCE public\.planeaciones_id_seq TO service_role;/.test(rollback))errors.push('rollback:grants');
+ if(/GRANT\s+USAGE|TO\s+(?:anon|postgres|PUBLIC)|CASCADE/i.test(clean(rollback).slice(clean(rollback).indexOf('GRANT'))))errors.push('rollback:scope');
+ if(!/AS production_postverify_result\s+FROM decision;\s*$/i.test(postverify)||/\b(?:REVOKE|GRANT|ALTER|CREATE|DROP|INSERT|UPDATE|DELETE|TRUNCATE|LOCK|BEGIN|COMMIT)\b/i.test(clean(postverify)))errors.push('postverify:readonly');
+ for(const [name,sql,count,a,s,p] of [['migration',migration,9,3,3,3],['postverify',postverify,5,1,1,3],['rollback',rollback,5,1,1,3]]){for(const token of [`matched_sequence_grant_count=${count}`,`anon_sequence_grant_count=0`,`authenticated_sequence_grant_count=${a}`,`service_role_sequence_grant_count=${s}`,`postgres_sequence_grant_count=${p}`,'expected_table_grant_count=335 AND matched_table_grant_count=335',"policy_definition_md5='73f1ad73fde2c16f4b7f5846db1103df'",'default_privilege_count=88','matched_03d3a_constraint_count=14','matched_function_count=6','matched_trigger_count=16',"current_setting('server_version_num')::integer=150008"])if(!sql.includes(token))errors.push(`${name}:contract:${token}`)}
+ if(!/'postverify_ok',catalog_context_matches AND server_context_matches AND authority_context_matches/.test(postverify))errors.push('postverify:fail_closed');
+ return Object.freeze(errors)}
+if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){const e=[...validateB2Sql(),...validateProductionPreflight(),...validateProductionPackage()];if(e.length){console.error(e.join('\n'));process.exitCode=1}else console.log('03D3C2-B2 SQL: OK production=1/5/1/5')}
