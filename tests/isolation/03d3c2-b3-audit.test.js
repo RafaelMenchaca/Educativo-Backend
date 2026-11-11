@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { FILES, CLASSES, parseOwners, fingerprint, inventoryFromDoc, validateInventory, validateAudit, buildPreflight, ALLOWLIST, transitionPolicies, buildMutation, buildRolePreflight, IMMEDIATE_PREDICATES, immediateApproval } from '../../scripts/validate-03d3c2-b3-audit.js';
+import { FILES, PRODUCTION_PREFLIGHT, CLASSES, parseOwners, fingerprint, inventoryFromDoc, validateInventory, validateAudit, validateProductionPreflight, buildPreflight, ALLOWLIST, transitionPolicies, buildMutation, buildRolePreflight, IMMEDIATE_PREDICATES, immediateApproval } from '../../scripts/validate-03d3c2-b3-audit.js';
+import { analyzeFunctionCalls } from '../../scripts/validate-03d3c2-b0-current-sql.js';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const files = Object.fromEntries(Object.entries(FILES).map(([k,p]) => [k,fs.readFileSync(path.join(root,p),'utf8')]));
@@ -151,6 +152,7 @@ for(const [name,exports] of Object.entries(stubs))modules.set(name,new vm.Synthe
 const scan=new vm.SourceTextModule(${JSON.stringify(scanner)},{context,identifier:'scanner'});
 const audit=new vm.SourceTextModule(${JSON.stringify(validator)},{context,identifier:'audit'});
 modules.set('./validate-03d3c1-function-hardening-sql.js',scan);
+modules.set('./validate-03d3c2-b0-current-sql.js',new vm.SyntheticModule(['analyzeFunctionCalls'],function(){this.setExport('analyzeFunctionCalls',()=>[])},{context}));
 const linker=name=>{if(!modules.has(name))throw Error('unexpected dependency');return modules.get(name)};
 await audit.link(linker);await audit.evaluate();`;
   const result=spawnSync(process.execPath,['--experimental-vm-modules','--input-type=module'],{input,encoding:'utf8',env:{}});
@@ -289,3 +291,9 @@ test('apt_to_apply interpretation fails closed for every predicate, missing fiel
   const malformed=syntheticImmediate();malformed.policies=[null];
   assert.equal(immediateApproval(malformed,owner),false);
 });
+
+test('production B3 preflight is separate one-row read-only and PG15 exact',()=>{const sql=fs.readFileSync(path.join(root,PRODUCTION_PREFLIGHT),'utf8');assert.deepEqual(validateProductionPreflight(sql),[]);assert.equal(splitStatementsForTest(sql),1);assert.match(sql,/server_version_num'\)::integer=150008|server_version_num'\)/);assert.doesNotMatch(sql,/BETWEEN 170000|\bMAINTAIN\b|\bALTER POLICY\b/i)});
+test('production B3 preflight classifies exact 26 candidates 22 deferred and one authenticated',()=>{const sql=fs.readFileSync(path.join(root,PRODUCTION_PREFLIGHT),'utf8');assert.equal(ALLOWLIST.length,26);for(const identity of ALLOWLIST){const [,table,...parts]=identity.split('.');assert.ok(sql.includes(`('public','${table}','${parts.join('.')}')`),identity)}for(const token of ["'candidate_policy_count'","'matched_candidate_policy_count'","'missing_or_changed_candidate_count'","'unexpected_candidate_count'","'legacy_or_deferred_policy_count'","'already_authenticated_policy_count'","'expected_post_b3_public_policy_count',22","'expected_post_b3_authenticated_policy_count',27"])assert.match(sql,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')))});
+test('production B3 preflight preserves B0 B2 defaults D3A and C1 fail-closed',()=>{const sql=fs.readFileSync(path.join(root,PRODUCTION_PREFLIGHT),'utf8');for(const token of ['post_b0_grants_exact','post_b2_sequence_exact','defaults_exact','constraints_exact','functions_exact','triggers_exact','count(*)=88','count(*)=14','count(*)=399'])assert.match(sql,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));for(const [from,to] of [["current_setting('server_version_num')::integer=150008","true"],["count(*)=88","count(*)=87"],["count(*)=14","count(*)=13"],["count(*)=26","count(*)=25"],["'apt_to_apply',(SELECT coalesce(","'removed',(SELECT coalesce("]])assert.ok(validateProductionPreflight(sql.replace(from,to)).length,from)});
+test('production B3 variadic calls remain below 100 and sensitive operations are absent',()=>{const sql=fs.readFileSync(path.join(root,PRODUCTION_PREFLIGHT),'utf8'),calls=analyzeFunctionCalls(sql),clean=sql.replace(/--[^\r\n]*/g,' ').replace(/'(?:''|[^'])*'/g,"''");assert.equal(calls.every(x=>x.argumentCount<100),true);assert.doesNotMatch(clean,/last_value|setval\s*\(|nextval\s*\(|currval\s*\(|\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|GRANT|REVOKE)\b/i)});
+function splitStatementsForTest(sql){return sql.replace(/--[^\r\n]*/g,' ').replace(/'(?:''|[^'])*'/g,"''").split(';').filter(x=>x.trim()).length}

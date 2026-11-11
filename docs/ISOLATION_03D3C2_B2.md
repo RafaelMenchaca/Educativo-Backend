@@ -1,6 +1,6 @@
 # 03D3C2-B2: privilegios de `planeaciones_id_seq`
 
-Estado: **COMPLETADO EN SUPABASE TEST; PREFLIGHT PRODUCTIVO APROBADO; MIGRACION PRODUCTIVA NO EJECUTADA**. B0-current esta aplicado y postverificado en produccion. B1-C2 se difirio a 03F con sus ocho grants intactos. B2 productivo no ha sido aplicado y F03 continua abierta.
+Estado: **COMPLETADO EN TEST Y PRODUCCION; POSTVERIFY PRODUCTIVO CONCLUYENTE**. B0-current esta aplicado y postverificado en produccion. B1-C2 se difirio a 03F con sus ocho grants intactos. Rollback B2 no fue ejecutado y F03 continua abierta.
 
 ## Contrato productivo confirmado
 
@@ -10,7 +10,16 @@ El [preflight productivo](production/03d3c2_b2_sequence_prod_preflight.sql) es u
 
 El preflight fue ejecutado manualmente en `educativo-backend`, con Project ref `bfnkaqmhcsyxdxoqnahk` confirmado visualmente, y devolvio `apt_to_apply=true`, `catalog_context_matches=true` y PostgreSQL `150008`. Confirmo una secuencia y objeto/dependencia exactos, nueve grants previos 0/3/3/3 con directos iguales a efectivos, cero PUBLIC, B0 335/335, 49 policies y fingerprints, 88 defaults, 14 constraints 03D3A, seis funciones y 16 triggers C1. El objetivo declarado fue cinco grants.
 
-Se prepararon [migration](production/03d3c2_b2_sequence_prod_migration.sql), [postverify](production/03d3c2_b2_sequence_prod_postverify.sql) y [rollback](production/03d3c2_b2_sequence_prod_rollback.sql). Migration revalida el baseline completo dentro de una unica transaccion antes de revocar exclusivamente SELECT/UPDATE a authenticated y service_role. Postverify exige 0/1/1/3 y cinco grants totales. Rollback exige primero ese estado exacto y restaura solo los cuatro grants revocados. Ninguno fue ejecutado en produccion; F03 permanece abierta.
+Los artefactos productivos son [migration](production/03d3c2_b2_sequence_prod_migration.sql), [postverify](production/03d3c2_b2_sequence_prod_postverify.sql) y [rollback](production/03d3c2_b2_sequence_prod_rollback.sql). El postverify productivo concluyente devolvio `postverify_ok=true` y `catalog_context_matches=true`: cinco grants directos 0/1/1/3, authenticated y service_role unicamente con USAGE, postgres con SELECT/UPDATE/USAGE, y cero PUBLIC, herencia, memberships o grants inesperados. Confirmo ademas 49 policies y fingerprints, 88 defaults, 14 constraints 03D3A, seis funciones y 16 triggers C1. Rollback B2 no fue ejecutado; F03 permanece abierta.
+
+## Cronologia productiva observable
+
+1. La primera salida interpretada como migration era realmente un postverify B0 y mostraba el baseline previo de nueve grants.
+2. Una ejecucion de migration B2 devolvio `22012: division by zero` en la puerta fail-closed.
+3. El diagnostico read-only posterior observo ya el objetivo 0/1/1/3, total cinco.
+4. El postverify B2 confirmo `postverify_ok=true` y todo el estado exacto.
+
+No existe evidencia suficiente para determinar si hubo una ejecucion exitosa previa, una repeticion del archivo u otra particularidad del SQL Editor. No se atribuyen cambios al `22012` ni se afirma que necesariamente no los aplico. B2 se cierra exclusivamente por el postverify concluyente.
 
 ## Diagnostico de `context_ok`
 

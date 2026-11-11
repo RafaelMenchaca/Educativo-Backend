@@ -1,6 +1,10 @@
 # 03D3C2-B3: roles y consumidores RLS; validado en test
 
-Actualizado: 2026-11-02. **B3 aplicado, postverificado y validado exclusivamente en educativo-backend-test, segun evidencia live confirmada por el usuario. 26 policies estrechadas; 49 totales: 27 authenticated y 22 public. Regresiones definitivas: 162 PASS. Produccion intacta; rollback preparado, no ejecutado.** Esta sesion consolida documentacion y valida offline; no realiza conexiones ni SQL live. 03D3C2 sigue abierto para superficies posteriores/deferidas.
+Actualizado: 2026-11-10. **B3 aplicado, postverificado y validado exclusivamente en educativo-backend-test. Preflight productivo preparado, no ejecutado.** En test se estrecharon 26 policies; el estado posterior conocido es 27 authenticated y 22 public, fingerprint `3c533f67f0e5cbeee119171f9e4a30bf`. Produccion permanece en el baseline previo B3 de 48 PUBLIC y una authenticated. No se preparo migration, postverify ni rollback productivo B3. F03 continua abierta.
+
+## Preflight productivo
+
+El [preflight B3 productivo](production/03d3c2_b3_roles_prod_preflight.sql) es una sola sentencia read-only y una fila JSON para PostgreSQL `150008`. Exige confirmacion visual de `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`; SQL no verifica el Project ref. Valida fail-closed 19 tablas/owners/RLS/NO FORCE, B0 335 grants, B2 cinco grants 0/1/1/3, las 49 definiciones completas de policies, 48 PUBLIC, una authenticated, las 26 candidatas exactas, 22 PUBLIC legacy/deferred, 88 defaults, 14 constraints 03D3A y C1 6/16. Declara el objetivo test 22 PUBLIC/27 authenticated sin aplicar `ALTER POLICY`. `apt_to_apply=true` requiere coincidencia total.
 
 Puerta inicial backend: `work/features`, `479e87e5412b8b957011a737ab06ac1cb410854f`, subject `fix(security): minimize planeacion sequence privileges`; arbol limpio e indice vacio. Se ejecutaron status, branch, rev-parse, log, diff cached y exclusivamente `git stash list`: presente `checkpoint: incomplete B1-C2 harness integration`. No se inspecciono su contenido ni se altero el stash. Sin fetch, stage ni commit. Frontend fuera de modificaciones.
 

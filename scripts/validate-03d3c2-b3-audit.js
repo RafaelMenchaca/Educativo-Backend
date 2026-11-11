@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { splitSqlStatements, scanSql, fingerprintVersionedFunctionBodies } from './validate-03d3c1-function-hardening-sql.js';
+import { analyzeFunctionCalls } from './validate-03d3c2-b0-current-sql.js';
 
 export const FILES = Object.freeze({
   source: 'docs/test-environment/initialize_application.sql',
@@ -15,6 +16,7 @@ export const FILES = Object.freeze({
   postverify: 'docs/test-environment/03d3c2_b3_roles_postverify.sql',
   rollback: 'docs/test-environment/03d3c2_b3_roles_rollback.sql'
 });
+export const PRODUCTION_PREFLIGHT='docs/production/03d3c2_b3_roles_prod_preflight.sql';
 // Reviewed identities, not a predicate selecting all PUBLIC policies.
 export const ALLOWLIST = Object.freeze([
   'public.anexos.Users can delete their own anexos',
@@ -437,11 +439,23 @@ export function validateAudit(files) {
   } catch (error) { return {errors: [error.message], apt_to_apply: false}; }
 }
 
+export function validateProductionPreflight(sql=fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..',PRODUCTION_PREFLIGHT),'utf8')) {
+  const errors=[],clean=scanSql(sql),statements=splitSqlStatements(sql);
+  if(statements.length!==1||!/^WITH RECURSIVE\b/.test(statements[0])||!/AS production_preflight_result;\s*$/.test(sql))errors.push('Production preflight must be one structured SELECT');
+  if(/\b(?:INSERT|UPDATE|DELETE|MERGE|TRUNCATE|ALTER|CREATE|DROP|GRANT|REVOKE|DO|CALL|COPY|EXECUTE|SET|INTO|LOCK|BEGIN|COMMIT|ROLLBACK)\b/i.test(clean))errors.push('Production preflight must be read-only');
+  for(const token of ["'expected_project_ref','bfnkaqmhcsyxdxoqnahk'","'visual_project_ref_confirmation_required',true","current_setting('server_version_num')::integer=150008","current_user='postgres' AND session_user='postgres'","count(*)=19","count(*)=49","=48 AND count(*) FILTER(WHERE roles=ARRAY['authenticated']::text[])=1","count(*)=88","count(*)=14","count(*)=26","count(*)=399","'b8f4e535ea4afa18dcb5a73c8eb3317d'","'3c533f67f0e5cbeee119171f9e4a30bf'","'expected_post_b3_public_policy_count',22","'expected_post_b3_authenticated_policy_count',27","'candidate_policy_count'","'matched_candidate_policy_count'","'missing_or_changed_candidate_count'","'unexpected_candidate_count'","'allowlist_exact'","'catalog_context_matches'","'apt_to_apply',(SELECT coalesce("])if(!sql.includes(token))errors.push(`Production contract missing: ${token}`);
+  for(const identity of ALLOWLIST) {const [,table,...parts]=identity.split('.'),name=parts.join('.');if(!sql.includes(`('public','${table}','${name}')`))errors.push(`Production allowlist missing: ${identity}`)}
+  if(/BETWEEN 170000|\bMAINTAIN\b|\blast_value\b|\b(?:setval|nextval|currval)\s*\(/i.test(sql))errors.push('Production PG15 or sequence-value contract violated');
+  try{for(const call of analyzeFunctionCalls(sql))if(call.argumentCount>=100)errors.push(`Production variadic limit: ${call.name}/${call.argumentCount}`)}catch(error){errors.push(error.message)}
+  return Object.freeze(errors);
+}
+
 // Importing has no filesystem/network/environment/timer effects. Explicit CLI reads only.
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const files = Object.fromEntries(Object.entries(FILES).map(([k,v]) => [k,fs.readFileSync(path.join(root,v),'utf8')]));
-  const result = validateAudit(files);
+  const result = validateAudit(files),productionErrors=validateProductionPreflight();
+  result.errors.push(...productionErrors);
   process.stdout.write(`${JSON.stringify(result)}\n`);
   if (result.errors.length) process.exitCode = 1;
 }
