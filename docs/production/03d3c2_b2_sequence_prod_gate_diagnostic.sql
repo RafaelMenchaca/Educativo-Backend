@@ -1,5 +1,5 @@
 -- Educativo IA 03D3C2-B2: diagnostico productivo READ-ONLY de la puerta 22012.
--- Descompone exactamente la puerta previa; no autoriza ni ejecuta un reintento.
+-- Descompone exactamente la puerta previa  ; no autoriza ni ejecuta un reintento.
 WITH RECURSIVE
 expected_tables(table_name,is_b0_target) AS (VALUES
  ('ai_generation_calls',true),('ai_generation_jobs',true),('ai_model_prices',false),('anexos',true),
