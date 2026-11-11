@@ -1,6 +1,6 @@
 # 03D3C2-B3: roles y consumidores RLS; validado en test
 
-Actualizado: 2026-11-10. **B3 aplicado, postverificado y validado exclusivamente en educativo-backend-test. Preflight productivo aprobado; migration productiva aun no aplicada.** En test se estrecharon 26 policies; el estado posterior conocido es 27 authenticated y 22 public, fingerprint `3c533f67f0e5cbeee119171f9e4a30bf`. Produccion permanece en el baseline previo B3 de 48 PUBLIC y una authenticated. F03 continua abierta.
+Actualizado: 2026-11-10. **B3 aplicado y postverificado en test y produccion.** En produccion `educativo-backend`, Project ref `bfnkaqmhcsyxdxoqnahk` confirmado visualmente, PostgreSQL `150008`, quedaron 27 policies authenticated y 22 PUBLIC con fingerprint `3c533f67f0e5cbeee119171f9e4a30bf`. Rollback productivo no ejecutado. F03 continua abierta unicamente por commit/push/PR/merge/despliegue/smoke.
 
 ## Preflight productivo
 
@@ -8,7 +8,7 @@ El [preflight B3 productivo](production/03d3c2_b3_roles_prod_preflight.sql) es u
 
 El preflight fue ejecutado manualmente en produccion y devolvio `apt_to_apply=true`, `catalog_context_matches=true`, 49 policies, 48 PUBLIC, una authenticated, 26/26 candidatas exactas, cero faltantes/cambiadas/adicionales y fingerprint `b8f4e535ea4afa18dcb5a73c8eb3317d`.
 
-Se prepararon [migration](production/03d3c2_b3_roles_prod_migration.sql), [postverify](production/03d3c2_b3_roles_prod_postverify.sql) y [rollback](production/03d3c2_b3_roles_prod_rollback.sql). Migration y rollback validan el catalogo dentro de su transaccion mediante un bloque `DO` y `RAISE EXCEPTION P0001` antes del primer `ALTER POLICY`; no dependen de que el cliente consuma una fila. Migration cambia solo los roles de las 26 candidatas a authenticated. Postverify exige 22 PUBLIC, 27 authenticated y fingerprint `3c533f67f0e5cbeee119171f9e4a30bf`. Rollback exige primero ese estado y restaura solo esas 26 a PUBLIC. Ninguno fue ejecutado en produccion; B3 y F03 permanecen abiertos.
+Los artefactos productivos son [migration](production/03d3c2_b3_roles_prod_migration.sql), [postverify](production/03d3c2_b3_roles_prod_postverify.sql) y [rollback](production/03d3c2_b3_roles_prod_rollback.sql). Migration termino correctamente con `Success. No rows returned`. El postverify devolvio `postverify_ok=true`, `catalog_context_matches=true`, 49 policies, 22 PUBLIC, 27 authenticated, 26/26 candidatas, cero faltantes/cambiadas/adicionales y fingerprint observado/esperado `3c533f67f0e5cbeee119171f9e4a30bf`. B0, B2, defaults, 03D3A y C1 permanecieron exactos. Rollback productivo no fue ejecutado.
 
 Puerta inicial backend: `work/features`, `479e87e5412b8b957011a737ab06ac1cb410854f`, subject `fix(security): minimize planeacion sequence privileges`; arbol limpio e indice vacio. Se ejecutaron status, branch, rev-parse, log, diff cached y exclusivamente `git stash list`: presente `checkpoint: incomplete B1-C2 harness integration`. No se inspecciono su contenido ni se altero el stash. Sin fetch, stage ni commit. Frontend fuera de modificaciones.
 

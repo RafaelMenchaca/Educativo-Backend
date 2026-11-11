@@ -1,5 +1,18 @@
 # Inventario de entornos y evidencia de esquema — sesión 02A
 
+## Estado operativo F03 — 2026-11-10
+
+F03 esta funcional y documentalmente completa en su alcance aprobado, pero **no se marca cerrada todavia**: faltan commit documental final, push, PR, merge, despliegue y smoke productivo no destructivo. Esta seccion sustituye los estados historicos de produccion pendiente conservados mas abajo.
+
+- Produccion `educativo-backend` / `bfnkaqmhcsyxdxoqnahk`, PostgreSQL `150008`: 03D3A (14/14 constraints), C1 (6/6 funciones y 16/16 triggers), B0 (335/335 grants), B2 (cinco grants de secuencia 0/1/1/3) y B3 (49 policies: 22 PUBLIC, 27 authenticated; fingerprint `3c533f67f0e5cbeee119171f9e4a30bf`) aplicados y postverificados. Rollbacks no ejecutados.
+- 03E1 Storage cerrado con 20 PASS. 03E2 navegador/logout cerrado con 38/38 pruebas y evidencia manual A → logout → B aprobada; Archivados visual es NO APLICA y no fue probado manualmente.
+- Evidencia live concluyente en test: **182 PASS, 0 FAIL definitivos** — Biblioteca 42, recursos derivados 72, jobs tecnicos 26, ownership jerarquico 22 y Storage 20. Cleanup completo y sin fixtures pendientes.
+- Deuda diferida no bloqueante: B4, default privileges futuros, 22 policies legacy/deferred y ocho grants B1-C2. No se reabren en F03.
+- SQL productivo F03 completo en el alcance aprobado. No ejecutar nuevamente 03D3A, C1, B0, B2 o B3.
+- Pendientes operativos exclusivos: commit, push de `work/features`, PR backend/frontend, merge, despliegue Render/Vercel, smoke productivo no destructivo y sincronizacion posterior de worktrees.
+
+Puerta de cierre: ambos repositorios sin divergencia ni cambios funcionales pendientes; validaciones documentales limpias; despues del merge desplegar backend antes que frontend y ejecutar smoke de login/logout, Biblioteca, lectura de una planeacion, preview/descarga y ausencia de errores visibles, sin fixtures ni generacion costosa.
+
 Seguimiento actualizado 2026-10-24: [03A](ISOLATION_03A.md), [03B](ISOLATION_03B.md), [03C](ISOLATION_03C.md) y [03D1](ISOLATION_03D1.md) estan completadas. [03D3B](ISOLATION_03D3B.md) verifico en test la remediacion relacional. [03D3C1](ISOLATION_03D3C1.md) esta completada en test con 6/6 funciones, 16/16 triggers, 140 PASS de regresion, [ownership y Auth](ISOLATION_03D3C1_VALIDATION.md) aprobados y cleanups verificados. Produccion continua pendiente; 03D3C2/03D3C3, Storage 03E y regresion E2E 03F siguen abiertas. Fase 03 sigue abierta.
 
 La [auditoria 03D3C2A](ISOLATION_03D3C2A.md) conserva el inventario live de 19 tablas, 49 policies, una secuencia, MAINTAIN y 96 default privileges. B0-current esta completado en test con postverify 15/15 y 140 PASS runtime; defaults y superficies C2/C3 permanecen pendientes. Produccion conserva sus ACL previas.
