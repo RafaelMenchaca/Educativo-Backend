@@ -17,6 +17,7 @@ export const FILES = Object.freeze({
   rollback: 'docs/test-environment/03d3c2_b3_roles_rollback.sql'
 });
 export const PRODUCTION_PREFLIGHT='docs/production/03d3c2_b3_roles_prod_preflight.sql';
+export const PRODUCTION_FILES=Object.freeze(Object.fromEntries(['migration','postverify','rollback'].map(x=>[x,`docs/production/03d3c2_b3_roles_prod_${x}.sql`])));
 // Reviewed identities, not a predicate selecting all PUBLIC policies.
 export const ALLOWLIST = Object.freeze([
   'public.anexos.Users can delete their own anexos',
@@ -449,12 +450,28 @@ export function validateProductionPreflight(sql=fs.readFileSync(path.resolve(pat
   try{for(const call of analyzeFunctionCalls(sql))if(call.argumentCount>=100)errors.push(`Production variadic limit: ${call.name}/${call.argumentCount}`)}catch(error){errors.push(error.message)}
   return Object.freeze(errors);
 }
+export function validateProductionPackage(contents=Object.fromEntries(Object.entries(PRODUCTION_FILES).map(([k,f])=>[k,fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..',f),'utf8')]))){
+  const errors=[],{migration,postverify,rollback}=contents,alterLines=sql=>sql.split(/\r?\n/).filter(x=>/^ALTER POLICY /.test(x));
+  const migrationAlters=alterLines(migration),rollbackAlters=alterLines(rollback);
+  if(!/^--[^\n]*\nBEGIN;\nDO \$b3\$/i.test(migration)||!/COMMIT;\s*$/.test(migration)||!/^--[^\n]*\nBEGIN;\nDO \$b3\$/i.test(rollback)||!/COMMIT;\s*$/.test(rollback))errors.push('Production migration/rollback transaction missing');
+  if(migrationAlters.length!==26||rollbackAlters.length!==26)errors.push('Production package requires exactly 26 ALTER POLICY statements each');
+  for(const [name,lines,role] of [['migration',migrationAlters,'authenticated'],['rollback',rollbackAlters,'PUBLIC']]){const identities=[];for(const line of lines){const m=line.match(/^ALTER POLICY "([^"]+)" ON "public"\."([^"]+)" TO (authenticated|PUBLIC);$/);if(!m||m[3]!==role){errors.push(`${name}: malformed ALTER`);continue}identities.push(`public.${m[2]}.${m[1]}`)}if(JSON.stringify(identities)!==JSON.stringify(ALLOWLIST))errors.push(`${name}: allowlist mismatch`)}
+  if(rollbackAlters.map(x=>x.replace(/ TO PUBLIC;$/,' TO authenticated;')).join('\n')!==migrationAlters.join('\n'))errors.push('Production rollback is not symmetric');
+  if(/1\s*\/\s*CASE/i.test(migration+rollback))errors.push('Opaque division gate forbidden');
+  if(!/RAISE EXCEPTION USING ERRCODE='P0001',MESSAGE='03D3C2-B3 baseline gate failed before ALTER POLICY'/.test(migration)||migration.indexOf('RAISE EXCEPTION')>migration.indexOf('ALTER POLICY'))errors.push('Migration explicit gate missing');
+  if(!/RAISE EXCEPTION USING ERRCODE='P0001',MESSAGE='03D3C2-B3 rollback gate failed before ALTER POLICY'/.test(rollback)||rollback.indexOf('RAISE EXCEPTION')>rollback.indexOf('ALTER POLICY'))errors.push('Rollback explicit gate missing');
+  if(!migration.includes("'b8f4e535ea4afa18dcb5a73c8eb3317d'")||!postverify.includes("'3c533f67f0e5cbeee119171f9e4a30bf'")||!rollback.includes("'3c533f67f0e5cbeee119171f9e4a30bf'"))errors.push('Production fingerprints mismatch');
+  const postStatements=splitSqlStatements(postverify);if(postStatements.length!==1||!/^WITH RECURSIVE\b/.test(postStatements[0])||!/AS production_postverify_result;\s*$/.test(postverify)||/\b(?:ALTER|CREATE|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE|TRUNCATE|DO|CALL|LOCK|BEGIN|COMMIT)\b/i.test(scanSql(postverify)))errors.push('Production postverify must be one read-only row');
+  for(const token of ["=22 AND count(*) FILTER(WHERE roles=ARRAY['authenticated']::text[])=27","'postverify_ok'",'post_b0_grants_exact','post_b2_sequence_exact','defaults_exact','constraints_exact','functions_exact','triggers_exact'])if(!postverify.includes(token))errors.push(`Production postverify missing ${token}`);
+  for(const [name,sql] of Object.entries(contents)){if(/\bMAINTAIN\b|\blast_value\b|\b(?:setval|nextval|currval)\s*\(/i.test(sql))errors.push(`${name}: PG15/value violation`);try{for(const call of analyzeFunctionCalls(sql))if(call.argumentCount>=100)errors.push(`${name}: variadic ${call.argumentCount}`)}catch(error){errors.push(`${name}: ${error.message}`)}}
+  return Object.freeze(errors);
+}
 
 // Importing has no filesystem/network/environment/timer effects. Explicit CLI reads only.
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const files = Object.fromEntries(Object.entries(FILES).map(([k,v]) => [k,fs.readFileSync(path.join(root,v),'utf8')]));
-  const result = validateAudit(files),productionErrors=validateProductionPreflight();
+  const result = validateAudit(files),productionErrors=[...validateProductionPreflight(),...validateProductionPackage()];
   result.errors.push(...productionErrors);
   process.stdout.write(`${JSON.stringify(result)}\n`);
   if (result.errors.length) process.exitCode = 1;
