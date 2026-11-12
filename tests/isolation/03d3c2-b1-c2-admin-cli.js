@@ -1,0 +1,11 @@
+import readline from 'node:readline/promises';
+import { stdin, stdout } from 'node:process';
+import { pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
+import { validateB1C2AdminConfig, safeB1C2Event } from './03d3c2-b1-c2-admin-contract.js';
+import { createB1C2AdminTransport } from './03d3c2-b1-c2-admin-transport.js';
+import { createB1C2AdminRunner } from './03d3c2-b1-c2-admin-runner.js';
+import { createB1C2AdminRecovery } from './03d3c2-b1-c2-admin-recovery.js';
+const emit=e=>stdout.write(`${JSON.stringify(safeB1C2Event(e))}\n`);
+export async function main(env=process.env){let config;try{config=validateB1C2AdminConfig({APP_ENV:env.EIA_B1C2_APP_ENV,SUPABASE_URL:env.EIA_B1C2_URL,PROJECT_CONFIRMATION:env.EIA_B1C2_PROJECT,ADMIN_KEY:env.EIA_B1C2_ADMIN_KEY,A_USER_ID:env.EIA_B1C2_A_USER,A_UNIT_ID:env.EIA_B1C2_A_UNIT,B_USER_ID:env.EIA_B1C2_B_USER,B_UNIT_ID:env.EIA_B1C2_B_UNIT})}catch(e){emit({event:'DIAGNOSTIC',phase:'config',reason:e.code||'invalid_state'});return 1}const transport=createB1C2AdminTransport(config),mode=env.EIA_B1C2_MODE,rl=readline.createInterface({input:stdin,output:stdout});let tool;if(mode==='runner')tool=createB1C2AdminRunner(config,transport,{emit});else if(mode==='recovery'&&env.EIA_B1C2_RUN_ID)tool=createB1C2AdminRecovery(config,env.EIA_B1C2_RUN_ID,transport,{emit});else{emit({event:'DIAGNOSTIC',phase:'config',reason:'invalid_state'});rl.close();return 1}try{while(true){const cmd=(await rl.question('command> ')).trim();if(cmd==='quit')break;if(mode==='runner'&&['preflight','prepare','verify','cleanup'].includes(cmd)){const value=await tool[cmd]();if(cmd==='prepare')stdout.write(`${JSON.stringify(value)}\n`)}else if(mode==='recovery'&&['discover','recover'].includes(cmd))stdout.write(`${JSON.stringify(await tool[cmd]())}\n`);else emit({event:'DIAGNOSTIC',reason:'invalid_state'})}return 0}catch(e){emit({event:'DIAGNOSTIC',reason:['unexpected_response','fixture_exists','context_mismatch','cardinality','marker_mismatch','owner_mismatch','graph_open','external_dependent','write_uncertain','delete_unverified','invalid_state'].includes(e.message)?e.message:'unexpected_response'});return 1}finally{rl.close();config=null}}
+if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)process.exitCode=await main();

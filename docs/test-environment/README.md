@@ -1,5 +1,11 @@
 # Inicialización revisable de pruebas — sesión 02C
 
+Storage 03E1 (cierre 2026-11-04): [aislamiento adversarial validado exclusivamente en test](../ISOLATION_03E1.md), mediante el launcher interactivo [start-storage.ps1](../../tests/isolation/start-storage.ps1). Rerun definitivo: 20 PASS, cero FAIL/INCONCLUSIVE/commandErrors, ejecucion y cleanup completos, cero fixtures/estados inciertos y exit code 0. A/B fueron sinteticos, distintos y exclusivos de test; no se compartieron secretos ni URLs firmadas. El vinculo path/planeacion no es validado por Storage y queda fuera de los 20 PASS. Produccion intacta; no reabre B3/B4. Siguiente paso separado: 03E2 estado de navegador/logout.
+
+Historial conservado: la primera corrida fue inconclusa en OWN-UPDATE (6 PASS, un INCONCLUSIVE, cuatro command errors), aunque termino con cleanup completo y cero pendientes. La causa probable fue reutilizacion de URL/cache, sin evidencia de vulnerabilidad. Tras cache busting/no-store, PUT alineado, diagnosticos seguros y cleanup idempotente, el rerun obtuvo los 20 PASS definitivos. Suite offline final 25/25; sin cambios de policies.
+
+El [paquete 03D3A de propietario comun](../ISOLATION_03D3A.md) contiene preflight read-only, migracion transaccional, post-verificacion y rollback para nueve relaciones confirmadas. Fue aplicado y validado en Supabase test durante 03D3B; produccion sigue pendiente y el rollback no se ejecuto.
+
 Cierre posterior 02E/02F (2026-10-06): implementación de aislamiento y validación conectada completadas en el alcance de la [evidencia canónica](../ENVIRONMENT_SCHEMA_READINESS.md#cierre-02e02f--evidencia-manual-y-alcance-aprobado). Frontend/backend locales operan contra test; login, aprovisionamiento, API, aislamiento visual básico y Storage funcional aprobados por el usuario. Las listas históricas de pendientes de este documento quedan actualizadas por ese cierre; no se certifica la matriz adversarial RLS de Fase 03 ni se autoriza repetir el inicializador.
 
 **Esquema inicializado y postflight aprobado en pruebas**, según evidencia manual proporcionada por el usuario desde Supabase SQL Editor el **2026-09-28**: `educativo-backend-test` / `gwdtlbisykzzplgzczzq` / `us-east-2` / PostgreSQL 17.6. **No volver a ejecutar el inicializador sobre este proyecto.** Producción prohibida: `educativo-backend` / `bfnkaqmhcsyxdxoqnahk` / `us-east-2`. No es una autorización de lanzamiento.
@@ -118,3 +124,35 @@ En 02C.1 se revisó estáticamente el paquete para PostgreSQL 15.8 → 17.6 y se
 La creación/configuración del bucket y recopilación de Auth que figuraban pendientes abajo ya se completaron según evidencia del usuario. Permanecen pendientes los cambios Auth que se decidan y todas las pruebas funcionales/conexiones. La lista siguiente se conserva como estado histórico del cierre 02C.2.
 
 Siguen pendientes la configuración de Supabase Auth; creación/configuración en pruebas del bucket privado `planeacion-actividades` (10 MB, `image/*`, carga manual y URLs firmadas); pruebas de Storage con dos usuarios; pruebas RLS A/B/anon; datos de referencia, incluido `ai_model_prices`; resolución de `ia_metrics` frente a `ia_metrics_legacy`; configuración explícita por ambiente; conexión del backend local y frontend de pruebas; cambios en Render y Vercel; registro, recuperación, contacto, planes, cuotas y pagos. No crear `avatars`; generación de imágenes con IA fuera de alcance. La aprobación del postflight no resuelve ni autoriza por sí sola estos trabajos. La prueba manual de 00.1 continúa pendiente.
+
+## Integridad de propietario comun 03D3B
+
+El paquete [03D3A](../ISOLATION_03D3A.md) fue aplicado y verificado manualmente en Supabase test. El [cierre 03D3B](../ISOLATION_03D3B.md) registra 14/14 constraints y la repeticion 42/72/26 PASS de los harnesses. Rollback no ejecutado; produccion pendiente.
+
+## Funciones trigger 03D3C1
+
+El [paquete 03D3C1](../ISOLATION_03D3C1.md) fue completado en Supabase test: 6/6 funciones, 16/16 triggers, 140 PASS de regresion, 22 PASS de ownership y siete PASS Auth contabilizados. Todos los cleanups quedaron verificados y no hay residuos conocidos. Rollback no ejecutado; produccion intacta y pendiente de promocion controlada.
+
+## Auditoria ACL/policies 03D3C2A
+
+El primer [preflight 03D3C2A](03d3c2a_acl_policy_preflight.sql) confirmó 19 tablas, 49 policies, una secuencia y 96 default privileges, y descubrió MAINTAIN en PostgreSQL 17. El paquete fue ampliado para PG15/PG17 y debe repetirse desde el inicio. No aplica cambios; B0 y 03D3C2 permanecen pendientes.
+
+
+El [paquete B0-current](../ISOLATION_03D3C2_B0.md) esta completado en Supabase test. El diagnostico [read-only](03d3c2_b0_current_trigger_diagnostic.sql) confirmo 6/6 funciones y 16/16 triggers; el postverify corregido aprobo 15/15 predicados y las regresiones post-B0 sumaron 140 PASS con cleanups completos. Rollback no ejecutado; defaults, service_role, policies y B1-B4 siguen separados.
+## Preflight 03D3C2-B1
+
+El [preflight read-only B1](03d3c2_b1_authenticated_dml_preflight.sql) inventaria 19 tablas x cuatro operaciones authenticated, policies, RLS y memberships. Su owner es [ISOLATION_03D3C2_B1](../ISOLATION_03D3C2_B1.md). Devuelve `apt_to_apply=false` mientras sigan abiertas dependencias de pruebas y decisiones B4; no incluye migracion. B0-current fue cerrado por `bbe9dc3b571399552f1d7b326f732d7d304133a9`.
+
+El [diseno B1-C2](../ISOLATION_03D3C2_B1_C2_DESIGN.md) es declarativo: especifica ocho operaciones test-only, grafo, guardas y olas futuras. No contiene SQL mutante, runner conectado, credenciales ni autorizacion para revocar.
+
+El [runner/recovery B1-C2](../ISOLATION_03D3C2_B1_C2_RUNNER.md) implementa el ciclo futuro con transporte inyectable y launchers test-only. No ha sido ejecutado contra Supabase; no es una migracion ni autoriza T1/T2/T3.
+
+El [paquete 03D3C2-B2](../ISOLATION_03D3C2_B2.md) quedo completado en Supabase test: diagnostico 24/24, preflight 16/16, baseline `pre_migration` 2 PASS, migracion minima, postverify completo, `post_migration` 2 PASS y regresion Biblioteca 42 PASS. Revoco solo SELECT/UPDATE de authenticated/service_role y conservo USAGE. Los dos huecos identity son legitimos y no se reajustan; rollback no ejecutado y produccion pendiente.
+
+## 03D3C2-B3 validado en Supabase test
+
+Cierre documental 2026-11-02 segun evidencia live confirmada por el usuario: [B3-R1](../ISOLATION_03D3C2_B3.md) fue aplicado y postverificado exclusivamente en educativo-backend-test. Se estrecharon exactamente 26 policies de public a authenticated; inventario final 49/49 en 19 tablas, 27 authenticated y 22 public. postverify_ok=true, apt_to_apply=false deliberado; fingerprint esperado/observado 3c533f67f0e5cbeee119171f9e4a30bf; cero faltantes/adicionales y todos los invariantes de roles, allowlist, tablas, funciones/triggers, grants B0, secuencia B2, owners, RLS/FORCE y bypass aprobados.
+
+Regresiones definitivas en test: 03D2A 42 PASS, 03D2B 72 PASS, 03D2C 26 PASS y ownership 03D3C1 22 PASS: **162 PASS**, cero FAIL/INCONCLUSIVE/commandErrors, ejecucion y limpieza completas, sin fixturesPending ni uncertainPending, exitosas y exit code=0. A/B/C usaron EIA_B0_CURRENT_MODE=post_b0_current. El primer intento 03D2B omitio ese modo: 9 PASS parciales, commandErrors=1, executeCompleted=false y exit code=1 al recibir correctamente HTTP 401 para anon post-B0; cleanupCompleted=true y ambos pendientes vacios. Fue incompatibilidad de modo del harness, no regresion B3; el rerun correcto obtuvo 72 PASS. Los 9 parciales no se suman al total definitivo.
+
+Clasificacion conservada para trazabilidad: 26 NARROW_CANDIDATE ya aplicadas, 22 LEGACY_OR_DEFERRED sin cambios, una ALREADY_AUTHENTICATED, cero DECISION_REQUIRED/KEEP_PUBLIC. C1 demuestra provisioning definer postgres; profiles/settings siguen B4 y no requirieron repetir Auth. B3 validado en test no cierra 03D3C2: B0-defaults, B4 y superficies posteriores/deferidas siguen pendientes; B1-C2 y sus ocho grants permanecen diferidos a 03F. CSV intacto y Fase 03 abierta. Produccion intacta; rollback preparado, no ejecutado. Esta consolidacion solo modifica documentacion y valida offline; no ejecuta operaciones live, harnesses ni SQL. Todo sin stage.

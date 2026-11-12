@@ -13,19 +13,43 @@ function userClientFromReq(req) {
 
 function sendError(res, error, fallbackMessage) {
   console.error('[exam-debug] controller.fallo', {
-    motivo: error?.message || fallbackMessage || 'Error no controlado',
+    motivo: error?.status ? 'controlled_error' : 'internal_error',
     status: error?.status || 500
   });
 
   if (error?.status) {
     return res.status(error.status).json({ error: error.message });
   }
-
-  console.error(error);
   return res.status(500).json({ error: fallbackMessage });
 }
 
+const GENERATE_FIELDS = new Set([
+  'unidad_id',
+  'tipos_pregunta',
+  'cantidades_pregunta',
+  'tema_ids',
+  'planeacion_ids',
+  'batch_id'
+]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function parseGeneratePayload(body) {
+  if (
+    !body
+    || typeof body !== 'object'
+    || Array.isArray(body)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(body))
+  ) {
+    return { error: 'Body invalido.' };
+  }
+  if (Reflect.ownKeys(body).some((key) => (
+    typeof key !== 'string'
+    || !GENERATE_FIELDS.has(key)
+    || !Object.prototype.propertyIsEnumerable.call(body, key)
+  ))) {
+    return { error: 'La solicitud contiene campos no permitidos.' };
+  }
+
   const unidadId = typeof body?.unidad_id === 'string' ? body.unidad_id.trim() : '';
   const tiposPregunta = Array.isArray(body?.tipos_pregunta) ? body.tipos_pregunta : [];
   const cantidadesPregunta = body?.cantidades_pregunta && typeof body.cantidades_pregunta === 'object' && !Array.isArray(body.cantidades_pregunta)
@@ -33,39 +57,39 @@ function parseGeneratePayload(body) {
     : null;
   const temaIds = Array.isArray(body?.tema_ids) && body.tema_ids.length > 0 ? body.tema_ids : null;
   const planeacionIds = Array.isArray(body?.planeacion_ids) && body.planeacion_ids.length > 0 ? body.planeacion_ids : null;
+  const hasBatchId = Object.hasOwn(body, 'batch_id');
   const batchId = typeof body?.batch_id === 'string' && body.batch_id.trim() ? body.batch_id.trim() : null;
 
   if (!unidadId || tiposPregunta.length === 0) {
-    return null;
+    return { error: 'Debes enviar unidad_id y al menos un tipo de pregunta.' };
+  }
+  if (hasBatchId && (!batchId || !UUID_PATTERN.test(batchId))) {
+    return { error: 'batch_id invalido.' };
   }
 
-  return {
+  return { value: {
     unidadId,
     tiposPregunta,
     cantidadesPregunta,
     temaIds,
     planeacionIds,
     batchId
-  };
+  } };
 }
 
 export async function postGenerateExamen(req, res) {
-  const payload = parseGeneratePayload(req.body);
+  const parsed = parseGeneratePayload(req.body);
 
-  if (!payload) {
-    return res.status(400).json({
-      error: 'Debes enviar unidad_id y al menos un tipo de pregunta.'
-    });
+  if (parsed.error) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const payload = parsed.value;
 
   console.info('[examenes] generar examen recibido', {
-    userId: req.user?.id,
-    unidadId: payload.unidadId,
+    evento: 'request_validated',
     totalTemas: Array.isArray(payload.temaIds) ? payload.temaIds.length : 0,
     totalPlaneaciones: Array.isArray(payload.planeacionIds) ? payload.planeacionIds.length : 0,
-    temaIds: payload.temaIds || [],
-    planeacionIds: payload.planeacionIds || [],
-    batchId: payload.batchId || null
+    tieneBatch: Boolean(payload.batchId)
   });
 
   try {

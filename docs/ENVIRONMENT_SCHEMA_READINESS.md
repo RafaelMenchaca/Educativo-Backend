@@ -1,6 +1,27 @@
 # Inventario de entornos y evidencia de esquema — sesión 02A
 
-Inicio del inventario: 2026-09-23. Cierre documental al 2026-10-06: **02E completada (implementación de aislamiento) y 02F completada (validación conectada local contra Supabase test), según pruebas automáticas y evidencia manual aportada por el usuario.** Auth/login, aprovisionamiento, API, aislamiento visual básico y Storage funcional aprobados en el alcance descrito abajo. No es una certificación exhaustiva RLS A/B/anon: matriz adversarial y acceso cruzado directo pendientes para Fase 03. Producción no modificada; cambios de código todavía sin stage ni despliegue.
+## Estado operativo F03 — 2026-11-10
+
+F03 esta funcional y documentalmente completa en su alcance aprobado, pero **no se marca cerrada todavia**: faltan commit documental final, push, PR, merge, despliegue y smoke productivo no destructivo. Esta seccion sustituye los estados historicos de produccion pendiente conservados mas abajo.
+
+- Produccion `educativo-backend` / `bfnkaqmhcsyxdxoqnahk`, PostgreSQL `150008`: 03D3A (14/14 constraints), C1 (6/6 funciones y 16/16 triggers), B0 (335/335 grants), B2 (cinco grants de secuencia 0/1/1/3) y B3 (49 policies: 22 PUBLIC, 27 authenticated; fingerprint `3c533f67f0e5cbeee119171f9e4a30bf`) aplicados y postverificados. Rollbacks no ejecutados.
+- 03E1 Storage cerrado con 20 PASS. 03E2 navegador/logout cerrado con 38/38 pruebas y evidencia manual A → logout → B aprobada; Archivados visual es NO APLICA y no fue probado manualmente.
+- Evidencia live concluyente en test: **182 PASS, 0 FAIL definitivos** — Biblioteca 42, recursos derivados 72, jobs tecnicos 26, ownership jerarquico 22 y Storage 20. Cleanup completo y sin fixtures pendientes.
+- Deuda diferida no bloqueante: B4, default privileges futuros, 22 policies legacy/deferred y ocho grants B1-C2. No se reabren en F03.
+- SQL productivo F03 completo en el alcance aprobado. No ejecutar nuevamente 03D3A, C1, B0, B2 o B3.
+- Pendientes operativos exclusivos: commit, push de `work/features`, PR backend/frontend, merge, despliegue Render/Vercel, smoke productivo no destructivo y sincronizacion posterior de worktrees.
+
+Puerta de cierre: ambos repositorios sin divergencia ni cambios funcionales pendientes; validaciones documentales limpias; despues del merge desplegar backend antes que frontend y ejecutar smoke de login/logout, Biblioteca, lectura de una planeacion, preview/descarga y ausencia de errores visibles, sin fixtures ni generacion costosa.
+
+Seguimiento actualizado 2026-10-24: [03A](ISOLATION_03A.md), [03B](ISOLATION_03B.md), [03C](ISOLATION_03C.md) y [03D1](ISOLATION_03D1.md) estan completadas. [03D3B](ISOLATION_03D3B.md) verifico en test la remediacion relacional. [03D3C1](ISOLATION_03D3C1.md) esta completada en test con 6/6 funciones, 16/16 triggers, 140 PASS de regresion, [ownership y Auth](ISOLATION_03D3C1_VALIDATION.md) aprobados y cleanups verificados. Produccion continua pendiente; 03D3C2/03D3C3, Storage 03E y regresion E2E 03F siguen abiertas. Fase 03 sigue abierta.
+
+La [auditoria 03D3C2A](ISOLATION_03D3C2A.md) conserva el inventario live de 19 tablas, 49 policies, una secuencia, MAINTAIN y 96 default privileges. B0-current esta completado en test con postverify 15/15 y 140 PASS runtime; defaults y superficies C2/C3 permanecen pendientes. Produccion conserva sus ACL previas.
+
+El [paquete B2](ISOLATION_03D3C2_B2.md) esta completado en Supabase test: conserva USAGE de la identity para authenticated/service_role y revoco solo SELECT/UPDATE. Diagnostico, preflight, baseline, migracion, postverify, runtime posterior y regresion Biblioteca fueron aprobados; cleanup completo y rollback no ejecutado. Dos valores identity consumidos dejaron huecos legitimos que no se reparan. Produccion conserva el estado previo.
+
+03D3A preparo el paquete de constraints compuestas para nueve relaciones confirmadas y 03D3B lo aplico y valido en Supabase test. Incluye preflight agregado, migracion one-shot, post-verificacion y rollback; produccion sigue pendiente y el rollback no se ejecuto.
+
+Inicio del inventario: 2026-09-23. Cierre documental al 2026-10-06: **02E completada (implementación de aislamiento) y 02F completada (validación conectada local contra Supabase test), según pruebas automáticas y evidencia manual aportada por el usuario.** Auth/login, aprovisionamiento, API, aislamiento visual básico y Storage funcional aprobados en el alcance descrito abajo. La evidencia posterior de Fase 03 incluye 03D2A, 03D2B y 03D2C completadas: el aislamiento de filas pasó en su alcance, pero se confirmaron relaciones entre owners distintos que requieren hardening en 03D3. Biblioteca permanece como flujo principal, la jerarquía visual está retirada y congelada, y todos los fixtures de esas ejecuciones fueron limpiados. Producción no modificada; cambios de código todavía sin stage ni despliegue.
 
 ## 02E — aislamiento operativo en código (2026-10-04)
 
@@ -323,7 +344,7 @@ CORS gobierna acceso desde navegadores a Express; no es autorización, aislamien
 | No hay validación explícita de identidad de ambiente/proyecto. | Un entorno con variables mezcladas podría arrancar y fallar después o actuar sobre el destino incorrecto. |
 | CORS permite localhost/GitHub Pages en producción y es abierto si `NODE_ENV` falta. | Una configuración de hosting errónea ampliaría orígenes; no demuestra una fuga ni sustituye los controles Auth/RLS. |
 | Existen clientes destinados a admin y fallbacks hacia ellos. | Su uso con credenciales efectivamente privilegiadas reduce la protección RLS de esas operaciones. Verificar roles y relaciones antes de certificar aislamiento. |
-| Examen conserva `batchId` en configuración y el worker lo inserta con cliente admin; no se encontró comprobación explícita de propietario del batch en ese trayecto. | Posible asociación cruzada si el esquema real no la impide. Una FK simple solo acredita existencia del batch, no igualdad de propietarios. |
+| 03C valida `batch_id` con cliente de usuario antes de crear el job y el worker admin vuelve a comprobar batch, propietario, unidad y relaciones antes de procesar y antes del INSERT final. | La ventana entre segunda validación e INSERT sigue sin atomicidad DB; revisar RPC/transacción o constraints en 03D. |
 | Snapshot contiene nombres de triggers de ownership, no sus cuerpos ni policies/grants. | No se puede afirmar cobertura o eficacia de aislamiento por la existencia de esos nombres. |
 
 ## C. Propuesta mínima de aislamiento — no implementada
@@ -394,3 +415,25 @@ Si el acceso por interfaz resulta insuficiente, 02B debe preparar y revisar una 
 5. Preparar criterios de aceptación de aislamiento (sin destino productivo por defecto, error antes de requests con configuración inválida, coherencia API/Auth/Storage, pruebas A/B sintéticas). Implementación y pruebas externas requieren el alcance acordado de la siguiente sesión.
 
 Salida esperada de 02B: mapa de ambientes respaldado por evidencia, informe de schema con limitaciones y plan concreto de aislamiento. No cerrar automáticamente aislamiento, verificación RLS o la prueba manual pendiente de 00.1.
+
+- 03D3B: Supabase test tiene 14/14 constraints de propietario comun aplicadas y verificadas. Los harnesses posteriores terminaron 42/42, 72/72 y 26/26 PASS, con cleanups completos. Produccion permanece intacta; rollback no ejecutado.
+
+## Supabase test tras 03D3B
+
+La migracion de propietario comun esta aplicada y post-verificada en test: 14/14 constraints coincidentes y validadas. Las repeticiones adversariales sumaron 140 PASS, cero FAIL/INCONCLUSIVE y cero residuos conocidos. Produccion no fue modificada; rollback no ejecutado. Vease [03D3B](ISOLATION_03D3B.md).
+
+
+El [paquete 03D3C2-B0-current](ISOLATION_03D3C2_B0.md) esta completado en test. El primer falso fue un defecto public-only del postverify, no drift; el diagnostico confirmo 6/6 funciones y 16/16 triggers, el postverify corregido aprobo 15/15 y las regresiones sumaron 140 PASS con cero residuos. Rollback no ejecutado y produccion intacta.
+La [auditoria 03D3C2-B1](ISOLATION_03D3C2_B1.md) separa DML authenticated productivo, administrativo, worker, pruebas y ausencia de consumidor. B0-current corresponde al commit `bbe9dc3b571399552f1d7b326f732d7d304133a9`; B1 no esta aplicado, produccion sigue pendiente y Fase 03 abierta.
+
+El [diseno B1-C2](ISOLATION_03D3C2_B1_C2_DESIGN.md) propone un ciclo administrativo local y exclusivo de test para retirar en el futuro ocho grants usados solo por fixtures. No existe runner conectado ni migracion; los grants se conservan hasta demostrar prepare, cleanup y recovery seguros.
+
+El [runner B1-C2](ISOLATION_03D3C2_B1_C2_RUNNER.md) esta implementado solo como herramienta de pruebas y permanece sin ejecucion remota. Produccion y ACL permanecen intactas.
+
+## 03D3C2-B3 validado en Supabase test
+
+Cierre documental 2026-11-02 segun evidencia live confirmada por el usuario: [B3-R1](ISOLATION_03D3C2_B3.md) fue aplicado y postverificado exclusivamente en educativo-backend-test. Se estrecharon exactamente 26 policies de public a authenticated; inventario final 49/49 en 19 tablas, 27 authenticated y 22 public. postverify_ok=true, apt_to_apply=false deliberado; fingerprint esperado/observado 3c533f67f0e5cbeee119171f9e4a30bf; cero faltantes/adicionales y todos los invariantes de roles, allowlist, tablas, funciones/triggers, grants B0, secuencia B2, owners, RLS/FORCE y bypass aprobados.
+
+Regresiones definitivas en test: 03D2A 42 PASS, 03D2B 72 PASS, 03D2C 26 PASS y ownership 03D3C1 22 PASS: **162 PASS**, cero FAIL/INCONCLUSIVE/commandErrors, ejecucion y limpieza completas, sin fixturesPending ni uncertainPending, exitosas y exit code=0. A/B/C usaron EIA_B0_CURRENT_MODE=post_b0_current. El primer intento 03D2B omitio ese modo: 9 PASS parciales, commandErrors=1, executeCompleted=false y exit code=1 al recibir correctamente HTTP 401 para anon post-B0; cleanupCompleted=true y ambos pendientes vacios. Fue incompatibilidad de modo del harness, no regresion B3; el rerun correcto obtuvo 72 PASS. Los 9 parciales no se suman al total definitivo.
+
+Clasificacion conservada para trazabilidad: 26 NARROW_CANDIDATE ya aplicadas, 22 LEGACY_OR_DEFERRED sin cambios, una ALREADY_AUTHENTICATED, cero DECISION_REQUIRED/KEEP_PUBLIC. C1 demuestra provisioning definer postgres; profiles/settings siguen B4 y no requirieron repetir Auth. B3 validado en test no cierra 03D3C2: B0-defaults, B4 y superficies posteriores/deferidas siguen pendientes; B1-C2 y sus ocho grants permanecen diferidos a 03F. CSV intacto y Fase 03 abierta. Produccion intacta; rollback preparado, no ejecutado. Esta consolidacion solo modifica documentacion y valida offline; no ejecuta operaciones live, harnesses ni SQL. Todo sin stage.
