@@ -1,3 +1,5 @@
+import { ACTIVIDADES_DIDACTICAS_SET } from '../constants/actividadesDidacticas.js';
+
 export function buildPromptByLevel({
   materia,
   nivel,
@@ -20,73 +22,13 @@ export function buildPromptByLevel({
     { key: 'desarrollo', label: 'Desarrollo' },
     { key: 'cierre', label: 'Cierre' }
   ];
-  const actividadesDidacticasCatalogo = [
-    'Juegos de mesa educativos',
-    'Debate académico',
-    'Proyectos de investigación',
-    'Aprendizaje basado en proyectos (ABP)',
-    'Simulación de situaciones reales',
-    'Trabajo colaborativo',
-    'Taller de escritura creativa',
-    'Prácticas de laboratorio',
-    'Análisis de estudio de caso',
-    'Clase invertida (Flipped Classroom)',
-    'Excursiones educativas',
-    'Presentaciones multimedia',
-    'Aprendizaje cooperativo',
-    'Encuestas y entrevistas',
-    'Juegos de rol',
-    'Preguntas de reflexión',
-    'Proyectos artísticos',
-    'Organizador Grafico',
-    'Podcasts educativos',
-    'Actividades interdisciplinarias',
-    'Lluvia de ideas',
-    'Foros de discusión',
-    'Resolución de problemas',
-    'Creación de infografías',
-    'Elaboración de maquetas',
-    'Cuadros comparativos',
-    'Líneas del tiempo',
-    'Diarios de aprendizaje',
-    'Lectura guiada',
-    'Círculo de lectura',
-    'Creación de videos educativos',
-    'Kahoot o cuestionarios interactivos',
-    'Gamificación',
-    'Aprendizaje basado en retos',
-    'Exposición oral',
-    'Panel de expertos',
-    'Mesa redonda',
-    'Tutoría entre pares',
-    'Portafolio de evidencias',
-    'Aprendizaje basado en problemas (ABPr)',
-    'Diseño de experimentos',
-    'Creación de blogs educativos',
-    'Historietas o cómics educativos',
-    'Mapas mentales',
-    'Análisis de videos',
-    'Aprendizaje servicio',
-    'Diseño de prototipos',
-    'Investigación documental',
-    'Feria científica o tecnológica',
-    'Escape room educativo',
-    'Dinámicas rompehielo',
-    'Elaboración de resúmenes',
-    'Análisis de textos',
-    'Ensayo académico',
-    'Traducción de textos',
-    'Concurso de preguntas',
-    'Dinámica de preguntas con pelota',
-    'Dinámica de preguntas con globos',
-    'Juegos y dinámicas de movimiento'
-  ];
   const enfoqueActividadSeleccionada = {
     'Estudio de caso': 'centrate en analizar un caso, identificar problema, causas, consecuencias, alternativas, soluciones y justificar decisiones a partir del caso',
-    'Mapas conceptuales': 'centrate en construir, completar, organizar, conectar o explicar un mapa conceptual',
-    'Debate en clase': 'centrate en argumentar, contrastar posturas, usar evidencias y defender ideas de forma ordenada',
-    'Trabajo en equipo': 'centrate en colaboracion organizada entre estudiantes, roles, acuerdos y producto comun',
-    'Preguntas de reflexión': 'centrate en responder, analizar y compartir respuestas a preguntas detonadoras o reflexivas'
+    'Lluvia de ideas': 'recopila aportaciones diversas sin evaluarlas de inmediato, organizalas visiblemente y usalas para activar lo que el grupo ya sabe',
+    'Mapa conceptual': 'construye, completa, organiza, conecta o explica conceptos y sus relaciones',
+    'Resolución de problemas': 'plantea un problema central, guia la identificacion de datos y procedimientos, y acompana su resolucion razonada durante el Desarrollo',
+    'Trabajo colaborativo': 'organiza roles, acuerdos, interdependencia y un producto comun entre estudiantes',
+    'Evaluación y retroalimentación': 'usa como evidencia el producto, respuesta o procedimiento elaborado durante el Desarrollo; aplica criterios claros para identificar aciertos, errores y aspectos por mejorar; ofrece retroalimentacion especifica y permite corregir, explicar o ajustar el trabajo; no introduzcas un nuevo problema, caso o producto central'
   };
   const actividadesSeleccionadas = actividades_momentos && typeof actividades_momentos === 'object'
     ? actividades_momentos
@@ -104,7 +46,9 @@ export function buildPromptByLevel({
       const actividad = typeof actividadesSeleccionadas[key] === 'string'
         ? actividadesSeleccionadas[key].trim()
         : '';
-      const enfoque = enfoqueActividadSeleccionada[actividad];
+      const enfoque = ACTIVIDADES_DIDACTICAS_SET.has(actividad)
+        ? enfoqueActividadSeleccionada[actividad]
+        : '';
       return actividad && enfoque ? `- Si ${label} usa "${actividad}", ${enfoque}.` : '';
     })
     .filter(Boolean);
@@ -116,7 +60,7 @@ Reglas obligatorias:
 1. Cada actividad seleccionada debe aplicarse unicamente al objeto cuyo "tiempo_sesion" corresponde a ese momento.
 2. No uses una actividad seleccionada para un momento diferente.
 3. Si un momento no tiene actividad seleccionada, genera su actividad normalmente segun el tema, nivel, materia y duracion.
-4. No agregues campos nuevos al JSON.
+4. No agregues propiedades distintas de las enumeradas en el esquema JSON.
 5. No cambies los nombres de las propiedades existentes.
 6. Solo adapta el contenido del campo "actividades" para hacerlo coherente con la actividad seleccionada en ese momento.
 7. Manten los tres momentos: Conocimientos previos, Desarrollo y Cierre.
@@ -124,11 +68,22 @@ Reglas obligatorias:
 9. Manten el total de "tiempo_min" igual a la duracion solicitada.
 10. Respeta la estructura actual de respuesta.
 11. Si existe una actividad seleccionada para un momento, esa actividad debe ser la estrategia didactica principal y dominante del campo "actividades" en ese objeto.
-12. No reemplaces, combines ni cierres ese mismo momento con otra actividad didactica principal del catalogo.
-13. Catalogo de actividades que NO debes usar como actividad principal alternativa en un momento con actividad seleccionada, salvo que sea exactamente la seleccionada para ese mismo momento: ${actividadesDidacticasCatalogo.join(', ')}.
+12. No reemplaces ni combines la seleccion con otra tecnica principal.
+13. No sustituyas la actividad seleccionada por otra tecnica, aunque otra sugerencia generica parezca adecuada.
 14. Evita frases que conviertan la actividad en otra estrategia principal, por ejemplo: "se abrira un debate en clase", "crearan un mapa conceptual", "realizaran un juego de rol", "haran una presentacion multimedia", "desarrollaran un proyecto de investigacion", salvo que esa sea exactamente la actividad seleccionada para ese momento.
 15. Puedes incluir comentar, compartir ideas, responder preguntas, socializar resultados, reflexionar brevemente, recibir retroalimentacion, comparar respuestas o justificar decisiones como acciones de apoyo, pero deben quedar claramente subordinadas a la actividad seleccionada, no como una actividad didactica independiente.
-16. Aplica esta logica a todas las actividades del catalogo ACTIVIDADES_DIDACTICAS.
+16. Aplica esta logica a cualquier actividad seleccionada del catalogo vigente por momento.
+17. Para cada momento con seleccion expresa, escribe exactamente ese valor en "actividad_seleccionada". Es metadato estructurado interno que declara la tecnica que el contenido implementa realmente; no lo uses como titulo, etiqueta ni prefijo visible.
+18. El campo "actividades" debe describir de forma natural, directa y fluida como se ejecutara realmente esa tecnica, sin repetir mecanicamente su nombre. No basta con declarar el metadato si el procedimiento corresponde a otra estrategia.
+19. El catalogo auxiliar y las sugerencias generales de estrategias solo aplican a momentos sin seleccion expresa; nunca compiten con una seleccion del usuario.
+20. Estas selecciones pertenecen exclusivamente al tema actual (${tema}) y al momento indicado.
+
+Ejemplo minimo de la relacion requerida:
+{
+  "tiempo_sesion": "Conocimientos previos",
+  "actividad_seleccionada": "Lluvia de ideas",
+  "actividades": "El docente plantea una consigna sobre las aplicaciones del tema. Los estudiantes comparten sus ideas y el docente organiza las aportaciones en la pizarra..."
+}
 ${enfoqueLines.length > 0 ? `\nEnfoque especifico para las actividades seleccionadas:\n${enfoqueLines.join('\n')}` : ''}`
     : `Actividades didacticas seleccionadas por el usuario por momento:
 - Conocimientos previos: Sin actividad especifica
@@ -175,7 +130,12 @@ VARIEDAD ENTRE MOMENTOS
 ========================
 - En los momentos sin actividad seleccionada, procura que Conocimientos previos, Desarrollo y Cierre utilicen dinamicas claramente diferenciadas entre si.
 - No consideres variedad cambiar solamente la redaccion mientras mantienes exactamente la misma dinamica.
-- Esta regla no sustituye una seleccion explicita del docente: respetala aunque se repita entre momentos o respecto de temas anteriores.`;
+- Esta regla no sustituye una seleccion explicita del docente: respetala aunque se repita entre momentos o respecto de temas anteriores.
+- Progresion pedagogica: Conocimientos previos activa o diagnostica; Desarrollo construye, explica, practica o aplica el conocimiento principal; Cierre recupera evidencia del Desarrollo para comprobar, sintetizar, reflexionar o retroalimentar.
+- El Cierre no debe repetir a escala reducida la actividad central del Desarrollo ni iniciar otro problema extenso, caso central, producto complejo o secuencia equivalente.
+- El Cierre debe trabajar con el producto, procedimiento, respuesta o evidencia obtenida en Desarrollo para identificar aprendizajes, aciertos, errores o dudas y cerrar la sesion.
+- Si el Cierre seleccionado es Ejercicio de aplicacion, Cuestionario final, Quiz de comprobacion o Preguntas de comprension, la comprobacion debe ser breve, usar lo trabajado en la sesion y no convertirse en un segundo Desarrollo.
+- Prioridad: primero la seleccion expresa del usuario, despues la funcion pedagogica del momento y finalmente las sugerencias generales.`;
   const base = `
 Actúa como un DOCENTE EXPERTO en diseño de planeaciones didácticas para educación media superior.
 No generes formatos genéricos. Diseña la clase como si fuera aplicada en un aula real.
@@ -189,6 +149,7 @@ Usa EXCLUSIVAMENTE el siguiente formato JSON:
 [
   {
     "tiempo_sesion": "Conocimientos previos | Desarrollo | Cierre",
+    "actividad_seleccionada": "valor exacto seleccionado para ese momento, o texto vacio si no hubo seleccion",
     "actividades": "...",
     "tiempo_min": número (en minutos, ajustado al total de ${duracion}),
     "producto": "...",
@@ -254,7 +215,9 @@ Debe permitir evidenciar que el estudiante:
 - Aplicó
 - Reflexionó
 
-Varía las estrategias:
+Trabaja prioritariamente con la evidencia producida en Desarrollo. No vuelvas a enseñar desde cero ni repitas su actividad central.
+
+Solo cuando no exista una selección expresa, puedes variar entre estrategias breves como:
 - Resolución de problemas o casos contextualizados
 - Elaboración de productos (esquemas, mapas conceptuales, cuadros comparativos, infografías, etc.)
 - Explicaciones escritas u orales
@@ -262,6 +225,7 @@ Varía las estrategias:
 
 NO repitas siempre el mismo tipo de cierre.
 Ajusta la actividad al tema y al nivel educativo.
+Si existe una selección expresa, esa selección tiene prioridad y estas sugerencias solo aplican cuando sean compatibles con ella.
 ========================
 ACTIVIDADES DIDACTICAS OPCIONALES
 ========================
@@ -277,6 +241,7 @@ CRITERIOS GENERALES
 - Enfoque pedagógico real (no genérico)
 - Coherencia entre conocimientos previos, desarrollo y cierre
 - Distribuye la ponderación de "sumativa" según la importancia pedagógica de cada momento
+- Las sugerencias generales y por nivel educativo nunca sustituyen una actividad seleccionada expresamente.
 `;
 
 
@@ -300,7 +265,7 @@ Duración total: ${duracion} minutos
 ${base}
 📗 Contexto: Nivel Secundaria
 Usa un lenguaje intermedio, fomenta el trabajo colaborativo y la reflexión.
-Incluye actividades de exploración, análisis, debates o resolución de problemas aplicados.
+Cuando no contradigan una selección expresa, puedes incluir exploración, análisis, debates o resolución de problemas aplicados.
 Materia: ${materia}
 Nivel: ${nivel}
 Unidad: ${unidad}
@@ -315,7 +280,7 @@ ${base}
 📙 Contexto: Nivel Preparatoria
 Usa un lenguaje formal y técnico.
 Promueve el pensamiento crítico, el trabajo autónomo y la aplicación de conocimientos.
-Las actividades deben incluir análisis, exposición oral o proyectos escritos.
+Cuando sean compatibles con las selecciones expresas, las actividades pueden incluir análisis, exposición oral o proyectos escritos.
 Materia: ${materia}
 Nivel: ${nivel}
 Unidad: ${unidad}
@@ -330,7 +295,7 @@ ${base}
 📘 Contexto: Nivel Universitario
 Usa un lenguaje académico, formal y técnico.
 Fomenta la investigación, la argumentación y la aplicación práctica de conceptos teóricos.
-Las actividades deben incluir análisis de casos, debates, proyectos integradores o exposiciones.
+Cuando sean compatibles con las selecciones expresas, las actividades pueden incluir análisis de casos, debates, proyectos integradores o exposiciones.
 Promueve la autonomía y la evaluación por competencias.
 Materia: ${materia}
 Nivel: ${nivel}
