@@ -75,6 +75,37 @@ Regenerar vuelve a cargar la planeación original, genera el mismo contrato y ac
 
 Persistencia: consultar [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md) para columnas y relaciones. Versión vigente: `v1_anexos_desde_planeacion`.
 
+### Base contractual de cuadernillos v2 (preparada, no integrada)
+
+El owner `src/domain/cuadernillos.js` define los tipos canónicos
+`ejercicios_aplicacion`, `actividades_integradoras` y `aprendizaje_guiado`, su
+metadata y los blueprints de cobertura. `src/validators/cuadernilloV2.validator.js`
+valida de forma pura un documento con esta raíz:
+
+```json
+{
+  "schema_version": 2,
+  "titulo": "string",
+  "descripcion": "string",
+  "datos_generales": {},
+  "secciones": []
+}
+```
+
+El tipo no se duplica dentro de `contenido`: la columna
+`anexos.tipo_cuadernillo` será su fuente canónica. El validador recibe ese tipo
+como argumento externo y exige las secciones y cobertura del blueprint elegido.
+
+Compatibilidad prevista:
+
+- v1: `tipo_cuadernillo IS NULL` y `contenido.anexos[]`;
+- v2: tipo canónico no nulo, `contenido.schema_version = 2` y
+  `contenido.secciones[]`.
+
+La generación actual sigue siendo v1. Aún están pendientes el payload y endpoint
+tipados, prompts por variante, generación segmentada, persistencia desde el
+servicio, regeneración v2, renderer web y exportador Word v2.
+
 ### Métricas y elementos protegidos
 
 Se crea un job `anexo` para generar o regenerar, se registra la llamada y se finaliza o falla el job. Se protegen el vínculo uno-a-uno, fuente de contexto, salida de 3–5 elementos, parser, validaciones, timeout, versión, modelo/parámetros, regeneración y métricas.

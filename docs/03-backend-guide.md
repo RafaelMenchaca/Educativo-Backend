@@ -99,6 +99,8 @@ Todas las rutas privadas se montan bajo `/api` desde `src/routes/index.js`.
 | --- | --- |
 | `planeaciones.service.js` | planeaciones, batches, archivado, generación y métricas legacy |
 | `anexos.service.js` | generación/regeneración y persistencia de anexos por planeación |
+| `domain/cuadernillos.js` | owner de IDs, metadata y blueprints de los tres cuadernillos v2; aún no conectado a rutas o generación |
+| `validators/cuadernilloV2.validator.js` | validador puro del contenido v2; recibe el tipo canónico como argumento externo |
 | `listas_cotejo.service.js` | listas por selección de planeaciones y flujo legacy por unidad |
 | `examenes.service.js` | jobs, worker en proceso, validación y persistencia de exámenes |
 | `biblioteca.service.js` | lectura agregada y eliminación de bloques |

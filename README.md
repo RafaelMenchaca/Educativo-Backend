@@ -58,6 +58,10 @@ src/
 |   |-- aiMetrics.service.js
 |   |-- imageEnrichment.service.js
 |   `-- imageSearch.service.js
+|-- domain/
+|   `-- cuadernillos.js    tipos, metadata y blueprints v2 no integrados
+|-- validators/
+|   `-- cuadernilloV2.validator.js contrato y validacion pura v2
 `-- utils/
     |-- buildPromptByLevel.js
     |-- buildExamPromptByUnit.js
@@ -208,7 +212,12 @@ El servicio esta integrado en planeaciones, examenes, listas de cotejo y anexos.
 | `planeacion_batches` | Agrupa planeaciones creadas juntas; base del sistema de Biblioteca |
 | `examenes` | Examenes generados por unidad |
 | `listas_cotejo` | Listas de cotejo por planeacion o actividad |
-| `anexos` | Anexos generados para cada planeacion (max 1 por planeacion) |
+| `anexos` | Anexos generados para cada planeacion (max 1 por planeacion); persistencia v2 preparada mediante migracion no ejecutada |
+
+La base de dominio de cuadernillos v2 vive en `src/domain/cuadernillos.js`.
+El contrato y su validador puro están preparados para uso posterior, pero el
+endpoint, servicio, prompts, renderer, Word y regeneración vigentes continúan
+siendo v1 y todavía no consumen `tipo_cuadernillo`.
 
 El backend está diseñado para operar con RLS mediante clientes ligados al token. Este repositorio no contiene las migraciones ni policies necesarias para confirmar que todas las tablas tengan RLS; consultar `docs/DATABASE_SCHEMA.md`. El `user_id` se deriva del token de Supabase, nunca del cuerpo del request.
 

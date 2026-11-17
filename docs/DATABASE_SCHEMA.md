@@ -215,6 +215,7 @@ create table public.anexos (
   materia text null,
   nivel text null,
   tema text null,
+  tipo_cuadernillo text null,
   contenido jsonb not null default '{}'::jsonb,
   prompt_version text not null default 'v1_anexos_desde_planeacion'::text,
   status text not null default 'generated'::text,
@@ -226,6 +227,11 @@ create table public.anexos (
   created_at timestamp with time zone not null default now(),
   updated_at timestamp with time zone not null default now(),
   constraint anexos_pkey primary key (id),
+  constraint anexos_tipo_cuadernillo_check check (
+    tipo_cuadernillo is null or tipo_cuadernillo = any (
+      array['ejercicios_aplicacion'::text, 'actividades_integradoras'::text, 'aprendizaje_guiado'::text]
+    )
+  ),
   constraint anexos_planeacion_id_fkey foreign KEY (planeacion_id) references planeaciones (id) on delete CASCADE,
   constraint anexos_user_id_fkey foreign KEY (user_id) references auth.users (id) on delete CASCADE
 ) TABLESPACE pg_default;
@@ -243,6 +249,15 @@ create unique INDEX IF not exists unique_anexo_por_planeacion on public.anexos u
 create trigger set_anexos_updated_at BEFORE
 update on anexos for EACH row
 execute FUNCTION set_updated_at ();
+
+`tipo_cuadernillo` corresponde a la migración preparada
+`docs/test-environment/2b_anexos_tipo_cuadernillo_migration.sql`, que no se
+ejecuta como parte de este paquete. Es nullable y no tiene default ni backfill:
+`NULL` conserva los registros históricos v1 con `contenido.anexos[]`. Un valor
+de la allowlist identifica un documento v2 con `contenido.schema_version = 2` y
+`contenido.secciones[]`. La columna es la única fuente de verdad del tipo; el
+JSON no debe duplicarla. La migración no cambia `unique_anexo_por_planeacion`,
+RLS ni FKs.
 
 
 <!-- Table examen_generation_items -->
