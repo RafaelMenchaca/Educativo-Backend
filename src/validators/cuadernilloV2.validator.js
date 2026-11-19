@@ -219,28 +219,18 @@ function validateBlock(block, path, allowedCoverage, activityIds) {
   return coverage;
 }
 
-export function validateCuadernilloV2(tipoCuadernillo, contenido) {
-  if (!esTipoCuadernillo(tipoCuadernillo)) fail('tipo_cuadernillo_invalido', 'tipoCuadernillo');
-  if (!isObject(contenido)) fail('raiz_invalida', 'contenido');
-  if (Object.hasOwn(contenido, 'tipo_cuadernillo')) fail('tipo_no_permitido_en_contenido', 'contenido.tipo_cuadernillo');
-  assertExactKeys(contenido, ROOT_KEYS, 'contenido');
-  if (contenido.schema_version !== ANEXO_SCHEMA_VERSION_V2) fail('schema_version_invalida', 'contenido.schema_version');
-  assertText(contenido.titulo, 'contenido.titulo');
-  assertText(contenido.descripcion, 'contenido.descripcion');
-  validateGeneralData(contenido.datos_generales);
-
-  const blueprint = obtenerBlueprintCuadernillo(tipoCuadernillo);
-  if (!Array.isArray(contenido.secciones) || contenido.secciones.length !== blueprint.length) {
-    fail('cantidad_secciones_invalida', 'contenido.secciones');
+function validateSectionsAgainstBlueprint(secciones, blueprint, pathRoot) {
+  if (!Array.isArray(secciones) || secciones.length !== blueprint.length) {
+    fail('cantidad_secciones_invalida', pathRoot);
   }
 
-  const allRequiredCoverage = new Set(blueprint.flatMap((item) => item.cobertura_requerida.map(({ numero }) => numero)));
+  const requiredCoverage = new Set(blueprint.flatMap((item) => item.cobertura_requerida.map(({ numero }) => numero)));
   const covered = new Set();
   const sectionIds = new Set();
   const activityIds = new Set();
 
-  contenido.secciones.forEach((section, index) => {
-    const path = `contenido.secciones[${index}]`;
+  secciones.forEach((section, index) => {
+    const path = `${pathRoot}[${index}]`;
     const expected = blueprint[index];
     if (!isObject(section)) fail('seccion_invalida', path);
     assertExactKeys(section, new Set(['id', 'titulo', 'orden', 'bloques']), path);
@@ -248,7 +238,7 @@ export function validateCuadernilloV2(tipoCuadernillo, contenido) {
     if (sectionIds.has(section.id)) fail('seccion_duplicada', `${path}.id`);
     sectionIds.add(section.id);
     if (section.id !== expected.id) fail('seccion_ajena_o_fuera_de_orden', `${path}.id`);
-    if (section.orden !== index + 1 || section.orden !== expected.orden) fail('orden_seccion_invalido', `${path}.orden`);
+    if (section.orden !== expected.orden) fail('orden_seccion_invalido', `${path}.orden`);
     assertText(section.titulo, `${path}.titulo`);
     if (!Array.isArray(section.bloques) || section.bloques.length === 0) fail('bloques_vacios', `${path}.bloques`);
 
@@ -265,6 +255,52 @@ export function validateCuadernilloV2(tipoCuadernillo, contenido) {
     }
   });
 
-  if (covered.size !== allRequiredCoverage.size) fail('cobertura_incompleta', 'contenido.secciones');
+  if (covered.size !== requiredCoverage.size) fail('cobertura_incompleta', pathRoot);
+}
+
+export function validateCuadernilloV2Segment(tipoCuadernillo, expectedSectionIds, payload) {
+  if (!esTipoCuadernillo(tipoCuadernillo)) fail('tipo_cuadernillo_invalido', 'tipoCuadernillo');
+  if (!Array.isArray(expectedSectionIds) || expectedSectionIds.length === 0) {
+    fail('segmento_sin_secciones', 'expectedSectionIds');
+  }
+  if (!isObject(payload)) fail('raiz_segmento_invalida', 'segmento');
+  assertExactKeys(payload, new Set(['secciones']), 'segmento');
+
+  const fullBlueprint = obtenerBlueprintCuadernillo(tipoCuadernillo);
+  const expectedBlueprint = expectedSectionIds.map((id, index) => {
+    const section = fullBlueprint.find((item) => item.id === id);
+    if (!section || section.orden !== fullBlueprint.findIndex((item) => item.id === id) + 1) {
+      fail('blueprint_segmento_invalido', `expectedSectionIds[${index}]`);
+    }
+    return section;
+  });
+  if (new Set(expectedSectionIds).size !== expectedSectionIds.length) {
+    fail('blueprint_segmento_invalido', 'expectedSectionIds');
+  }
+  for (let index = 1; index < expectedBlueprint.length; index += 1) {
+    if (expectedBlueprint[index].orden !== expectedBlueprint[index - 1].orden + 1) {
+      fail('blueprint_segmento_invalido', 'expectedSectionIds');
+    }
+  }
+
+  validateSectionsAgainstBlueprint(payload.secciones, expectedBlueprint, 'segmento.secciones');
+  return Object.freeze({ ok: true, secciones: expectedSectionIds.length });
+}
+
+export function validateCuadernilloV2(tipoCuadernillo, contenido) {
+  if (!esTipoCuadernillo(tipoCuadernillo)) fail('tipo_cuadernillo_invalido', 'tipoCuadernillo');
+  if (!isObject(contenido)) fail('raiz_invalida', 'contenido');
+  if (Object.hasOwn(contenido, 'tipo_cuadernillo')) fail('tipo_no_permitido_en_contenido', 'contenido.tipo_cuadernillo');
+  assertExactKeys(contenido, ROOT_KEYS, 'contenido');
+  if (contenido.schema_version !== ANEXO_SCHEMA_VERSION_V2) fail('schema_version_invalida', 'contenido.schema_version');
+  assertText(contenido.titulo, 'contenido.titulo');
+  assertText(contenido.descripcion, 'contenido.descripcion');
+  validateGeneralData(contenido.datos_generales);
+
+  validateSectionsAgainstBlueprint(
+    contenido.secciones,
+    obtenerBlueprintCuadernillo(tipoCuadernillo),
+    'contenido.secciones'
+  );
   return Object.freeze({ ok: true, schemaVersion: ANEXO_SCHEMA_VERSION_V2, tipoCuadernillo });
 }

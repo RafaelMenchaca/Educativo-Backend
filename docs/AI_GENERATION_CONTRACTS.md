@@ -75,7 +75,7 @@ Regenerar vuelve a cargar la planeación original, genera el mismo contrato y ac
 
 Persistencia: consultar [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md) para columnas y relaciones. Versión vigente: `v1_anexos_desde_planeacion`.
 
-### Base contractual de cuadernillos v2 (preparada, no integrada)
+### Base contractual y motor offline de cuadernillos v2
 
 El owner `src/domain/cuadernillos.js` define los tipos canónicos
 `ejercicios_aplicacion`, `actividades_integradoras` y `aprendizaje_guiado`, su
@@ -96,15 +96,32 @@ El tipo no se duplica dentro de `contenido`: la columna
 `anexos.tipo_cuadernillo` será su fuente canónica. El validador recibe ese tipo
 como argumento externo y exige las secciones y cobertura del blueprint elegido.
 
+`src/services/cuadernilloV2.engine.js` implementa una API interna pura que recibe
+el tipo, contexto confiable de la planeación y una dependencia `completar`
+inyectada. No importa ni invoca el cliente real de OpenAI. El plan se deriva del
+blueprint en cuatro grupos contiguos: datos/presentación, desarrollo conceptual,
+aplicación/proyecto y evaluación/cierre. Cada sección aparece exactamente una
+vez y conserva su orden y cobertura.
+
+Cada segmento acepta como máximo dos completions: intento inicial y un retry
+correctivo con errores estructurales sanitizados. Las respuestas parciales se
+validan con el mismo contrato de bloques y modalidades que el documento final;
+si el retry falla se aborta el cuadernillo completo. El backend construye título,
+descripción, datos generales y `schema_version`, concatena las secciones en orden
+y ejecuta `validateCuadernilloV2` antes de devolver el resultado. Las métricas de
+llamadas, retries, tokens y duración se acumulan solo en memoria.
+
 Compatibilidad prevista:
 
 - v1: `tipo_cuadernillo IS NULL` y `contenido.anexos[]`;
 - v2: tipo canónico no nulo, `contenido.schema_version = 2` y
   `contenido.secciones[]`.
 
-La generación actual sigue siendo v1. Aún están pendientes el payload y endpoint
-tipados, prompts por variante, generación segmentada, persistencia desde el
-servicio, regeneración v2, renderer web y exportador Word v2.
+La generación pública actual sigue siendo v1. El motor segmentado v2 solo está
+probado offline con completions sintéticas. Aún están pendientes el payload y
+endpoint tipados, adaptador de OpenAI real, persistencia final atómica, jobs y
+métricas persistidas, regeneración v2, renderer web, frontend y exportador Word
+v2. No debe documentarse como funcionalidad disponible para usuarios.
 
 ### Métricas y elementos protegidos
 
