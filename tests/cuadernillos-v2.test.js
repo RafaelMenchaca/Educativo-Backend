@@ -215,7 +215,7 @@ test('current v1 service, controller, route and frontend consumers remain unchan
 });
 
 test('prepared SQL is nullable, idempotent, allowlisted and preserves existing constraints', () => {
-  const sql = readFileSync(new URL('../docs/test-environment/2b_anexos_tipo_cuadernillo_migration.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../docs/test-environment/anexos-cuadernillo-v2/02_migration.sql', import.meta.url), 'utf8');
   assert.match(sql, /ADD COLUMN IF NOT EXISTS tipo_cuadernillo text NULL/i);
   assert.match(sql, /IF NOT EXISTS/i);
   for (const id of TIPO_CUADERNILLO_IDS) assert.match(sql, new RegExp(`'${id}'`));

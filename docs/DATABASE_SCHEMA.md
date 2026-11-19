@@ -251,7 +251,7 @@ update on anexos for EACH row
 execute FUNCTION set_updated_at ();
 
 `tipo_cuadernillo` corresponde a la migración preparada
-`docs/test-environment/2b_anexos_tipo_cuadernillo_migration.sql`, que no se
+`docs/test-environment/anexos-cuadernillo-v2/02_migration.sql`, que no se
 ejecuta como parte de este paquete. Es nullable y no tiene default ni backfill:
 `NULL` conserva los registros históricos v1 con `contenido.anexos[]`. Un valor
 de la allowlist identifica un documento v2 con `contenido.schema_version = 2` y
