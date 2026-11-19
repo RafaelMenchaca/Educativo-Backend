@@ -250,9 +250,9 @@ create trigger set_anexos_updated_at BEFORE
 update on anexos for EACH row
 execute FUNCTION set_updated_at ();
 
-`tipo_cuadernillo` corresponde a la migración preparada
-`docs/test-environment/anexos-cuadernillo-v2/02_migration.sql`, que no se
-ejecuta como parte de este paquete. Es nullable y no tiene default ni backfill:
+`tipo_cuadernillo` corresponde a la migración versionada
+`docs/test-environment/anexos-cuadernillo-v2/02_migration.sql`, aplicada y
+postverificada únicamente en Supabase test. Es nullable y no tiene default ni backfill:
 `NULL` conserva los registros históricos v1 con `contenido.anexos[]`. Un valor
 de la allowlist identifica un documento v2 con `contenido.schema_version = 2` y
 `contenido.secciones[]`. La columna es la única fuente de verdad del tipo; el

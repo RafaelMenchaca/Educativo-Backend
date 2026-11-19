@@ -193,7 +193,7 @@ test('validator rejects invalid response lines and structurally invented general
   expectInvalid('aprendizaje_guiado', (value) => { value.datos_generales.institucion = { valor: 'Inventada', modo: 'completar' }; }, 'valor_completable_debe_estar_vacio');
 });
 
-test('current v1 service, controller, route and frontend consumers remain unchanged and column-free', () => {
+test('v1 contract and frontend consumers remain compatible after additive backend dispatch', () => {
   const service = readFileSync(new URL('../src/services/anexos.service.js', import.meta.url), 'utf8');
   const controller = readFileSync(new URL('../src/controllers/anexos.controller.js', import.meta.url), 'utf8');
   const routes = readFileSync(new URL('../src/routes/anexos.routes.js', import.meta.url), 'utf8');
@@ -205,8 +205,8 @@ test('current v1 service, controller, route and frontend consumers remain unchan
   assert.match(service, /v1_anexos_desde_planeacion/);
   assert.match(service, /Genera entre 3 y 5 anexos/);
   assert.match(service, /payload\.anexos\.length < 3 \|\| payload\.anexos\.length > 5/);
-  assert.doesNotMatch(service, /tipo_cuadernillo/);
-  assert.doesNotMatch(controller, /tipo_cuadernillo/);
+  assert.match(service, /tipo_cuadernillo/);
+  assert.match(controller, /tipo_cuadernillo/);
   assert.doesNotMatch(routes, /tipo_cuadernillo/);
   assert.match(frontendPreview, /contenido\.anexos/);
   assert.match(frontendWord, /contenido\.anexos/);

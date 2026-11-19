@@ -268,13 +268,13 @@ test('segment prompts are scoped and contain no v1 catalog or full document root
   }
 });
 
-test('v1 annex service, controller and route remain statically untouched by the engine', () => {
+test('v1 annex contract remains present while integration is version-dispatched', () => {
   const service = readFileSync(new URL('../src/services/anexos.service.js', import.meta.url), 'utf8');
   const controller = readFileSync(new URL('../src/controllers/anexos.controller.js', import.meta.url), 'utf8');
   const routes = readFileSync(new URL('../src/routes/anexos.routes.js', import.meta.url), 'utf8');
   assert.match(service, /v1_anexos_desde_planeacion/);
   assert.match(service, /payload\.anexos\.length < 3 \|\| payload\.anexos\.length > 5/);
-  assert.doesNotMatch(service, /cuadernilloV2\.engine/);
-  assert.doesNotMatch(controller, /tipo_cuadernillo|generarCuadernilloV2/);
+  assert.match(service, /cuadernilloV2\.engine/);
+  assert.match(controller, /tipo_cuadernillo/);
   assert.doesNotMatch(routes, /tipo_cuadernillo|generarCuadernilloV2/);
 });

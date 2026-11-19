@@ -101,7 +101,7 @@ Todas las rutas privadas se montan bajo `/api` desde `src/routes/index.js`.
 | `anexos.service.js` | generación/regeneración y persistencia de anexos por planeación |
 | `domain/cuadernillos.js` | owner de IDs, metadata y blueprints de los tres cuadernillos v2 |
 | `validators/cuadernilloV2.validator.js` | validadores puros del contenido completo y de segmentos v2; reciben el tipo canónico como argumento externo |
-| `services/cuadernilloV2.engine.js` | motor offline de prompts segmentados, retry limitado, ensamblado y métricas en memoria; no está conectado a rutas ni proveedores reales |
+| `services/cuadernilloV2.engine.js` | núcleo puro de prompts segmentados, retry limitado, ensamblado y métricas en memoria; Anexos le inyecta el adaptador de completions |
 | `listas_cotejo.service.js` | listas por selección de planeaciones y flujo legacy por unidad |
 | `examenes.service.js` | jobs, worker en proceso, validación y persistencia de exámenes |
 | `biblioteca.service.js` | lectura agregada y eliminación de bloques |
@@ -110,7 +110,7 @@ Todas las rutas privadas se montan bajo `/api` desde `src/routes/index.js`.
 
 Los contratos IA detallados están en `AI_GENERATION_CONTRACTS.md`, no aquí.
 
-### Motor offline de cuadernillos v2
+### Motor segmentado de cuadernillos v2
 
 `generarCuadernilloV2` recibe un tipo canónico, contexto confiable ya recuperado
 de una planeación y una función `completar` inyectada. Deriva cuatro segmentos
@@ -118,11 +118,13 @@ contiguos desde el blueprint, valida cada respuesta, permite como máximo un
 retry correctivo por segmento y ensambla la raíz v2 de forma determinista. La
 validación completa es obligatoria antes de devolver el documento.
 
-El motor no importa OpenAI ni Supabase, no persiste resultados parciales y solo
-acumula métricas en memoria. Su integración futura deberá persistir el documento
-completo de manera atómica. En el estado actual no está conectado al endpoint de
-Anexos, al servicio v1, a jobs, renderer, Word, regeneración ni frontend, por lo
-que los cuadernillos v2 todavía no están disponibles para usuarios.
+El motor no importa OpenAI ni Supabase y no persiste resultados parciales. El
+servicio de Anexos acepta opcionalmente un tipo canónico, recupera el contexto
+desde la planeación propia, inyecta un adaptador Chat Completions y realiza un
+único insert o update tras la validación final. Sin tipo conserva el flujo v1.
+La regeneración v2 toma el tipo almacenado y no admite cambiarlo desde el body.
+Renderer, Word y frontend v2 siguen pendientes; no debe presentarse todavía
+como una experiencia disponible para usuarios finales.
 
 ## SSE y jobs
 

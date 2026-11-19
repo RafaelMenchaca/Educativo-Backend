@@ -62,7 +62,8 @@ Builder y mensajes, catálogo de actividades, estructura de tres filas, parser, 
 
 - Servicio: `src/services/anexos.service.js`.
 - Funciones: `generarAnexo`, `regenerarAnexo` y `generateAnexosWithIa`.
-- Entrada pública de generación: `planeacion_id`.
+- Entrada pública de generación: `planeacion_id` y el campo opcional
+  `tipo_cuadernillo`. Sin tipo se conserva v1; con un ID canónico se usa v2.
 - La planeación perteneciente al usuario aporta nivel, materia, tema, duración, `tabla_ia`, `actividades_momentos`, `tema_id` y `batch_id`.
 
 Existe como máximo un anexo por planeación según el índice único documentado. Si ya existe, generación devuelve `already_exists`; una carrera de inserción duplicada se resuelve consultando el existente.
@@ -71,7 +72,9 @@ Existe como máximo un anexo por planeación según el índice único documentad
 
 La salida esperada contiene `titulo_general`, descripción y entre 3 y 5 anexos. Cada anexo requiere número, título, tipo e instrucciones; una tabla opcional requiere columnas y filas. El parser tolera JSON directo, bloque delimitado o fragmento de objeto, y la validación falla con 502 si no cumple.
 
-Regenerar vuelve a cargar la planeación original, genera el mismo contrato y actualiza el registro existente. No crea una segunda fila.
+Regenerar vuelve a cargar la planeación original. Un histórico con tipo `NULL`
+conserva v1; un registro v2 reutiliza obligatoriamente su tipo persistido. El
+body no puede cambiarlo y la actualización final ocurre una sola vez.
 
 Persistencia: consultar [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md) para columnas y relaciones. Versión vigente: `v1_anexos_desde_planeacion`.
 
@@ -117,11 +120,14 @@ Compatibilidad prevista:
 - v2: tipo canónico no nulo, `contenido.schema_version = 2` y
   `contenido.secciones[]`.
 
-La generación pública actual sigue siendo v1. El motor segmentado v2 solo está
-probado offline con completions sintéticas. Aún están pendientes el payload y
-endpoint tipados, adaptador de OpenAI real, persistencia final atómica, jobs y
-métricas persistidas, regeneración v2, renderer web, frontend y exportador Word
-v2. No debe documentarse como funcionalidad disponible para usuarios.
+El endpoint individual despacha por versión. El adaptador segmentario usa Chat
+Completions con `gpt-4o-mini`, temperatura `0.3`, `max_tokens: 3000`, JSON mode y
+timeout individual de 90 segundos. Solo se inserta o actualiza después de
+validar el documento completo; los tokens y datos del job se agregan al nivel
+del cuadernillo. Esta integración está probada con completions sintéticas, pero
+la generación real controlada aún está pendiente. También siguen pendientes el
+frontend, renderer web y exportador Word v2, por lo que todavía no constituye
+una experiencia de usuario completa.
 
 ### Métricas y elementos protegidos
 

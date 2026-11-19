@@ -74,6 +74,9 @@ function buildConjuntoPayload(batch, planeaciones, examenes, listas, anexos) {
       materia: a.materia,
       nivel: a.nivel,
       tema: a.tema,
+      tipo_cuadernillo: a.tipo_cuadernillo ?? null,
+      schema_version: a.tipo_cuadernillo ? 2 : null,
+      prompt_version: a.prompt_version || null,
       status: a.status,
       created_at: a.created_at
     }))
@@ -122,7 +125,7 @@ export async function listConjuntosByUser({ supabaseClient, userId }) {
 
     client
       .from('anexos')
-      .select('id, batch_id, planeacion_id, titulo, materia, nivel, tema, status, created_at')
+      .select('id, batch_id, planeacion_id, titulo, materia, nivel, tema, tipo_cuadernillo, prompt_version, status, created_at')
       .in('batch_id', batchIds)
       .eq('user_id', userId)
       .order('created_at', { ascending: true })
@@ -191,7 +194,7 @@ export async function getConjuntoById({ supabaseClient, userId, batchId }) {
 
     client
       .from('anexos')
-      .select('id, batch_id, planeacion_id, titulo, materia, nivel, tema, status, created_at, updated_at')
+      .select('id, batch_id, planeacion_id, titulo, materia, nivel, tema, tipo_cuadernillo, prompt_version, status, created_at, updated_at')
       .eq('batch_id', normalizedBatchId)
       .eq('user_id', userId)
       .order('created_at', { ascending: true })
