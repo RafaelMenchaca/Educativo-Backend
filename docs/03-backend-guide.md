@@ -113,10 +113,22 @@ Los contratos IA detallados están en `AI_GENERATION_CONTRACTS.md`, no aquí.
 ### Motor segmentado de cuadernillos v2
 
 `generarCuadernilloV2` recibe un tipo canónico, contexto confiable ya recuperado
-de una planeación y una función `completar` inyectada. Deriva cuatro segmentos
-contiguos desde el blueprint, valida cada respuesta, permite como máximo un
-retry correctivo por segmento y ensambla la raíz v2 de forma determinista. La
-validación completa es obligatoria antes de devolver el documento.
+de una planeación y una función `completar` inyectada. Construye
+`datos_generales` localmente y deriva de esa raíz la primera sección, sin
+enviarla a la IA. Deriva cuatro segmentos pedagógicos contiguos para las
+secciones restantes. Cada componente se representa como un slot canónico
+derivado del blueprint. La completion entrega solo `slot_id` y contenido
+pedagógico sin cobertura ni IDs técnicos; el backend asigna sección, orden,
+cobertura e IDs deterministas, valida cada respuesta, clasifica el truncamiento
+por `finish_reason`, permite como máximo un retry correctivo por segmento y
+ensambla la raíz v2 de forma determinista. La validación completa es obligatoria
+antes de devolver el documento.
+
+Si faltan slots o su contenido no valida, el motor conserva las respuestas
+válidas y la segunda llamada solicita únicamente los pendientes con la misma
+raíz `respuestas`. La fusión se realiza por `slot_id`, sin reemplazar contenido
+válido. Slots desconocidos o duplicados fallan de forma segura. Nunca hay más de
+dos llamadas por segmento ni se asigna cobertura sin una respuesta válida.
 
 El motor no importa OpenAI ni Supabase y no persiste resultados parciales. El
 servicio de Anexos acepta opcionalmente un tipo canónico, recupera el contexto

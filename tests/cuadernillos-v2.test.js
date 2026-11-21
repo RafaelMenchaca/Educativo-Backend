@@ -16,6 +16,7 @@ import {
   CUADERNILLO_V2_BLOCK_TYPES,
   CUADERNILLO_V2_ACTIVITY_MODALITIES,
   CUADERNILLO_V2_EVALUATION_MODALITIES,
+  construirSeccionDatosGeneralesV2,
   validateCuadernilloV2
 } from '../src/validators/cuadernilloV2.validator.js';
 
@@ -56,12 +57,16 @@ function generalData() {
 }
 
 function validFixture(type) {
+  const datosGenerales = generalData();
+  const blueprint = CUADERNILLO_BLUEPRINTS[type];
   return {
     schema_version: 2,
     titulo: 'Cuadernillo de prueba',
     descripcion: 'Descripción útil para el estudiante.',
-    datos_generales: generalData(),
-    secciones: CUADERNILLO_BLUEPRINTS[type].map((section) => ({
+    datos_generales: datosGenerales,
+    secciones: blueprint.map((section, index) => index === 0
+      ? construirSeccionDatosGeneralesV2({ blueprint, datosGenerales })
+      : ({
       id: section.id,
       titulo: section.titulo,
       orden: section.orden,
@@ -210,8 +215,8 @@ test('v1 contract and frontend consumers remain compatible after additive backen
   assert.doesNotMatch(routes, /tipo_cuadernillo/);
   assert.match(frontendPreview, /contenido\.anexos/);
   assert.match(frontendWord, /contenido\.anexos/);
-  assert.doesNotMatch(frontendPreview, /schema_version|tipo_cuadernillo/);
-  assert.doesNotMatch(frontendWord, /schema_version|tipo_cuadernillo/);
+  assert.match(frontendPreview, /isCuadernilloV2/);
+  assert.match(frontendWord, /isCuadernilloV2/);
 });
 
 test('prepared SQL is nullable, idempotent, allowlisted and preserves existing constraints', () => {

@@ -235,3 +235,66 @@ export function obtenerMetadataTipoCuadernillo(value) {
 export function obtenerBlueprintCuadernillo(value) {
   return esTipoCuadernillo(value) ? CUADERNILLO_BLUEPRINTS[value] : null;
 }
+
+export function construirSlotCuadernilloId(tipoCuadernillo, seccionId, numero) {
+  if (!esTipoCuadernillo(tipoCuadernillo) || typeof seccionId !== 'string' || !seccionId || !Number.isInteger(numero)) {
+    return null;
+  }
+  return `${tipoCuadernillo}:${seccionId}:${numero}`;
+}
+
+function slotFromComponent(tipoCuadernillo, sectionDefinition, componentDefinition) {
+  return Object.freeze({
+    slotId: construirSlotCuadernilloId(tipoCuadernillo, sectionDefinition.id, componentDefinition.numero),
+    tipoCuadernillo,
+    seccionId: sectionDefinition.id,
+    seccionTitulo: sectionDefinition.titulo,
+    seccionOrden: sectionDefinition.orden,
+    numero: componentDefinition.numero,
+    nombre: componentDefinition.nombre,
+    clasificacion: componentDefinition.clasificacion,
+    ...(componentDefinition.alternativa ? { alternativa: componentDefinition.alternativa } : {}),
+    obligatorio: true
+  });
+}
+
+export function obtenerSlotsCuadernillo(tipoCuadernillo) {
+  const blueprint = obtenerBlueprintCuadernillo(tipoCuadernillo);
+  if (!blueprint) return Object.freeze([]);
+  return Object.freeze(blueprint
+    .filter(({ id }) => id !== 'datos_generales')
+    .flatMap((sectionDefinition) => sectionDefinition.cobertura_requerida
+      .map((componentDefinition) => slotFromComponent(tipoCuadernillo, sectionDefinition, componentDefinition))));
+}
+
+export function obtenerSlotsSeccionCuadernillo(tipoCuadernillo, seccionId) {
+  return Object.freeze(obtenerSlotsCuadernillo(tipoCuadernillo)
+    .filter((slot) => slot.seccionId === seccionId));
+}
+
+export function obtenerSlotsSegmentoCuadernillo(tipoCuadernillo, seccionIds) {
+  if (!Array.isArray(seccionIds) || new Set(seccionIds).size !== seccionIds.length) return Object.freeze([]);
+  const requested = new Set(seccionIds);
+  return Object.freeze(obtenerSlotsCuadernillo(tipoCuadernillo)
+    .filter((slot) => requested.has(slot.seccionId)));
+}
+
+export function resolverSlotCuadernillo(tipoCuadernillo, slotId) {
+  if (typeof slotId !== 'string') return null;
+  return obtenerSlotsCuadernillo(tipoCuadernillo).find((slot) => slot.slotId === slotId) || null;
+}
+
+export function validarSlotsCuadernillo(tipoCuadernillo) {
+  const blueprint = obtenerBlueprintCuadernillo(tipoCuadernillo);
+  if (!blueprint) return Object.freeze({ ok: false, slots: 0, coberturaTotal: 0 });
+  const slots = obtenerSlotsCuadernillo(tipoCuadernillo);
+  const ids = new Set(slots.map(({ slotId }) => slotId));
+  const numeros = new Set(slots.map(({ numero }) => numero));
+  const generales = blueprint[0].cobertura_requerida.map(({ numero }) => numero);
+  const totalEsperado = blueprint.flatMap(({ cobertura_requerida }) => cobertura_requerida).length;
+  return Object.freeze({
+    ok: ids.size === slots.length && numeros.size === slots.length && generales.length + slots.length === totalEsperado,
+    slots: slots.length,
+    coberturaTotal: generales.length + slots.length
+  });
+}

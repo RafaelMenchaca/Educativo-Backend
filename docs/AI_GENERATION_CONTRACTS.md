@@ -102,17 +102,59 @@ como argumento externo y exige las secciones y cobertura del blueprint elegido.
 `src/services/cuadernilloV2.engine.js` implementa una API interna pura que recibe
 el tipo, contexto confiable de la planeación y una dependencia `completar`
 inyectada. No importa ni invoca el cliente real de OpenAI. El plan se deriva del
-blueprint en cuatro grupos contiguos: datos/presentación, desarrollo conceptual,
-aplicación/proyecto y evaluación/cierre. Cada sección aparece exactamente una
-vez y conserva su orden y cobertura.
+blueprint en cuatro grupos pedagógicos contiguos: presentación, desarrollo
+conceptual, aplicación/proyecto y evaluación/cierre. `datos_generales` no se
+envía a ninguna completion: el backend construye primero la raíz
+`contenido.datos_generales` y deriva de ella una única sección de presentación
+en forma de tabla, con ID, título, orden y cobertura tomados del blueprint.
+La raíz es la fuente de verdad y el validador rechaza cualquier divergencia de
+la sección derivada. Los componentes 1–6 permanecen en los conteos 35/45/35.
+
+Cada componente pedagógico posterior a `datos_generales` se convierte en un
+slot canónico derivado del blueprint. Su ID estable combina tipo, sección y
+número, por ejemplo
+`ejercicios_aplicacion:repaso_teorico:13`. La completion devuelve únicamente:
+
+```json
+{
+  "respuestas": [
+    {
+      "slot_id": "ejercicios_aplicacion:repaso_teorico:13",
+      "bloque": {
+        "tipo": "texto",
+        "contenido": "Contenido pedagógico útil"
+      }
+    }
+  ]
+}
+```
+
+El bloque de entrada no contiene `cobertura`, IDs técnicos, sección, orden ni
+metadata documental. Después de validar una respuesta real, el backend la ubica
+en la sección canónica, asigna `cobertura: [numero]` y genera IDs deterministas
+para items o criterios. Los slots se agrupan dentro de las 8–10 secciones del
+blueprint; no se crean secciones por componente.
 
 Cada segmento acepta como máximo dos completions: intento inicial y un retry
-correctivo con errores estructurales sanitizados. Las respuestas parciales se
-validan con el mismo contrato de bloques y modalidades que el documento final;
-si el retry falla se aborta el cuadernillo completo. El backend construye título,
+con los slots ausentes o cuyo contenido no validó. Las respuestas válidas se
+conservan por `slot_id`; el segundo prompt no incluye la completion anterior y
+usa la misma raíz `respuestas`, sin contrato separado de correcciones. El orden
+del arreglo no es contractual. Slots desconocidos o duplicados se rechazan y un
+`finish_reason: length` repetido aborta el cuadernillo. El backend construye título,
 descripción, datos generales y `schema_version`, concatena las secciones en orden
 y ejecuta `validateCuadernilloV2` antes de devolver el resultado. Las métricas de
-llamadas, retries, tokens y duración se acumulan solo en memoria.
+llamadas, retries, tokens, duración y `finish_reason` se acumulan sin registrar
+prompts ni respuestas. El cliente conserva el error 502 genérico; el backend
+puede registrar solamente diagnóstico estructural acotado.
+
+El prompt describe cada slot con nombre, clasificación y alternativa canónica.
+Los componentes condicionales no se omiten: cuando su forma literal no aplica,
+la IA desarrolla la alternativa. La cobertura se asigna únicamente después de
+validar contenido no vacío y el schema pedagógico del bloque; no se marca un
+slot ausente o inválido. Las secciones ensambladas vuelven a pasar el validador
+estricto de segmento y el documento completo conserva la validación exacta
+35/45/35. En todos los casos hay como máximo dos completions por segmento y no
+se persiste nada hasta validar el documento final.
 
 Compatibilidad prevista:
 
@@ -125,9 +167,11 @@ Completions con `gpt-4o-mini`, temperatura `0.3`, `max_tokens: 3000`, JSON mode 
 timeout individual de 90 segundos. Solo se inserta o actualiza después de
 validar el documento completo; los tokens y datos del job se agregan al nivel
 del cuadernillo. Esta integración está probada con completions sintéticas, pero
-la generación real controlada aún está pendiente. También siguen pendientes el
-frontend, renderer web y exportador Word v2, por lo que todavía no constituye
-una experiencia de usuario completa.
+una nueva generación real controlada aún está pendiente después de este
+correctivo. El límite de 3000 tokens se conserva porque cada llamada genera solo
+un grupo de secciones; el truncamiento explícito permite medir antes de decidir
+un aumento. También siguen pendientes el renderer web y exportador Word v2, por
+lo que todavía no constituye una experiencia de usuario completa.
 
 ### Métricas y elementos protegidos
 

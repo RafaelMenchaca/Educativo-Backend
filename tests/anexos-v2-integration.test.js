@@ -18,16 +18,13 @@ function fixtureCompleter({ invalidFirst = false, alwaysInvalid = false, calls =
     if (alwaysInvalid || (invalidFirst && calls.length === 1)) return { content: '{', usage: {} };
     return {
       content: JSON.stringify({
-        secciones: request.segmento.secciones.map((section) => ({
-          id: section.id,
-          titulo: section.titulo,
-          orden: section.orden,
-          bloques: [{
+        respuestas: request.slots.map((slot) => ({
+          slot_id: slot.slotId,
+          bloque: {
             tipo: 'texto',
             titulo: 'Contenido util',
-            contenido: `Desarrollo para ${section.titulo}`,
-            cobertura: section.cobertura_requerida.map(({ numero }) => numero)
-          }]
+            contenido: `Desarrollo para ${slot.nombre}`
+          }
         }))
       }),
       usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
@@ -174,6 +171,79 @@ test('retry succeeds, but two invalid attempts or a late segment failure never i
   }
 });
 
+test('slot retry inserts once on success and zero times when pending slots remain invalid', async () => {
+  for (const succeeds of [true, false]) {
+    const db = fakeDb();
+    let calls = 0;
+    const completarV2 = async (request) => {
+      calls += 1;
+      if (request.segmento.id !== 'segmento_2') return fixtureCompleter()(request);
+      if (request.intento === 1) {
+        const first = await fixtureCompleter()(request);
+        const payload = JSON.parse(first.content);
+        payload.respuestas = payload.respuestas.filter(({ slot_id }) => !slot_id.endsWith(':13'));
+        return { content: JSON.stringify(payload), finishReason: 'stop' };
+      }
+      return {
+        content: succeeds
+          ? JSON.stringify({ respuestas: [{
+              slot_id: request.slots[0].slotId,
+              bloque: { tipo: 'texto', contenido: 'Reglas y propiedades matriciales útiles.' }
+            }] })
+          : '{',
+        finishReason: 'stop'
+      };
+    };
+    const operation = generarAnexo({
+      supabaseClient: db.client, userId: 'user-1', planeacionId: 'plan-1',
+      tipoCuadernillo: 'ejercicios_aplicacion', completarV2, metricas: fakeMetrics().api
+    });
+    if (succeeds) {
+      await operation;
+      assert.equal(db.state.inserts.length, 1);
+      assert.equal(calls, 5);
+    } else {
+      await assert.rejects(operation, (error) => error.status === 502);
+      assert.equal(db.state.inserts.length, 0);
+      assert.equal(calls, 3);
+    }
+  }
+});
+
+test('failure in any segment and final validation failure produce zero inserts', async () => {
+  for (const failingSegment of [1, 2, 3, 4]) {
+    const db = fakeDb();
+    const completarV2 = async (request) => {
+      if (request.segmento.orden === failingSegment) return { content: '{', usage: {}, finishReason: 'stop' };
+      return fixtureCompleter()(request);
+    };
+    await assert.rejects(generarAnexo({
+      supabaseClient: db.client, userId: 'user-1', planeacionId: 'plan-1',
+      tipoCuadernillo: 'ejercicios_aplicacion', completarV2, metricas: fakeMetrics().api
+    }), (error) => error.status === 502 && error.message === 'No se pudo generar un cuadernillo valido.');
+    assert.equal(db.state.inserts.length, 0, `segment ${failingSegment}`);
+  }
+
+  const finalDb = fakeDb();
+  const finalCompleter = async ({ slots }) => {
+    const payload = {
+      respuestas: slots.map((slot) => ({
+        slot_id: slot.slotId,
+        bloque: {
+          tipo: 'texto', contenido: `Contenido ${slot.nombre}`
+        }
+      }))
+    };
+    payload.respuestas[0].bloque.contenido = '';
+    return { content: JSON.stringify(payload), finishReason: 'stop' };
+  };
+  await assert.rejects(generarAnexo({
+    supabaseClient: finalDb.client, userId: 'user-1', planeacionId: 'plan-1',
+    tipoCuadernillo: 'ejercicios_aplicacion', completarV2: finalCompleter, metricas: fakeMetrics().api
+  }), (error) => error.status === 502);
+  assert.equal(finalDb.state.inserts.length, 0);
+});
+
 test('already_exists and a 23505 race return the owned record without changing its type', async () => {
   const existing = { id: 'a-1', planeacion_id: 'plan-1', user_id: 'user-1', tipo_cuadernillo: 'ejercicios_aplicacion', prompt_version: 'v2_cuadernillo_segmentado' };
   let calls = 0;
@@ -273,7 +343,7 @@ test('OpenAI adapter uses scoped Chat Completions parameters and exposes usage w
     jobId: 'job-1', userId: 'user-1', tipoCuadernillo: 'aprendizaje_guiado', tema: 'Tema backend',
     openaiClient: { chat: { completions: { async create(payload) {
       request = payload;
-      return { choices: [{ message: { content: '{"secciones":[]}' } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } };
+      return { choices: [{ message: { content: '{"respuestas":[]}' }, finish_reason: 'length' }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } };
     } } } },
     async logCall(payload) { metricCalls.push(payload); }
   });
@@ -285,9 +355,11 @@ test('OpenAI adapter uses scoped Chat Completions parameters and exposes usage w
     temperature: 0.3,
     max_tokens: 3000
   });
-  assert.equal(result.content, '{"secciones":[]}');
+  assert.equal(result.content, '{"respuestas":[]}');
   assert.equal(result.usage.total_tokens, 5);
+  assert.equal(result.finishReason, 'length');
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(metricCalls[0].retryNumber, 1);
   assert.equal(metricCalls[0].metadata.segmento, 'segmento_1');
+  assert.equal(metricCalls[0].metadata.finish_reason, 'length');
 });

@@ -281,7 +281,6 @@ export function createCuadernilloV2Completer({
   jobId,
   userId,
   tipoCuadernillo,
-  tema,
   openaiClient = openai,
   logCall = logAiCall
 }) {
@@ -302,6 +301,7 @@ export function createCuadernilloV2Completer({
     );
     const durationMs = Date.now() - callStart;
     const content = completion.choices?.[0]?.message?.content || '';
+    const finishReason = completion.choices?.[0]?.finish_reason || null;
 
     if (jobId && userId) {
       logCall({
@@ -319,13 +319,19 @@ export function createCuadernilloV2Completer({
         metadata: {
           tipo_cuadernillo: tipoCuadernillo,
           segmento: segmento?.id || null,
-          tema
+          finish_reason: finishReason
         }
       }).catch((err) => console.error('[aiMetrics] cuadernillo v2 logAiCall failed:', err?.message));
     }
 
-    return { content, usage: completion.usage || {}, durationMs };
+    return { content, usage: completion.usage || {}, durationMs, finishReason };
   };
+}
+
+function logCuadernilloV2Diagnostic(diagnostic) {
+  const event = diagnostic?.eventType || 'structural_failure';
+  const method = event === 'segment_slots_validated' ? 'info' : 'warn';
+  console[method](`[anexos] cuadernillo_v2:${event}`, diagnostic);
 }
 
 function buildTrustedV2Context(planeacion, tablaIa, actividadesMomentos) {
@@ -354,11 +360,11 @@ async function generateV2Content({
     const result = await generarCuadernilloV2({
       tipoCuadernillo,
       contextoPlaneacion: buildTrustedV2Context(planeacion, tablaIa, actividadesMomentos),
+      diagnosticar: logCuadernilloV2Diagnostic,
       completar: completar || createCuadernilloV2Completer({
         jobId,
         userId,
         tipoCuadernillo,
-        tema: normalizeString(planeacion.tema),
         logCall
       })
     });
@@ -371,7 +377,14 @@ async function generateV2Content({
     };
   } catch (error) {
     if (error instanceof CuadernilloV2GenerationError) {
-      throw buildHttpError(502, 'No se pudo generar un cuadernillo valido.', error.code);
+      const safeError = buildHttpError(502, 'No se pudo generar un cuadernillo valido.', 'cuadernillo_v2_invalido');
+      safeError.structuralCause = {
+        code: error.code,
+        segmentId: error.segmentId,
+        path: error.path,
+        diagnostics: error.diagnostics
+      };
+      throw safeError;
     }
     throw error;
   }
