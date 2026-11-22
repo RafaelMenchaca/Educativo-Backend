@@ -259,6 +259,12 @@ de la allowlist identifica un documento v2 con `contenido.schema_version = 2` y
 JSON no debe duplicarla. La migración no cambia `unique_anexo_por_planeacion`,
 RLS ni FKs.
 
+El paquete aplicado en test permanece en
+`docs/test-environment/anexos-cuadernillo-v2/`. El paquete separado para
+producción está preparado y no ejecutado en
+`docs/production/anexos-cuadernillo-v2/`; exige verificación visual del project
+ref, preflight y revisión humana antes de cualquier migración.
+
 
 <!-- Table examen_generation_items -->
 

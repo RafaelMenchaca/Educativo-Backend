@@ -179,12 +179,15 @@ El endpoint individual despacha por versión. El adaptador segmentario usa Chat
 Completions con `gpt-4o-mini`, temperatura `0.3`, `max_tokens: 3000`, JSON mode y
 timeout individual de 90 segundos. Solo se inserta o actualiza después de
 validar el documento completo; los tokens y datos del job se agregan al nivel
-del cuadernillo. Esta integración está probada con completions sintéticas, pero
-una nueva generación real controlada aún está pendiente después de este
-correctivo. El límite de 3000 tokens se conserva porque cada llamada genera solo
-un grupo de secciones; el truncamiento explícito permite medir antes de decidir
-un aumento. También siguen pendientes el renderer web y exportador Word v2, por
-lo que todavía no constituye una experiencia de usuario completa.
+del cuadernillo. Además de las completions sintéticas, la integración se validó
+en test con generaciones reales controladas de los tres tipos. Los retries
+observados se resolvieron por slots pendientes; el resolver de representaciones
+busca reducirlos, no garantizar cero retries. El límite de 3000 tokens se
+conserva porque cada llamada genera solo un grupo de secciones; el truncamiento
+explícito permite medir antes de decidir un aumento. El frontend tipado, el
+renderer web v2 y el exportador Word v2 están implementados y conservan sus
+dispatches v1. La migración productiva está preparada pero no ejecutada; no se
+declara rollout ni deploy completado.
 
 ### Métricas y elementos protegidos
 

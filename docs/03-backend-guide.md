@@ -143,8 +143,12 @@ servicio de Anexos acepta opcionalmente un tipo canónico, recupera el contexto
 desde la planeación propia, inyecta un adaptador Chat Completions y realiza un
 único insert o update tras la validación final. Sin tipo conserva el flujo v1.
 La regeneración v2 toma el tipo almacenado y no admite cambiarlo desde el body.
-Renderer, Word y frontend v2 siguen pendientes; no debe presentarse todavía
-como una experiencia disponible para usuarios finales.
+El frontend tipado, el renderer web v2 y la exportación Word v2 están
+implementados, conservando los consumidores v1. En test se completó una
+generación real controlada de cada tipo; hubo retries reparados por slots y el
+resolver de representaciones busca reducirlos, no garantizar cero retries.
+La migración productiva está preparada en
+`docs/production/anexos-cuadernillo-v2/`, pero no se ha ejecutado ni desplegado.
 
 ## SSE y jobs
 

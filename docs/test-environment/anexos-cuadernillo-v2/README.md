@@ -80,5 +80,19 @@ Registrar únicamente:
 No copiar filas, títulos, temas, contenido pedagógico, IDs de usuario, correos,
 tokens, claves, contraseñas ni encabezados de autorización.
 
-La migración continúa preparada y pendiente de aplicación en test hasta que el
-preflight, ambas ejecuciones y el postmigration hayan sido revisados y aprobados.
+## Estado aplicado en test
+
+Registro del checkpoint 2C, sin atribuir una fecha distinta a la evidencia
+disponible:
+
+- proyecto `educativo-backend-test` / `gwdtlbisykzzplgzczzq`;
+- preflight: `PASS`;
+- primera ejecución de la migración: `PASS`;
+- segunda ejecución idempotente: `PASS`;
+- postmigration: `PASS`;
+- históricos conservados con `tipo_cuadernillo IS NULL`;
+- rollback: nunca ejecutado.
+
+Este paquete continúa siendo exclusivamente de test y no autoriza ejecución en
+producción. El paquete productivo separado está preparado, pero no ejecutado,
+en `docs/production/anexos-cuadernillo-v2/`.

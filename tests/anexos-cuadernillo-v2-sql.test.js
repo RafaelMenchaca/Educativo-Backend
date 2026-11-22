@@ -166,7 +166,7 @@ test('rollback is explicit, atomic, v2-gated, idempotent and has no CASCADE', ()
   assert.doesNotMatch(executableWords(sql.rollback), /\b(?:INSERT|UPDATE|DELETE|MERGE|TRUNCATE)\b/i);
 });
 
-test('README fixes the authorized order and keeps migration pending', () => {
+test('README records the completed test execution without authorizing production', () => {
   const readme = read('README.md');
   const ordered = ['01_preflight.sql', '02_migration.sql', '02_migration.sql', '03_postmigration.sql', '04_rollback.sql'];
   let offset = -1;
@@ -176,7 +176,10 @@ test('README fixes the authorized order and keeps migration pending', () => {
   }
   assert.match(readme, /gwdtlbisykzzplgzczzq/);
   assert.match(readme, /bfnkaqmhcsyxdxoqnahk/);
-  assert.match(readme, /pendiente de aplicación en test/);
+  assert.match(readme, /Estado aplicado en test/);
+  assert.match(readme, /segunda ejecución idempotente: `PASS`/);
+  assert.match(readme, /rollback: nunca ejecutado/);
+  assert.match(readme, /exclusivamente de test/);
 });
 
 test('direct documentation and tests no longer reference the old migration path', () => {
