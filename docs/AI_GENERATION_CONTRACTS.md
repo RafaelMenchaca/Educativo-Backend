@@ -147,7 +147,20 @@ llamadas, retries, tokens, duración y `finish_reason` se acumulan sin registrar
 prompts ni respuestas. El cliente conserva el error 502 genérico; el backend
 puede registrar solamente diagnóstico estructural acotado.
 
-El prompt describe cada slot con nombre, clasificación y alternativa canónica.
+El prompt describe cada slot con nombre, clasificación, alternativa canónica y
+una recomendación estructural determinista derivada por familias semánticas.
+La recomendación distingue el discriminador `tipo` de las modalidades internas:
+por ejemplo, reflexión usa `actividad/reflexion`, lista de cotejo usa
+`evaluacion/lista_cotejo`, glosario usa `conceptos` y comparación de alternativas
+prefiere `tabla`. Incluye los bloques permitidos, un schema mínimo válido y
+prohibiciones específicas; el nombre pedagógico nunca crea un discriminador o
+modalidad nueva.
+
+Las allowlists del validador permanecen estrictas. No se aceptan aliases como
+`tipo: reflexion`, `tipo: glosario`, `tipo: lista_cotejo` ni modalidades como
+`comparacion`, y el backend no transforma esas respuestas. El retry por slots
+pendientes continúa como red de seguridad para variaciones reales; las
+recomendaciones buscan reducir fallos previsibles, no garantizar cero retries.
 Los componentes condicionales no se omiten: cuando su forma literal no aplica,
 la IA desarrolla la alternativa. La cobertura se asigna únicamente después de
 validar contenido no vacío y el schema pedagógico del bloque; no se marca un

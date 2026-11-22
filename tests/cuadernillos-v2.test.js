@@ -215,8 +215,8 @@ test('v1 contract and frontend consumers remain compatible after additive backen
   assert.doesNotMatch(routes, /tipo_cuadernillo/);
   assert.match(frontendPreview, /contenido\.anexos/);
   assert.match(frontendWord, /contenido\.anexos/);
-  assert.match(frontendPreview, /isCuadernilloV2/);
-  assert.match(frontendWord, /isCuadernilloV2/);
+  assert.match(frontendPreview, /detectAnexoSchemaVersion/);
+  assert.match(frontendWord, /detectAnexoDownloadVersion/);
 });
 
 test('prepared SQL is nullable, idempotent, allowlisted and preserves existing constraints', () => {

@@ -5,6 +5,7 @@ import {
   obtenerSlotsSegmentoCuadernillo,
   esTipoCuadernillo
 } from '../domain/cuadernillos.js';
+import { resolverRepresentacionSlotCuadernillo } from '../domain/cuadernilloRepresentations.js';
 import {
   CUADERNILLO_V2_ACTIVITY_MODALITIES,
   CUADERNILLO_V2_EVALUATION_MODALITIES,
@@ -113,11 +114,13 @@ function promptContext(context) {
 }
 
 function promptSlot(slot) {
+  const representacion = resolverRepresentacionSlotCuadernillo(slot);
   return {
     slot_id: slot.slotId,
     nombre: slot.nombre,
     clasificacion: slot.clasificacion,
-    ...(slot.alternativa ? { alternativa: slot.alternativa } : {})
+    ...(slot.alternativa ? { alternativa: slot.alternativa } : {}),
+    representacion
   };
 }
 
@@ -133,6 +136,8 @@ export function construirPromptSegmentoCuadernilloV2({
     : '';
   const systemPrompt = [
     'Genera contenido pedagogico textual para slots canonicos como JSON valido.',
+    'El campo tipo solo acepta discriminadores de bloque; una modalidad nunca se coloca en tipo.',
+    'El nombre pedagogico no crea discriminadores ni modalidades nuevas: sigue la representacion recomendada de cada slot.',
     'No produzcas cobertura, IDs tecnicos, secciones, orden, datos generales ni metadata documental.',
     'Usa la planeacion como contexto sin copiarla literalmente.',
     'Devuelve solo el objeto solicitado, sin Markdown ni texto adicional.'
@@ -161,6 +166,10 @@ Reglas:
 - Devuelve exactamente una respuesta pedagogica util por cada slot solicitado.
 - Copia cada slot_id exactamente; el orden del arreglo respuestas es libre.
 - No devuelvas slots desconocidos ni duplicados.
+- tipo solo acepta un discriminador de bloque allowlisted; nunca coloques una modalidad en tipo.
+- Una modalidad solo se usa dentro de actividad o evaluacion y debe pertenecer a su allowlist correspondiente.
+- El nombre pedagogico del componente no crea un discriminador ni una modalidad nueva.
+- Sigue la representacion recomendada de cada slot, su schema minimo y sus prohibiciones especificas.
 - No incluyas cobertura, IDs de items o criterios, seccion, titulo de seccion, orden, schema_version, datos_generales ni tipo_cuadernillo.
 - El backend asigna toda la metadata tecnica solo despues de validar el contenido.
 - Los items de actividad contienen enunciado y opcionalmente opciones o espacio_respuesta, nunca id.

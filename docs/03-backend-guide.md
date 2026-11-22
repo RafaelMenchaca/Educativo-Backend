@@ -130,6 +130,14 @@ raíz `respuestas`. La fusión se realiza por `slot_id`, sin reemplazar contenid
 válido. Slots desconocidos o duplicados fallan de forma segura. Nunca hay más de
 dos llamadas por segmento ni se asigna cobertura sin una respuesta válida.
 
+Antes de construir el prompt, el resolver de representaciones clasifica cada
+slot por su nombre canónico y recomienda un bloque allowlisted, una modalidad
+cuando corresponde y un schema mínimo. Así, términos pedagógicos como
+reflexión, lista de cotejo, glosario o comparación no se confunden con
+discriminadores técnicos. El validador continúa rechazando tipos y modalidades
+desconocidos sin aliases ni normalización automática; el retry vigente sigue
+siendo la red de seguridad para respuestas reales que aún no cumplan.
+
 El motor no importa OpenAI ni Supabase y no persiste resultados parciales. El
 servicio de Anexos acepta opcionalmente un tipo canónico, recupera el contexto
 desde la planeación propia, inyecta un adaptador Chat Completions y realiza un

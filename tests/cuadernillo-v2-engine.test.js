@@ -11,6 +11,10 @@ import {
   validarSlotsCuadernillo
 } from '../src/domain/cuadernillos.js';
 import {
+  inventariarRepresentacionesSlots,
+  resolverRepresentacionSlotCuadernillo
+} from '../src/domain/cuadernilloRepresentations.js';
+import {
   CuadernilloV2GenerationError,
   construirPromptSegmentoCuadernilloV2,
   crearPlanSegmentosCuadernilloV2,
@@ -18,10 +22,17 @@ import {
   validarRespuestasSlotsCuadernilloV2
 } from '../src/services/cuadernilloV2.engine.js';
 import {
+  CUADERNILLO_V2_ACTIVITY_MODALITIES,
+  CUADERNILLO_V2_BLOCK_TYPES,
+  CUADERNILLO_V2_EVALUATION_MODALITIES,
   construirBloqueV2DesdeSlot,
   construirSeccionDatosGeneralesV2,
   validateCuadernilloV2
 } from '../src/validators/cuadernilloV2.validator.js';
+
+function slotBy(type, section, number) {
+  return obtenerSlotsCuadernillo(type).find((slot) => slot.seccionId === section && slot.numero === number);
+}
 
 function context(overrides = {}) {
   return {
@@ -127,6 +138,107 @@ test('slot prompt delegates content only, not coverage, IDs, sections or order',
   assert.doesNotMatch(prompt.userPrompt, /"correcciones"/);
   assert.doesNotMatch(prompt.userPrompt, /"cobertura":\s*\[/);
   assert.doesNotMatch(prompt.userPrompt, /"secciones"/);
+});
+
+test('canonical representation resolver disambiguates the four observed slots', () => {
+  const cases = [
+    {
+      slot: slotBy('ejercicios_aplicacion', 'cierre', 34),
+      family: 'reflexion', type: 'actividad', modality: 'reflexion'
+    },
+    {
+      slot: slotBy('actividades_integradoras', 'actividades_analisis', 24),
+      family: 'comparacion', type: 'tabla', modality: undefined
+    },
+    {
+      slot: slotBy('actividades_integradoras', 'evaluacion', 41),
+      family: 'lista_cotejo', type: 'evaluacion', modality: 'lista_cotejo'
+    },
+    {
+      slot: slotBy('aprendizaje_guiado', 'apoyos_aprendizaje', 21),
+      family: 'glosario', type: 'conceptos', modality: undefined
+    }
+  ];
+  for (const { slot, family, type, modality } of cases) {
+    const representation = resolverRepresentacionSlotCuadernillo(slot);
+    assert.equal(representation.familia, family);
+    assert.equal(representation.recomendacionPrincipal.tipo, type);
+    assert.equal(representation.recomendacionPrincipal.modalidad, modality);
+    assert.doesNotThrow(() => construirBloqueV2DesdeSlot(slot, structuredClone(representation.esquemaMinimo)));
+  }
+});
+
+test('semantic families recommend allowlisted blocks and modalities for every canonical slot', () => {
+  const blockSet = new Set(CUADERNILLO_V2_BLOCK_TYPES);
+  const activitySet = new Set(CUADERNILLO_V2_ACTIVITY_MODALITIES);
+  const evaluationSet = new Set(CUADERNILLO_V2_EVALUATION_MODALITIES);
+  for (const type of TIPO_CUADERNILLO_IDS) {
+    const slots = obtenerSlotsCuadernillo(type);
+    const inventory = inventariarRepresentacionesSlots(slots);
+    assert.equal(inventory.length, slots.length);
+    for (const entry of inventory) {
+      const representation = entry.representacion;
+      assert.ok(representation);
+      assert.equal(representation.bloquesPermitidos.length > 0, true);
+      assert.equal(representation.bloquesPermitidos.every((blockType) => blockSet.has(blockType)), true);
+      const { tipo, modalidad } = representation.recomendacionPrincipal;
+      assert.equal(blockSet.has(tipo), true);
+      if (tipo === 'actividad' && modalidad) assert.equal(activitySet.has(modalidad), true);
+      if (tipo === 'evaluacion' && modalidad) assert.equal(evaluationSet.has(modalidad), true);
+      assert.doesNotThrow(() => construirBloqueV2DesdeSlot(
+        slots.find(({ slotId }) => slotId === entry.slotId),
+        structuredClone(representation.esquemaMinimo)
+      ));
+    }
+  }
+});
+
+test('resolver covers evaluation and activity modality families without aliases', () => {
+  const expected = [
+    ['Autoevaluacion', 'evaluacion', 'autoevaluacion'],
+    ['Rubrica de desempeno', 'evaluacion', 'rubrica'],
+    ['Preguntas de comprension', 'actividad', 'preguntas'],
+    ['Ejercicio practico', 'actividad', 'ejercicio'],
+    ['Problema contextualizado', 'actividad', 'problema'],
+    ['Identificar elementos', 'actividad', 'identificar'],
+    ['Clasificar informacion', 'actividad', 'clasificar'],
+    ['Relacionar conceptos', 'actividad', 'relacionar'],
+    ['Completar enunciados', 'actividad', 'completar']
+  ];
+  expected.forEach(([nombre, tipo, modalidad], index) => {
+    const representation = resolverRepresentacionSlotCuadernillo({ nombre, slotId: `synthetic:${index}` });
+    assert.deepEqual(representation.recomendacionPrincipal, { tipo, modalidad });
+  });
+});
+
+test('strict slot validator still rejects pedagogical labels used as types or invented modalities', () => {
+  const reflection = slotBy('ejercicios_aplicacion', 'cierre', 34);
+  const checklist = slotBy('actividades_integradoras', 'evaluacion', 41);
+  const glossary = slotBy('aprendizaje_guiado', 'apoyos_aprendizaje', 21);
+  const comparison = slotBy('actividades_integradoras', 'actividades_analisis', 24);
+  assert.throws(() => construirBloqueV2DesdeSlot(reflection, { tipo: 'reflexion', contenido: 'Reflexion.' }), (error) => error.code === 'tipo_bloque_desconocido');
+  assert.throws(() => construirBloqueV2DesdeSlot(checklist, { tipo: 'lista_cotejo', criterios: [{ texto: 'Criterio.' }] }), (error) => error.code === 'tipo_bloque_desconocido');
+  assert.throws(() => construirBloqueV2DesdeSlot(glossary, { tipo: 'glosario', items: ['Concepto.'] }), (error) => error.code === 'tipo_bloque_desconocido');
+  assert.throws(() => construirBloqueV2DesdeSlot(comparison, { tipo: 'actividad', modalidad: 'comparacion', instrucciones: 'Compara.', items: [{ enunciado: 'Compara opciones.' }] }), (error) => error.code === 'modalidad_actividad_desconocida');
+});
+
+test('real prompt includes slot-specific representation and distinguishes block type from modality', () => {
+  const observed = [
+    ['ejercicios_aplicacion', 'cierre', 34, /"modalidad":"reflexion"/, /reflexion es modalidad de actividad/],
+    ['actividades_integradoras', 'actividades_analisis', 24, /"tipo":"tabla"/, /comparacion y comparar no son modalidades/],
+    ['actividades_integradoras', 'evaluacion', 41, /"modalidad":"lista_cotejo"/, /lista_cotejo es modalidad de evaluacion/],
+    ['aprendizaje_guiado', 'apoyos_aprendizaje', 21, /"tipo":"conceptos"/, /glosario no es un tipo de bloque/]
+  ];
+  for (const [type, section, number, schemaPattern, rulePattern] of observed) {
+    const segment = crearPlanSegmentosCuadernilloV2(type).find(({ slots }) => slots.some((slot) => slot.seccionId === section && slot.numero === number));
+    const slot = slotBy(type, section, number);
+    const prompt = construirPromptSegmentoCuadernilloV2({ tipoCuadernillo: type, contextoPlaneacion: context(), segmento: segment, slots: [slot] });
+    assert.match(prompt.systemPrompt, /tipo solo acepta discriminadores de bloque/);
+    assert.match(prompt.userPrompt, schemaPattern);
+    assert.match(prompt.userPrompt, rulePattern);
+    assert.match(prompt.userPrompt, /nunca coloques una modalidad en tipo/);
+    assert.match(prompt.userPrompt, /no crea un discriminador ni una modalidad nueva/);
+  }
 });
 
 for (const type of TIPO_CUADERNILLO_IDS) {
