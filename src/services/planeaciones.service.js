@@ -2,6 +2,12 @@ import { supabaseAdmin } from '../../supabaseClient.js';
 import OpenAI from 'openai';
 import { randomUUID } from 'crypto';
 import { buildPromptByLevel } from '../utils/buildPromptByLevel.js';
+import {
+  ACTIVIDADES_DIDACTICAS_POR_MOMENTO,
+  ACTIVIDADES_DIDACTICAS_SETS,
+  ACTIVIDADES_DIDACTICAS_SET
+} from '../constants/actividadesDidacticas.js';
+export { ACTIVIDADES_DIDACTICAS_POR_MOMENTO } from '../constants/actividadesDidacticas.js';
 import { crearTemas, obtenerContextoTema, obtenerContextoUnidad } from './jerarquia.service.js';
 import {
   enrichPlaneacionWithImages,
@@ -22,67 +28,6 @@ const PLANEACION_PROMPT_VERSION = 'v4_variedad_entre_temas';
 const OPENAI_TABLA_SYSTEM_PROMPT =
   'Actua como un docente experto en diseno de planeaciones didacticas, con experiencia en primaria, secundaria, bachillerato y nivel superior. Responde solo con JSON valido, sin markdown, sin backticks y sin texto adicional.';
 const TEMA_DUPLICATE_CONSTRAINT = 'temas_unidad_id_titulo_key';
-const ACTIVIDADES_DIDACTICAS_VALIDAS = new Set([
-  'Juegos de mesa educativos',
-  'Debate académico',
-  'Proyectos de investigación',
-  'Aprendizaje basado en proyectos (ABP)',
-  'Simulación de situaciones reales',
-  'Trabajo colaborativo',
-  'Taller de escritura creativa',
-  'Prácticas de laboratorio',
-  'Análisis de estudio de caso',
-  'Clase invertida (Flipped Classroom)',
-  'Excursiones educativas',
-  'Presentaciones multimedia',
-  'Aprendizaje cooperativo',
-  'Encuestas y entrevistas',
-  'Juegos de rol',
-  'Preguntas de reflexión',
-  'Proyectos artísticos',
-  'Organizador Grafico',
-  'Podcasts educativos',
-  'Actividades interdisciplinarias',
-  'Lluvia de ideas',
-  'Foros de discusión',
-  'Resolución de problemas',
-  'Creación de infografías',
-  'Elaboración de maquetas',
-  'Cuadros comparativos',
-  'Líneas del tiempo',
-  'Diarios de aprendizaje',
-  'Lectura guiada',
-  'Círculo de lectura',
-  'Creación de videos educativos',
-  'Kahoot o cuestionarios interactivos',
-  'Gamificación',
-  'Aprendizaje basado en retos',
-  'Exposición oral',
-  'Panel de expertos',
-  'Mesa redonda',
-  'Tutoría entre pares',
-  'Portafolio de evidencias',
-  'Aprendizaje basado en problemas (ABPr)',
-  'Diseño de experimentos',
-  'Creación de blogs educativos',
-  'Historietas o cómics educativos',
-  'Mapas mentales',
-  'Análisis de videos',
-  'Aprendizaje servicio',
-  'Diseño de prototipos',
-  'Investigación documental',
-  'Feria científica o tecnológica',
-  'Escape room educativo',
-  'Dinámicas rompehielo',
-  'Elaboración de resúmenes',
-  'Análisis de textos',
-  'Ensayo académico',
-  'Traducción de textos',
-  'Concurso de preguntas',
-  'Dinámica de preguntas con pelota',
-  'Dinámica de preguntas con globos',
-  'Juegos y dinámicas de movimiento'
-]);
 const ACTIVIDADES_MOMENTOS_KEYS = new Set([
   'conocimientos_previos',
   'desarrollo',
@@ -97,6 +42,7 @@ export const PLANEACION_EDITABLE_FIELDS = Object.freeze(['tabla_ia']);
 const PLANEACION_EDITABLE_FIELD_SET = new Set(PLANEACION_EDITABLE_FIELDS);
 const TABLA_IA_EDITABLE_FIELDS = new Set([
   'tiempo_sesion',
+  'actividad_seleccionada',
   'actividades',
   'tiempo_min',
   'producto',
@@ -155,33 +101,34 @@ function validateActividadCierre(actividadCierre) {
     return '';
   }
 
-  if (!ACTIVIDADES_DIDACTICAS_VALIDAS.has(normalized)) {
+  if (!ACTIVIDADES_DIDACTICAS_SETS.cierre.has(normalized)) {
     throw buildHttpError(400, 'La actividad de cierre seleccionada no es valida.');
   }
 
   return normalized;
 }
 
-function validateActividadDidactica(actividad, label = 'actividad didactica') {
+function validateActividadDidactica(actividad, label = 'actividad didactica', momentoKey = '') {
   const normalized = normalizeActividadCierre(actividad);
 
   if (!normalized) {
     return '';
   }
 
-  if (!ACTIVIDADES_DIDACTICAS_VALIDAS.has(normalized)) {
+  const catalogo = ACTIVIDADES_DIDACTICAS_SETS[momentoKey] || ACTIVIDADES_DIDACTICAS_SET;
+  if (!catalogo.has(normalized)) {
     throw buildHttpError(400, `La ${label} seleccionada no es valida.`);
   }
 
   return normalized;
 }
 
-function normalizeActividadesMomentos(value, actividadCierreLegacy = '') {
+export function normalizeActividadesMomentos(value, actividadCierreLegacy = '') {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const normalized = {};
 
   for (const key of ACTIVIDADES_MOMENTOS_KEYS) {
-    const actividad = validateActividadDidactica(source[key], `actividad para ${key}`);
+    const actividad = validateActividadDidactica(source[key], `actividad para ${key}`, key);
     if (actividad) {
       normalized[key] = actividad;
     }
@@ -552,6 +499,53 @@ function parseTablaIa(rawText, duracion) {
   };
 }
 
+export function validateTablaIaActividadesSeleccionadas(tablaIa, actividadesMomentos) {
+  const rows = Array.isArray(tablaIa) ? tablaIa : [];
+  const selections = actividadesMomentos && typeof actividadesMomentos === 'object'
+    ? actividadesMomentos
+    : {};
+  const momentos = [
+    { key: 'conocimientos_previos', normalizedLabel: 'conocimientos previos', label: 'Conocimientos previos' },
+    { key: 'desarrollo', normalizedLabel: 'desarrollo', label: 'Desarrollo' },
+    { key: 'cierre', normalizedLabel: 'cierre', label: 'Cierre' }
+  ];
+  const violations = [];
+
+  for (const momento of momentos) {
+    const expected = normalizeActividadCierre(selections[momento.key]);
+    if (!expected) continue;
+
+    const row = rows.find((item) => normalizeTablaIaTiempoSesion(item?.tiempo_sesion) === momento.normalizedLabel);
+    const actual = normalizeActividadCierre(row?.actividad_seleccionada);
+    if (!row || actual !== expected) {
+      violations.push({
+        key: momento.key,
+        label: momento.label,
+        expected,
+        actual,
+        reason: !row ? 'missing_row' : (!actual ? 'missing_field' : 'mismatch')
+      });
+    }
+  }
+
+  return { ok: violations.length === 0, violations };
+}
+
+function buildActividadSelectionCorrection(violations) {
+  if (!Array.isArray(violations) || violations.length === 0) return '';
+  const lines = violations.map(({ label, expected }) => `- ${label} debía usar exactamente "${expected}".`);
+  const cierreReminder = violations.some(({ key }) => key === 'cierre')
+    ? '\nEl Cierre debe usar evidencia producida en Desarrollo y no repetir su actividad principal.'
+    : '';
+  return `
+
+CORRECCION OBLIGATORIA DEL ULTIMO INTENTO
+La respuesta anterior incumplio selecciones obligatorias:
+${lines.join('\n')}
+
+Regenera toda la tabla. Conserva cada actividad seleccionada en su momento, declarala exactamente en "actividad_seleccionada" y desarrolla realmente esa tecnica. No intercambies actividades entre momentos.${cierreReminder}`;
+}
+
 async function solicitarTablaIaCompletion({ prompt, maxTokens, temperature }) {
   return openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -568,7 +562,7 @@ async function solicitarTablaIaCompletion({ prompt, maxTokens, temperature }) {
   });
 }
 
-async function generarTablaIa({
+export async function generarTablaIa({
   materia,
   nivel,
   unidad,
@@ -602,6 +596,7 @@ Devuelve un objeto JSON valido con esta forma exacta:
   "tabla": [
     {
       "tiempo_sesion": "Conocimientos previos | Desarrollo | Cierre",
+      "actividad_seleccionada": "valor exacto seleccionado para ese momento, o texto vacio si no hubo seleccion",
       "actividades": "texto",
       "tiempo_min": numero,
       "producto": "texto",
@@ -618,8 +613,14 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
     { maxTokens: TABLA_IA_PRIMARY_MAX_TOKENS, temperature: 0.5 },
     { maxTokens: TABLA_IA_RETRY_MAX_TOKENS, temperature: 0.2 }
   ];
+  const explicitSelectionLabels = [
+    ['conocimientos_previos', 'Conocimientos previos'],
+    ['desarrollo', 'Desarrollo'],
+    ['cierre', 'Cierre']
+  ].filter(([key]) => Boolean(actividadesMomentosNormalizadas[key])).map(([, label]) => label);
 
   let lastAttempt = null;
+  let correctionPrompt = '';
 
   for (let index = 0; index < attempts.length; index += 1) {
     const attempt = attempts[index];
@@ -635,7 +636,7 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
 
     const callStart = Date.now();
     const completion = await solicitarTablaIaCompletion({
-      prompt,
+      prompt: `${prompt}${correctionPrompt}`,
       maxTokens: attempt.maxTokens,
       temperature: attempt.temperature
     });
@@ -645,9 +646,17 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
     const rawText = completion.choices?.[0]?.message?.content?.trim() || '';
     const finishReason = completion.choices?.[0]?.finish_reason || null;
     const parsed = parseTablaIa(rawText, duracion);
+    const selectionValidation = parsed.jsonOk
+      ? validateTablaIaActividadesSeleccionadas(parsed.tablaIa, actividadesMomentosNormalizadas)
+      : { ok: false, violations: [] };
+    const responseOk = parsed.jsonOk && selectionValidation.ok;
+    if (parsed.jsonOk && !selectionValidation.ok) {
+      parsed.errorTipo = 'activity_selection_mismatch';
+    }
 
     lastAttempt = {
       parsed,
+      selectionValidation,
       finishReason,
       usage
     };
@@ -662,15 +671,15 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
         model:         'gpt-4o-mini',
         promptVersion: PLANEACION_PROMPT_VERSION,
         usage,
-        status:        parsed.jsonOk ? 'success' : 'error',
-        jsonOk:        parsed.jsonOk,
+        status:        responseOk ? 'success' : 'error',
+        jsonOk:        responseOk,
         retryNumber:   index,
         durationMs:    callDurationMs,
         metadata:      { finish_reason: finishReason, error_tipo: parsed.errorTipo || null }
       }).catch((err) => console.error('[aiMetrics] planeaciones logAiCall failed:', err?.message));
     }
 
-    if (parsed.jsonOk) {
+    if (responseOk) {
       console.info('[planeaciones] generate:ai-response', {
         tema,
         intento: index + 1,
@@ -683,7 +692,7 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
           tokens_prompt: usage.prompt_tokens || 0,
           tokens_completion: usage.completion_tokens || 0,
           tokens_total: usage.total_tokens || 0,
-          json_ok: parsed.jsonOk,
+          json_ok: responseOk,
           error_tipo: parsed.errorTipo,
           nivel,
           materia,
@@ -693,6 +702,7 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
     }
 
     const hasMoreAttempts = index < attempts.length - 1;
+    correctionPrompt = buildActividadSelectionCorrection(selectionValidation.violations);
     console.warn('Respuesta IA invalida para tabla_ia; reintentando.', {
       tema,
       materia,
@@ -703,6 +713,12 @@ La propiedad "tabla" debe contener exactamente tres objetos. No uses markdown.`;
       error_tipo: parsed.errorTipo,
       reintentara: hasMoreAttempts
     });
+  }
+
+  if (explicitSelectionLabels.length > 0) {
+    const violatedLabels = lastAttempt?.selectionValidation?.violations?.map(({ label }) => label) || [];
+    const momentos = (violatedLabels.length > 0 ? violatedLabels : explicitSelectionLabels).join(', ');
+    throw buildHttpError(502, `La generacion no respeto las actividades seleccionadas para: ${momentos}.`);
   }
 
   console.warn('Se uso fallback para tabla_ia tras agotar reintentos.', {

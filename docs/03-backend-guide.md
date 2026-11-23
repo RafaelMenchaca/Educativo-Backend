@@ -99,6 +99,9 @@ Todas las rutas privadas se montan bajo `/api` desde `src/routes/index.js`.
 | --- | --- |
 | `planeaciones.service.js` | planeaciones, batches, archivado, generación y métricas legacy |
 | `anexos.service.js` | generación/regeneración y persistencia de anexos por planeación |
+| `domain/cuadernillos.js` | owner de IDs, metadata y blueprints de los tres cuadernillos v2 |
+| `validators/cuadernilloV2.validator.js` | validadores puros del contenido completo y de segmentos v2; reciben el tipo canónico como argumento externo |
+| `services/cuadernilloV2.engine.js` | núcleo puro de prompts segmentados, retry limitado, ensamblado y métricas en memoria; Anexos le inyecta el adaptador de completions |
 | `listas_cotejo.service.js` | listas por selección de planeaciones y flujo legacy por unidad |
 | `examenes.service.js` | jobs, worker en proceso, validación y persistencia de exámenes |
 | `biblioteca.service.js` | lectura agregada y eliminación de bloques |
@@ -106,6 +109,50 @@ Todas las rutas privadas se montan bajo `/api` desde `src/routes/index.js`.
 | `aiMetrics.service.js` | jobs/calls de métricas, tokens y costo estimado |
 
 Los contratos IA detallados están en `AI_GENERATION_CONTRACTS.md`, no aquí.
+
+### Motor segmentado de cuadernillos v2
+
+`generarCuadernilloV2` recibe un tipo canónico, contexto confiable ya recuperado
+de una planeación y una función `completar` inyectada. Construye
+`datos_generales` localmente y deriva de esa raíz la primera sección, sin
+enviarla a la IA. Deriva cuatro segmentos pedagógicos contiguos para las
+secciones restantes. Cada componente se representa como un slot canónico
+derivado del blueprint. La completion entrega solo `slot_id` y contenido
+pedagógico sin cobertura ni IDs técnicos; el backend asigna sección, orden,
+cobertura e IDs deterministas, valida cada respuesta, clasifica el truncamiento
+por `finish_reason`, permite como máximo un retry correctivo por segmento y
+ensambla la raíz v2 de forma determinista. La validación completa es obligatoria
+antes de devolver el documento.
+
+Si faltan slots o su contenido no valida, el motor conserva las respuestas
+válidas y la segunda llamada solicita únicamente los pendientes con la misma
+raíz `respuestas`. La fusión se realiza por `slot_id`, sin reemplazar contenido
+válido. Slots desconocidos o duplicados fallan de forma segura. Nunca hay más de
+dos llamadas por segmento ni se asigna cobertura sin una respuesta válida.
+
+Antes de construir el prompt, el resolver de representaciones clasifica cada
+slot por su nombre canónico y recomienda un bloque allowlisted, una modalidad
+cuando corresponde y un schema mínimo. Así, términos pedagógicos como
+reflexión, lista de cotejo, glosario o comparación no se confunden con
+discriminadores técnicos. El validador continúa rechazando tipos y modalidades
+desconocidos sin aliases ni normalización automática; el retry vigente sigue
+siendo la red de seguridad para respuestas reales que aún no cumplan.
+
+El motor no importa OpenAI ni Supabase y no persiste resultados parciales. El
+servicio de Anexos acepta opcionalmente un tipo canónico, recupera el contexto
+desde la planeación propia, inyecta un adaptador Chat Completions y realiza un
+único insert o update tras la validación final. Sin tipo conserva el flujo v1.
+La regeneración v2 toma el tipo almacenado y no admite cambiarlo desde el body.
+El frontend tipado, el renderer web v2 y la exportación Word v2 están
+implementados, conservando los consumidores v1. En test se completó una
+generación real controlada de cada tipo; hubo retries reparados por slots y el
+resolver de representaciones busca reducirlos, no garantizar cero retries.
+La migración de `tipo_cuadernillo text NULL` está aplicada y postverificada en
+Supabase test y producción; los históricos conservan `NULL`. El paquete
+productivo y su evidencia se preservan en
+`docs/production/anexos-cuadernillo-v2/`; su rollback nunca se ejecutó. Esta
+actualización de schema no equivale a un despliegue: el código continúa en las
+ramas `work/features` hasta completar push, PR, merge y deploy.
 
 ## SSE y jobs
 

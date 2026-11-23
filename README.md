@@ -58,6 +58,10 @@ src/
 |   |-- aiMetrics.service.js
 |   |-- imageEnrichment.service.js
 |   `-- imageSearch.service.js
+|-- domain/
+|   `-- cuadernillos.js    tipos, metadata y blueprints v2
+|-- validators/
+|   `-- cuadernilloV2.validator.js contrato y validacion pura v2
 `-- utils/
     |-- buildPromptByLevel.js
     |-- buildExamPromptByUnit.js
@@ -208,7 +212,22 @@ El servicio esta integrado en planeaciones, examenes, listas de cotejo y anexos.
 | `planeacion_batches` | Agrupa planeaciones creadas juntas; base del sistema de Biblioteca |
 | `examenes` | Examenes generados por unidad |
 | `listas_cotejo` | Listas de cotejo por planeacion o actividad |
-| `anexos` | Anexos generados para cada planeacion (max 1 por planeacion) |
+| `anexos` | Anexos por planeacion (max 1); v1 historico y columna tipada v2 aplicada y postverificada en test y produccion |
+
+La base de dominio de cuadernillos v2 vive en `src/domain/cuadernillos.js`. El
+endpoint individual acepta opcionalmente `tipo_cuadernillo`: si falta conserva
+v1 y si es canónico genera por segmentos, valida y persiste v2. La regeneración
+conserva la versión y el tipo almacenados. El frontend exige una modalidad por
+planeación y dispone de preview web y exportación Word v2, preservando los
+renderers v1. La generación real controlada se completó para los tres tipos en
+test; el resolver de representaciones busca reducir retries previsibles sin
+garantizar cero retries. La generación real controlada de los tres tipos fue
+validada en test. Supabase test y producción disponen de
+`tipo_cuadernillo text NULL` con el CHECK canónico; los históricos v1 conservan
+`NULL`. El paquete productivo ejecutado y postverificado se conserva en
+`docs/production/anexos-cuadernillo-v2/`, con rollback nunca ejecutado. El
+código permanece en las ramas `work/features`: producción todavía no sirve el
+flujo v2 hasta completar push, PR, merge y deploy.
 
 El backend está diseñado para operar con RLS mediante clientes ligados al token. Este repositorio no contiene las migraciones ni policies necesarias para confirmar que todas las tablas tengan RLS; consultar `docs/DATABASE_SCHEMA.md`. El `user_id` se deriva del token de Supabase, nunca del cuerpo del request.
 

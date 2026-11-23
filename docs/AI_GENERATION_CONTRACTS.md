@@ -62,7 +62,8 @@ Builder y mensajes, catálogo de actividades, estructura de tres filas, parser, 
 
 - Servicio: `src/services/anexos.service.js`.
 - Funciones: `generarAnexo`, `regenerarAnexo` y `generateAnexosWithIa`.
-- Entrada pública de generación: `planeacion_id`.
+- Entrada pública de generación: `planeacion_id` y el campo opcional
+  `tipo_cuadernillo`. Sin tipo se conserva v1; con un ID canónico se usa v2.
 - La planeación perteneciente al usuario aporta nivel, materia, tema, duración, `tabla_ia`, `actividades_momentos`, `tema_id` y `batch_id`.
 
 Existe como máximo un anexo por planeación según el índice único documentado. Si ya existe, generación devuelve `already_exists`; una carrera de inserción duplicada se resuelve consultando el existente.
@@ -71,9 +72,125 @@ Existe como máximo un anexo por planeación según el índice único documentad
 
 La salida esperada contiene `titulo_general`, descripción y entre 3 y 5 anexos. Cada anexo requiere número, título, tipo e instrucciones; una tabla opcional requiere columnas y filas. El parser tolera JSON directo, bloque delimitado o fragmento de objeto, y la validación falla con 502 si no cumple.
 
-Regenerar vuelve a cargar la planeación original, genera el mismo contrato y actualiza el registro existente. No crea una segunda fila.
+Regenerar vuelve a cargar la planeación original. Un histórico con tipo `NULL`
+conserva v1; un registro v2 reutiliza obligatoriamente su tipo persistido. El
+body no puede cambiarlo y la actualización final ocurre una sola vez.
 
 Persistencia: consultar [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md) para columnas y relaciones. Versión vigente: `v1_anexos_desde_planeacion`.
+
+### Base contractual y motor offline de cuadernillos v2
+
+El owner `src/domain/cuadernillos.js` define los tipos canónicos
+`ejercicios_aplicacion`, `actividades_integradoras` y `aprendizaje_guiado`, su
+metadata y los blueprints de cobertura. `src/validators/cuadernilloV2.validator.js`
+valida de forma pura un documento con esta raíz:
+
+```json
+{
+  "schema_version": 2,
+  "titulo": "string",
+  "descripcion": "string",
+  "datos_generales": {},
+  "secciones": []
+}
+```
+
+El tipo no se duplica dentro de `contenido`: la columna
+`anexos.tipo_cuadernillo` será su fuente canónica. El validador recibe ese tipo
+como argumento externo y exige las secciones y cobertura del blueprint elegido.
+
+`src/services/cuadernilloV2.engine.js` implementa una API interna pura que recibe
+el tipo, contexto confiable de la planeación y una dependencia `completar`
+inyectada. No importa ni invoca el cliente real de OpenAI. El plan se deriva del
+blueprint en cuatro grupos pedagógicos contiguos: presentación, desarrollo
+conceptual, aplicación/proyecto y evaluación/cierre. `datos_generales` no se
+envía a ninguna completion: el backend construye primero la raíz
+`contenido.datos_generales` y deriva de ella una única sección de presentación
+en forma de tabla, con ID, título, orden y cobertura tomados del blueprint.
+La raíz es la fuente de verdad y el validador rechaza cualquier divergencia de
+la sección derivada. Los componentes 1–6 permanecen en los conteos 35/45/35.
+
+Cada componente pedagógico posterior a `datos_generales` se convierte en un
+slot canónico derivado del blueprint. Su ID estable combina tipo, sección y
+número, por ejemplo
+`ejercicios_aplicacion:repaso_teorico:13`. La completion devuelve únicamente:
+
+```json
+{
+  "respuestas": [
+    {
+      "slot_id": "ejercicios_aplicacion:repaso_teorico:13",
+      "bloque": {
+        "tipo": "texto",
+        "contenido": "Contenido pedagógico útil"
+      }
+    }
+  ]
+}
+```
+
+El bloque de entrada no contiene `cobertura`, IDs técnicos, sección, orden ni
+metadata documental. Después de validar una respuesta real, el backend la ubica
+en la sección canónica, asigna `cobertura: [numero]` y genera IDs deterministas
+para items o criterios. Los slots se agrupan dentro de las 8–10 secciones del
+blueprint; no se crean secciones por componente.
+
+Cada segmento acepta como máximo dos completions: intento inicial y un retry
+con los slots ausentes o cuyo contenido no validó. Las respuestas válidas se
+conservan por `slot_id`; el segundo prompt no incluye la completion anterior y
+usa la misma raíz `respuestas`, sin contrato separado de correcciones. El orden
+del arreglo no es contractual. Slots desconocidos o duplicados se rechazan y un
+`finish_reason: length` repetido aborta el cuadernillo. El backend construye título,
+descripción, datos generales y `schema_version`, concatena las secciones en orden
+y ejecuta `validateCuadernilloV2` antes de devolver el resultado. Las métricas de
+llamadas, retries, tokens, duración y `finish_reason` se acumulan sin registrar
+prompts ni respuestas. El cliente conserva el error 502 genérico; el backend
+puede registrar solamente diagnóstico estructural acotado.
+
+El prompt describe cada slot con nombre, clasificación, alternativa canónica y
+una recomendación estructural determinista derivada por familias semánticas.
+La recomendación distingue el discriminador `tipo` de las modalidades internas:
+por ejemplo, reflexión usa `actividad/reflexion`, lista de cotejo usa
+`evaluacion/lista_cotejo`, glosario usa `conceptos` y comparación de alternativas
+prefiere `tabla`. Incluye los bloques permitidos, un schema mínimo válido y
+prohibiciones específicas; el nombre pedagógico nunca crea un discriminador o
+modalidad nueva.
+
+Las allowlists del validador permanecen estrictas. No se aceptan aliases como
+`tipo: reflexion`, `tipo: glosario`, `tipo: lista_cotejo` ni modalidades como
+`comparacion`, y el backend no transforma esas respuestas. El retry por slots
+pendientes continúa como red de seguridad para variaciones reales; las
+recomendaciones buscan reducir fallos previsibles, no garantizar cero retries.
+Los componentes condicionales no se omiten: cuando su forma literal no aplica,
+la IA desarrolla la alternativa. La cobertura se asigna únicamente después de
+validar contenido no vacío y el schema pedagógico del bloque; no se marca un
+slot ausente o inválido. Las secciones ensambladas vuelven a pasar el validador
+estricto de segmento y el documento completo conserva la validación exacta
+35/45/35. En todos los casos hay como máximo dos completions por segmento y no
+se persiste nada hasta validar el documento final.
+
+Compatibilidad prevista:
+
+- v1: `tipo_cuadernillo IS NULL` y `contenido.anexos[]`;
+- v2: tipo canónico no nulo, `contenido.schema_version = 2` y
+  `contenido.secciones[]`.
+
+El endpoint individual despacha por versión. El adaptador segmentario usa Chat
+Completions con `gpt-4o-mini`, temperatura `0.3`, `max_tokens: 3000`, JSON mode y
+timeout individual de 90 segundos. Solo se inserta o actualiza después de
+validar el documento completo; los tokens y datos del job se agregan al nivel
+del cuadernillo. Además de las completions sintéticas, la integración se validó
+en test con generaciones reales controladas de los tres tipos. Los retries
+observados se resolvieron por slots pendientes; el resolver de representaciones
+busca reducirlos, no garantizar cero retries. El límite de 3000 tokens se
+conserva porque cada llamada genera solo un grupo de secciones; el truncamiento
+explícito permite medir antes de decidir un aumento. El frontend tipado, el
+renderer web v2 y el exportador Word v2 están implementados y conservan sus
+dispatches v1. La columna nullable y su CHECK canónico están aplicados y
+postverificados en Supabase test y producción; `NULL` continúa identificando
+históricos v1 y el tipo canónico externo acompaña a `schema_version: 2`. El
+rollback productivo no fue ejecutado. El código todavía permanece en las ramas
+`work/features`, por lo que no se declara rollout ni deploy completado.
 
 ### Métricas y elementos protegidos
 

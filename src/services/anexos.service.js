@@ -1,6 +1,11 @@
 import { supabaseAdmin } from '../../supabaseClient.js';
 import OpenAI from 'openai';
 import { createAiJob, finishAiJob, failAiJob, logAiCall } from './aiMetrics.service.js';
+import { esTipoCuadernillo } from '../domain/cuadernillos.js';
+import {
+  CuadernilloV2GenerationError,
+  generarCuadernilloV2
+} from './cuadernilloV2.engine.js';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -16,10 +21,16 @@ const ANEXOS_SYSTEM_PROMPT =
 
 const ANEXOS_PROMPT_VERSION = 'v1_anexos_desde_planeacion';
 const ANEXOS_TIMEOUT_MS = 90000;
+const CUADERNILLO_V2_PROMPT_VERSION = 'v2_cuadernillo_segmentado';
+const CUADERNILLO_V2_MODEL = 'gpt-4o-mini';
+const CUADERNILLO_V2_TEMPERATURE = 0.3;
+const CUADERNILLO_V2_MAX_TOKENS = 3000;
+const CUADERNILLO_V2_TIMEOUT_MS = 90000;
 
-function buildHttpError(status, message) {
+function buildHttpError(status, message, code = null) {
   const error = new Error(message);
   error.status = status;
+  if (code) error.code = code;
   return error;
 }
 
@@ -39,6 +50,19 @@ function safeParseJson(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function getSchemaVersion(anexo) {
+  return anexo?.tipo_cuadernillo ? 2 : null;
+}
+
+function withVersionSummary(anexo) {
+  if (!anexo) return anexo;
+  return {
+    ...anexo,
+    tipo_cuadernillo: anexo.tipo_cuadernillo ?? null,
+    schema_version: getSchemaVersion(anexo)
+  };
 }
 
 function formatTablaIa(tablaIa) {
@@ -236,13 +260,189 @@ async function generateAnexosWithIa({ nivel, materia, tema, duracion, tablaIa, a
   return { contenido: validated, tokensPrompt, tokensCompletion, tokensTotal };
 }
 
-export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
+async function withTimeout(promise, timeoutMs) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(buildHttpError(504, 'La generacion de IA tardo demasiado.')),
+          timeoutMs
+        );
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function createCuadernilloV2Completer({
+  jobId,
+  userId,
+  tipoCuadernillo,
+  openaiClient = openai,
+  logCall = logAiCall
+}) {
+  return async ({ systemPrompt, userPrompt, segmento, intento }) => {
+    const callStart = Date.now();
+    const completion = await withTimeout(
+      openaiClient.chat.completions.create({
+        model: CUADERNILLO_V2_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: CUADERNILLO_V2_TEMPERATURE,
+        max_tokens: CUADERNILLO_V2_MAX_TOKENS
+      }),
+      CUADERNILLO_V2_TIMEOUT_MS
+    );
+    const durationMs = Date.now() - callStart;
+    const content = completion.choices?.[0]?.message?.content || '';
+    const finishReason = completion.choices?.[0]?.finish_reason || null;
+
+    if (jobId && userId) {
+      logCall({
+        jobId,
+        userId,
+        artifactType: 'anexo',
+        callPurpose: 'workbook_segment',
+        model: CUADERNILLO_V2_MODEL,
+        promptVersion: CUADERNILLO_V2_PROMPT_VERSION,
+        usage: completion.usage,
+        status: 'success',
+        jsonOk: Boolean(content),
+        retryNumber: Math.max(0, Number(intento || 1) - 1),
+        durationMs,
+        metadata: {
+          tipo_cuadernillo: tipoCuadernillo,
+          segmento: segmento?.id || null,
+          finish_reason: finishReason
+        }
+      }).catch((err) => console.error('[aiMetrics] cuadernillo v2 logAiCall failed:', err?.message));
+    }
+
+    return { content, usage: completion.usage || {}, durationMs, finishReason };
+  };
+}
+
+function logCuadernilloV2Diagnostic(diagnostic) {
+  const event = diagnostic?.eventType || 'structural_failure';
+  const method = event === 'segment_slots_validated' ? 'info' : 'warn';
+  console[method](`[anexos] cuadernillo_v2:${event}`, diagnostic);
+}
+
+function buildTrustedV2Context(planeacion, tablaIa, actividadesMomentos) {
+  return {
+    materia: normalizeString(planeacion.materia),
+    nivel: normalizeString(planeacion.nivel),
+    tema: normalizeString(planeacion.tema),
+    duracion: planeacion.duracion,
+    tabla_ia: tablaIa,
+    actividades_momentos: actividadesMomentos,
+    datos_generales: {}
+  };
+}
+
+async function generateV2Content({
+  planeacion,
+  tablaIa,
+  actividadesMomentos,
+  tipoCuadernillo,
+  completar,
+  jobId,
+  userId,
+  logCall
+}) {
+  try {
+    const result = await generarCuadernilloV2({
+      tipoCuadernillo,
+      contextoPlaneacion: buildTrustedV2Context(planeacion, tablaIa, actividadesMomentos),
+      diagnosticar: logCuadernilloV2Diagnostic,
+      completar: completar || createCuadernilloV2Completer({
+        jobId,
+        userId,
+        tipoCuadernillo,
+        logCall
+      })
+    });
+    return {
+      contenido: result.contenido,
+      tokensPrompt: result.metricas.tokensPrompt,
+      tokensCompletion: result.metricas.tokensCompletion,
+      tokensTotal: result.metricas.tokensTotal,
+      metricasV2: result.metricas
+    };
+  } catch (error) {
+    if (error instanceof CuadernilloV2GenerationError) {
+      const safeError = buildHttpError(502, 'No se pudo generar un cuadernillo valido.', 'cuadernillo_v2_invalido');
+      safeError.structuralCause = {
+        code: error.code,
+        segmentId: error.segmentId,
+        path: error.path,
+        diagnostics: error.diagnostics
+      };
+      throw safeError;
+    }
+    throw error;
+  }
+}
+
+async function generateContentByVersion({
+  planeacion,
+  tablaIa,
+  actividadesMomentos,
+  tipoCuadernillo,
+  completarV2,
+  generarV1,
+  jobId,
+  userId,
+  logCall
+}) {
+  if (tipoCuadernillo) {
+    return generateV2Content({
+      planeacion,
+      tablaIa,
+      actividadesMomentos,
+      tipoCuadernillo,
+      completar: completarV2,
+      jobId,
+      userId,
+      logCall
+    });
+  }
+  return generarV1({
+    nivel: normalizeString(planeacion.nivel),
+    materia: normalizeString(planeacion.materia),
+    tema: normalizeString(planeacion.tema),
+    duracion: planeacion.duracion || null,
+    tablaIa,
+    actividadesMomentos,
+    jobId,
+    userId
+  });
+}
+
+export async function generarAnexo({
+  supabaseClient,
+  userId,
+  planeacionId,
+  tipoCuadernillo = null,
+  completarV2 = null,
+  generarV1 = generateAnexosWithIa,
+  metricas = { createAiJob, finishAiJob, failAiJob, logAiCall }
+}) {
   const startedAt = Date.now();
   const client = getClient(supabaseClient);
   const normalizedPlaneacionId = String(planeacionId || '').trim();
 
   if (!normalizedPlaneacionId) {
     throw buildHttpError(400, 'planeacion_id es requerido.');
+  }
+  if (tipoCuadernillo !== null && !esTipoCuadernillo(tipoCuadernillo)) {
+    throw buildHttpError(400, 'tipo_cuadernillo no es valido.', 'tipo_cuadernillo_invalido');
   }
 
   console.info('[anexos] generate:start', { planeacionId: normalizedPlaneacionId });
@@ -275,7 +475,15 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
   if (existingError) throw existingError;
 
   if (existingAnexo) {
-    return { ok: true, anexo_id: existingAnexo.id, status: 'already_exists', anexo: existingAnexo };
+    const summarized = withVersionSummary(existingAnexo);
+    return {
+      ok: true,
+      anexo_id: existingAnexo.id,
+      status: 'already_exists',
+      tipo_cuadernillo: summarized.tipo_cuadernillo,
+      schema_version: summarized.schema_version,
+      anexo: summarized
+    };
   }
 
   // Obtener contexto adicional del tema si existe
@@ -296,7 +504,7 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
   let aiJobId = null;
   if (userId) {
     try {
-      aiJobId = await createAiJob({
+      aiJobId = await metricas.createAiJob({
         userId,
         artifactType: 'anexo',
         actionType:   'generate',
@@ -305,7 +513,9 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
         tema:         normalizeString(planeacion.tema) || null,
         inputSummary: {
           planeacion_id: planeacion.id,
-          planeaciones_count: 1
+          planeaciones_count: 1,
+          tipo_cuadernillo: tipoCuadernillo,
+          schema_version: tipoCuadernillo ? 2 : 1
         }
       });
     } catch (err) {
@@ -313,21 +523,22 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
     }
   }
 
-  let contenido, tokensPrompt, tokensCompletion, tokensTotal;
+  let contenido, tokensPrompt, tokensCompletion, tokensTotal, metricasV2 = null;
   try {
-    ({ contenido, tokensPrompt, tokensCompletion, tokensTotal } = await generateAnexosWithIa({
-      nivel: normalizeString(planeacion.nivel),
-      materia: normalizeString(planeacion.materia),
-      tema: normalizeString(planeacion.tema),
-      duracion: planeacion.duracion || null,
+    ({ contenido, tokensPrompt, tokensCompletion, tokensTotal, metricasV2 = null } = await generateContentByVersion({
+      planeacion,
       tablaIa,
       actividadesMomentos,
+      tipoCuadernillo,
+      completarV2,
+      generarV1,
       jobId: aiJobId,
-      userId
+      userId,
+      logCall: metricas.logAiCall
     }));
   } catch (err) {
     if (aiJobId) {
-      failAiJob(aiJobId, {
+        metricas.failAiJob(aiJobId, {
         errorType:        err?.status ? `http_${err.status}` : 'generation_error',
         errorMessageSafe: err?.message || 'Error generando anexo'
       }).catch(() => {});
@@ -341,7 +552,10 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
     throw err;
   }
 
-  const titulo = normalizeString(contenido.titulo_general) || `Anexos: ${normalizeString(planeacion.tema) || 'Sin titulo'}`;
+  const titulo = tipoCuadernillo
+    ? normalizeString(contenido.titulo)
+    : normalizeString(contenido.titulo_general) || `Anexos: ${normalizeString(planeacion.tema) || 'Sin titulo'}`;
+  const promptVersion = tipoCuadernillo ? CUADERNILLO_V2_PROMPT_VERSION : ANEXOS_PROMPT_VERSION;
 
   const insertPayload = {
     user_id: userId,
@@ -353,8 +567,9 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
     materia: normalizeString(planeacion.materia) || null,
     nivel: normalizeString(planeacion.nivel) || null,
     tema: normalizeString(planeacion.tema) || null,
+    tipo_cuadernillo: tipoCuadernillo,
     contenido,
-    prompt_version: ANEXOS_PROMPT_VERSION,
+    prompt_version: promptVersion,
     status: 'generated',
     tokens_prompt: tokensPrompt,
     tokens_completion: tokensCompletion,
@@ -365,26 +580,35 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
   const { data: nuevoAnexo, error: insertError } = await client
     .from('anexos')
     .insert(insertPayload)
-    .select('id, planeacion_id, titulo, materia, nivel, tema, status, created_at')
+    .select('id, planeacion_id, titulo, materia, nivel, tema, tipo_cuadernillo, prompt_version, status, created_at')
     .single();
 
   if (insertError) {
     if (insertError.code === '23505') {
       // Race condition — alguien ya lo genero; devolver el existente
-      const { data: raceAnexo } = await client
+      const raceQuery = client
         .from('anexos')
-        .select('id, planeacion_id, titulo, status')
-        .eq('planeacion_id', normalizedPlaneacionId)
-        .maybeSingle();
+        .select('id, planeacion_id, titulo, tipo_cuadernillo, prompt_version, status')
+        .eq('planeacion_id', normalizedPlaneacionId);
+      if (userId) raceQuery.eq('user_id', userId);
+      const { data: raceAnexo } = await raceQuery.maybeSingle();
       if (aiJobId) {
-        finishAiJob(aiJobId, {
+        metricas.finishAiJob(aiJobId, {
           outputSummary: { anexos_creados: 0, status: 'already_exists' }
         }).catch(() => {});
       }
-      return { ok: true, anexo_id: raceAnexo?.id, status: 'already_exists' };
+      const summarized = withVersionSummary(raceAnexo);
+      return {
+        ok: true,
+        anexo_id: raceAnexo?.id,
+        status: 'already_exists',
+        tipo_cuadernillo: summarized?.tipo_cuadernillo ?? null,
+        schema_version: summarized?.schema_version ?? null,
+        anexo: summarized || null
+      };
     }
     if (aiJobId) {
-      failAiJob(aiJobId, {
+      metricas.failAiJob(aiJobId, {
         errorType: 'db_insert_error',
         errorMessageSafe: insertError.message
       }).catch(() => {});
@@ -393,10 +617,15 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
   }
 
   if (aiJobId) {
-    finishAiJob(aiJobId, {
+    metricas.finishAiJob(aiJobId, {
       anexoId:      nuevoAnexo.id,
       outputSummary: {
-        anexos_creados: Array.isArray(contenido?.anexos) ? contenido.anexos.length : 0
+        anexos_creados: tipoCuadernillo ? 1 : (Array.isArray(contenido?.anexos) ? contenido.anexos.length : 0),
+        tipo_cuadernillo: tipoCuadernillo,
+        schema_version: tipoCuadernillo ? 2 : 1,
+        segmentos: metricasV2?.segmentos ?? null,
+        llamadas: metricasV2?.llamadas ?? 1,
+        retries: metricasV2?.reintentos ?? 0
       }
     }).catch(() => {});
   }
@@ -404,15 +633,29 @@ export async function generarAnexo({ supabaseClient, userId, planeacionId }) {
   console.info('[anexos] generate:success', {
     anexoId: nuevoAnexo?.id,
     planeacionId: planeacion.id,
-    promptVersion: ANEXOS_PROMPT_VERSION,
+    promptVersion,
     tokensTotal,
     durationMs: Date.now() - startedAt
   });
 
-  return { ok: true, anexo_id: nuevoAnexo.id, status: 'generated' };
+  return {
+    ok: true,
+    anexo_id: nuevoAnexo.id,
+    status: 'generated',
+    tipo_cuadernillo: tipoCuadernillo,
+    schema_version: tipoCuadernillo ? 2 : null,
+    anexo: withVersionSummary(nuevoAnexo)
+  };
 }
 
-export async function regenerarAnexo({ supabaseClient, userId, id }) {
+export async function regenerarAnexo({
+  supabaseClient,
+  userId,
+  id,
+  completarV2 = null,
+  generarV1 = generateAnexosWithIa,
+  metricas = { createAiJob, finishAiJob, failAiJob, logAiCall }
+}) {
   const startedAt = Date.now();
   const client = getClient(supabaseClient);
   const normalizedId = normalizeString(id);
@@ -427,6 +670,10 @@ export async function regenerarAnexo({ supabaseClient, userId, id }) {
   const { data: anexo, error: anexoError } = await anexoQuery.maybeSingle();
   if (anexoError) throw anexoError;
   if (!anexo) throw buildHttpError(404, 'Anexo no encontrado.');
+  const tipoCuadernillo = anexo.tipo_cuadernillo ?? null;
+  if (tipoCuadernillo !== null && !esTipoCuadernillo(tipoCuadernillo)) {
+    throw buildHttpError(500, 'El anexo tiene un tipo no valido.', 'tipo_cuadernillo_persistido_invalido');
+  }
 
   // Re-obtener la planeacion original
   const planeacionQuery = client
@@ -446,35 +693,41 @@ export async function regenerarAnexo({ supabaseClient, userId, id }) {
   let aiJobId = null;
   if (userId) {
     try {
-      aiJobId = await createAiJob({
+      aiJobId = await metricas.createAiJob({
         userId,
         artifactType: 'anexo',
         actionType:   'regenerate',
         nivel:        normalizeString(planeacion.nivel) || null,
         materia:      normalizeString(planeacion.materia) || null,
         tema:         normalizeString(planeacion.tema) || null,
-        inputSummary: { planeacion_id: planeacion.id, planeaciones_count: 1 }
+        inputSummary: {
+          planeacion_id: planeacion.id,
+          planeaciones_count: 1,
+          tipo_cuadernillo: tipoCuadernillo,
+          schema_version: tipoCuadernillo ? 2 : 1
+        }
       });
     } catch (err) {
       console.error('[aiMetrics] createAiJob (anexo regenerar) error:', err?.message);
     }
   }
 
-  let contenido, tokensPrompt, tokensCompletion, tokensTotal;
+  let contenido, tokensPrompt, tokensCompletion, tokensTotal, metricasV2 = null;
   try {
-    ({ contenido, tokensPrompt, tokensCompletion, tokensTotal } = await generateAnexosWithIa({
-      nivel: normalizeString(planeacion.nivel),
-      materia: normalizeString(planeacion.materia),
-      tema: normalizeString(planeacion.tema),
-      duracion: planeacion.duracion || null,
+    ({ contenido, tokensPrompt, tokensCompletion, tokensTotal, metricasV2 = null } = await generateContentByVersion({
+      planeacion,
       tablaIa,
       actividadesMomentos,
+      tipoCuadernillo,
+      completarV2,
+      generarV1,
       jobId: aiJobId,
-      userId
+      userId,
+      logCall: metricas.logAiCall
     }));
   } catch (err) {
     if (aiJobId) {
-      failAiJob(aiJobId, {
+        metricas.failAiJob(aiJobId, {
         errorType:        err?.status ? `http_${err.status}` : 'generation_error',
         errorMessageSafe: err?.message || 'Error regenerando anexo'
       }).catch(() => {});
@@ -488,14 +741,17 @@ export async function regenerarAnexo({ supabaseClient, userId, id }) {
     throw err;
   }
 
-  const titulo = normalizeString(contenido.titulo_general) || `Anexos: ${normalizeString(planeacion.tema) || 'Sin titulo'}`;
+  const titulo = tipoCuadernillo
+    ? normalizeString(contenido.titulo)
+    : normalizeString(contenido.titulo_general) || `Anexos: ${normalizeString(planeacion.tema) || 'Sin titulo'}`;
+  const promptVersion = tipoCuadernillo ? CUADERNILLO_V2_PROMPT_VERSION : ANEXOS_PROMPT_VERSION;
 
   const { data: updated, error: updateError } = await client
     .from('anexos')
     .update({
       titulo,
       contenido,
-      prompt_version: ANEXOS_PROMPT_VERSION,
+      prompt_version: promptVersion,
       status: 'generated',
       tokens_prompt: tokensPrompt,
       tokens_completion: tokensCompletion,
@@ -503,12 +759,12 @@ export async function regenerarAnexo({ supabaseClient, userId, id }) {
       updated_at: new Date().toISOString()
     })
     .eq('id', normalizedId)
-    .select('id, planeacion_id, titulo, status, updated_at')
+    .select('id, planeacion_id, titulo, tipo_cuadernillo, prompt_version, status, updated_at')
     .single();
 
   if (updateError) {
     if (aiJobId) {
-      failAiJob(aiJobId, {
+      metricas.failAiJob(aiJobId, {
         errorType: 'db_update_error',
         errorMessageSafe: updateError.message
       }).catch(() => {});
@@ -517,10 +773,15 @@ export async function regenerarAnexo({ supabaseClient, userId, id }) {
   }
 
   if (aiJobId) {
-    finishAiJob(aiJobId, {
+    metricas.finishAiJob(aiJobId, {
       anexoId:      updated.id,
       outputSummary: {
-        anexos_creados: Array.isArray(contenido?.anexos) ? contenido.anexos.length : 0
+        anexos_creados: tipoCuadernillo ? 1 : (Array.isArray(contenido?.anexos) ? contenido.anexos.length : 0),
+        tipo_cuadernillo: tipoCuadernillo,
+        schema_version: tipoCuadernillo ? 2 : 1,
+        segmentos: metricasV2?.segmentos ?? null,
+        llamadas: metricasV2?.llamadas ?? 1,
+        retries: metricasV2?.reintentos ?? 0
       }
     }).catch(() => {});
   }
@@ -528,12 +789,17 @@ export async function regenerarAnexo({ supabaseClient, userId, id }) {
   console.info('[anexos] regenerate:success', {
     anexoId: updated?.id,
     planeacionId: planeacion.id,
-    promptVersion: ANEXOS_PROMPT_VERSION,
+    promptVersion,
     tokensTotal,
     durationMs: Date.now() - startedAt
   });
 
-  return { ok: true, anexo: updated };
+  return {
+    ok: true,
+    tipo_cuadernillo: tipoCuadernillo,
+    schema_version: tipoCuadernillo ? 2 : null,
+    anexo: withVersionSummary(updated)
+  };
 }
 
 export async function obtenerAnexosPorBatch({ supabaseClient, userId, batchId }) {
@@ -544,7 +810,7 @@ export async function obtenerAnexosPorBatch({ supabaseClient, userId, batchId })
 
   const query = client
     .from('anexos')
-    .select('id, planeacion_id, titulo, materia, nivel, tema, status, created_at, updated_at')
+    .select('id, planeacion_id, titulo, materia, nivel, tema, tipo_cuadernillo, prompt_version, status, created_at, updated_at')
     .eq('batch_id', normalizedBatchId)
     .order('created_at', { ascending: true });
 
@@ -552,7 +818,7 @@ export async function obtenerAnexosPorBatch({ supabaseClient, userId, batchId })
 
   const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+  return (data || []).map(withVersionSummary);
 }
 
 export async function obtenerAnexoPorPlaneacion({ supabaseClient, userId, planeacionId }) {
@@ -567,7 +833,7 @@ export async function obtenerAnexoPorPlaneacion({ supabaseClient, userId, planea
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
   if (!data) throw buildHttpError(404, 'Anexo no encontrado para esta planeacion.');
-  return data;
+  return withVersionSummary(data);
 }
 
 export async function eliminarAnexo({ supabaseClient, userId, id }) {
@@ -611,5 +877,5 @@ export async function obtenerAnexoPorId({ supabaseClient, userId, id }) {
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
   if (!data) throw buildHttpError(404, 'Anexo no encontrado.');
-  return data;
+  return withVersionSummary(data);
 }

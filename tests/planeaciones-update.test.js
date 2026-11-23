@@ -4,6 +4,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
+import { buildPromptByLevel } from '../src/utils/buildPromptByLevel.js';
+import {
+  ACTIVIDADES_DIDACTICAS_POR_MOMENTO as CANONICAL_ACTIVITIES,
+  ACTIVIDADES_DIDACTICAS_SETS,
+  ACTIVIDADES_DIDACTICAS_SET
+} from '../src/constants/actividadesDidacticas.js';
 
 const serviceSource = readFileSync(
   new URL('../src/services/planeaciones.service.js', import.meta.url),
@@ -20,7 +26,8 @@ function synthetic(context, exports) {
   }, { context });
 }
 
-async function loadService() {
+async function loadService({ completions = [], prompts = [], promptBuilder = () => '' } = {}) {
+  let completionIndex = 0;
   const context = createContext({
     console: { info() {}, warn() {}, error() {}, log() {} },
     process: { env: { OPENAI_API_KEY: 'synthetic' } },
@@ -43,9 +50,24 @@ async function loadService() {
     '../../supabaseClient.js': synthetic(context, {
       supabaseAdmin: { from() { throw new Error('admin fallback invoked'); } }
     }),
-    openai: synthetic(context, { default: class OpenAI {} }),
+    openai: synthetic(context, { default: class OpenAI {
+      constructor() {
+        this.chat = { completions: { create: async (request) => {
+          prompts.push(request.messages?.[1]?.content || '');
+          const response = completions[completionIndex];
+          completionIndex += 1;
+          if (!response) throw new Error('Synthetic completion missing');
+          return response;
+        } } };
+      }
+    } }),
     crypto: synthetic(context, { randomUUID: () => 'synthetic-uuid' }),
-    '../utils/buildPromptByLevel.js': synthetic(context, { buildPromptByLevel: () => '' }),
+    '../utils/buildPromptByLevel.js': synthetic(context, { buildPromptByLevel: promptBuilder }),
+    '../constants/actividadesDidacticas.js': synthetic(context, {
+      ACTIVIDADES_DIDACTICAS_POR_MOMENTO: CANONICAL_ACTIVITIES,
+      ACTIVIDADES_DIDACTICAS_SETS,
+      ACTIVIDADES_DIDACTICAS_SET
+    }),
     './jerarquia.service.js': synthetic(context, {
       crearTemas: async () => [],
       obtenerContextoTema: async () => ({}),
@@ -505,4 +527,252 @@ test('controller preserves stable validation, inaccessible and internal error co
   }, res);
   assert.equal(res.statusCode, 500);
   assert.equal(res.payload?.error, 'Error al actualizar planeacion');
+});
+
+test('activity catalog is exact per moment and normalization preserves representative values', async () => {
+  const { ACTIVIDADES_DIDACTICAS_POR_MOMENTO, normalizeActividadesMomentos } = await loadService();
+  const expected = {
+    conocimientos_previos: [
+      'Activación y diagnóstico', 'Lluvia de ideas', 'Preguntas detonadoras', 'Cuestionario diagnóstico',
+      'Quiz interactivo', 'Estudio de caso', 'Análisis de imágenes', 'Análisis de videos',
+      'Análisis de noticias', 'Diálogo en parejas', 'Cuadro SQA', 'Mapa mental', 'Red de conceptos',
+      'Línea del tiempo', 'Exploración de materiales', 'Demostración experimental', 'Observación del entorno'
+    ],
+    desarrollo: [
+      'Construcción y aplicación del conocimiento', 'Mapa conceptual', 'Mapa mental', 'Cuadro comparativo',
+      'Cuadro sinóptico', 'Diagrama de flujo', 'Infografía', 'Esquema explicativo', 'Resumen',
+      'Resolución de ejercicios', 'Resolución de problemas', 'Práctica de laboratorio', 'Simulación digital',
+      'Práctica informática', 'Dibujo técnico', 'Modelado a escala', 'Lectura comentada', 'Análisis de textos',
+      'Investigación documental', 'Matriz de análisis', 'Reporte técnico', 'Bitácora de trabajo',
+      'Trabajo colaborativo', 'Elaboración de prototipos', 'Elaboración de maquetas', 'Redacción de ensayos',
+      'Elaboración de propuestas', 'Producción audiovisual', 'Presentación digital'
+    ],
+    cierre: [
+      'Evaluación y retroalimentación', 'Ticket de salida', 'Cuestionario final', 'Quiz de comprobación',
+      'Ejercicio de aplicación', 'Preguntas de comprensión', 'Coevaluación', 'Autoevaluación',
+      'Reflexión individual', 'Retroalimentación grupal', 'Conclusiones grupales', 'Exposición breve',
+      'Galería de trabajos', 'Debate grupal', 'Mesa redonda', 'Portafolio de evidencias',
+      'Mapa de síntesis', 'Cuadro de conclusiones'
+    ]
+  };
+  for (const [momento, values] of Object.entries(expected)) {
+    assert.deepEqual(Array.from(ACTIVIDADES_DIDACTICAS_POR_MOMENTO[momento]), values);
+    assert.deepEqual(Array.from(CANONICAL_ACTIVITIES[momento]), values);
+  }
+  assert.equal(CANONICAL_ACTIVITIES.conocimientos_previos.length, 17);
+  assert.equal(CANONICAL_ACTIVITIES.desarrollo.length, 29);
+  assert.equal(CANONICAL_ACTIVITIES.cierre.length, 18);
+  assert.equal(CANONICAL_ACTIVITIES.conocimientos_previos.includes('Mapa mental'), true);
+  assert.equal(CANONICAL_ACTIVITIES.desarrollo.includes('Mapa mental'), true);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(normalizeActividadesMomentos({
+      conocimientos_previos: 'Activación y diagnóstico',
+      desarrollo: 'Construcción y aplicación del conocimiento',
+      cierre: 'Evaluación y retroalimentación'
+    }))),
+    {
+      conocimientos_previos: 'Activación y diagnóstico',
+      desarrollo: 'Construcción y aplicación del conocimiento',
+      cierre: 'Evaluación y retroalimentación'
+    }
+  );
+  assert.throws(
+    () => normalizeActividadesMomentos({ desarrollo: 'Activación y diagnóstico' }),
+    (error) => error.status === 400
+  );
+});
+
+test('selected activity texts have an explicit structured mandatory contract in the final prompt', () => {
+  const actividades_momentos = {
+    conocimientos_previos: 'Lluvia de ideas',
+    desarrollo: 'Resolución de problemas',
+    cierre: 'Evaluación y retroalimentación'
+  };
+  const prompt = buildPromptByLevel({
+    materia: 'Ciencias', nivel: 'Secundaria', unidad: 'Unidad 1', tema: 'Energía', duracion: 50,
+    actividades_momentos
+  });
+  for (const value of Object.values(actividades_momentos)) assert.match(prompt, new RegExp(value));
+  assert.match(prompt, /Conocimientos previos: Lluvia de ideas/);
+  assert.match(prompt, /Desarrollo: Resolución de problemas/);
+  assert.match(prompt, /Cierre: Evaluación y retroalimentación/);
+  assert.match(prompt, /actividad_seleccionada/);
+  assert.match(prompt, /"actividad_seleccionada": "valor exacto seleccionado/);
+  assert.match(prompt, /No agregues propiedades distintas de las enumeradas/);
+  assert.match(prompt, /escribe exactamente ese valor/);
+  assert.match(prompt, /metadato estructurado interno/);
+  assert.match(prompt, /sin repetir mecanicamente su nombre/);
+  assert.match(prompt, /solo aplican a momentos sin seleccion expresa/);
+  assert.match(prompt, /primero la seleccion expresa del usuario/);
+  assert.match(prompt, /El Cierre no debe repetir a escala reducida la actividad central del Desarrollo/);
+  assert.match(prompt, /usa como evidencia el producto, respuesta o procedimiento elaborado durante el Desarrollo/);
+  assert.doesNotMatch(prompt, /Catalogo de actividades que NO debes usar/);
+  assert.doesNotMatch(prompt, /Juegos de mesa educativos, Debate académico/);
+  assert.doesNotMatch(prompt, /No agregues campos nuevos al JSON/);
+  assert.match(prompt, /"actividades": "El docente plantea una consigna/);
+  assert.doesNotMatch(prompt, /"actividades": "Lluvia de ideas:/);
+});
+
+test('prompt-specific focuses use only reachable canonical activity names', () => {
+  const focusBlock = /const enfoqueActividadSeleccionada = \{([\s\S]*?)\n  \};/.exec(
+    readFileSync(new URL('../src/utils/buildPromptByLevel.js', import.meta.url), 'utf8')
+  )?.[1] || '';
+  const keys = Array.from(focusBlock.matchAll(/'([^']+)':/g), (match) => match[1]);
+  assert.deepEqual(keys, [
+    'Estudio de caso',
+    'Lluvia de ideas',
+    'Mapa conceptual',
+    'Resolución de problemas',
+    'Trabajo colaborativo',
+    'Evaluación y retroalimentación'
+  ]);
+  for (const key of keys) assert.equal(ACTIVIDADES_DIDACTICAS_SET.has(key), true, key);
+  for (const obsolete of ['Mapas conceptuales', 'Debate en clase', 'Trabajo en equipo', 'Preguntas de reflexión']) {
+    assert.equal(keys.includes(obsolete), false, obsolete);
+  }
+});
+
+const SELECTED_ACTIVITIES = {
+  conocimientos_previos: 'Lluvia de ideas',
+  desarrollo: 'Resolución de problemas',
+  cierre: 'Evaluación y retroalimentación'
+};
+
+function generatedRows(overrides = {}) {
+  return [
+    {
+      tiempo_sesion: 'Conocimientos previos', actividad_seleccionada: 'Lluvia de ideas',
+      actividades: 'El docente plantea una consigna sobre el tema. Los estudiantes comparten libremente sus ideas y el docente organiza las aportaciones en la pizarra.', tiempo_min: 10,
+      producto: 'Ideas', instrumento: 'Observación', formativa: 'Diagnóstica', sumativa: 2,
+      ...(overrides.conocimientos_previos || {})
+    },
+    {
+      tiempo_sesion: 'Desarrollo', actividad_seleccionada: 'Resolución de problemas',
+      actividades: 'El docente presenta una situación contextualizada. Los equipos identifican los datos, proponen procedimientos y resuelven el problema.', tiempo_min: 30,
+      producto: 'Solución', instrumento: 'Rúbrica', formativa: 'Formativa', sumativa: 5,
+      ...(overrides.desarrollo || {})
+    },
+    {
+      tiempo_sesion: 'Cierre', actividad_seleccionada: 'Evaluación y retroalimentación',
+      actividades: 'Los equipos revisan las soluciones producidas durante el Desarrollo con criterios claros, identifican aciertos y errores, y ajustan su procedimiento a partir de retroalimentación específica.', tiempo_min: 10,
+      producto: 'Evidencia', instrumento: 'Lista', formativa: 'Cierre', sumativa: 3,
+      ...(overrides.cierre || {})
+    }
+  ];
+}
+
+function syntheticCompletion(rows) {
+  return {
+    choices: [{ message: { content: JSON.stringify({ tabla: rows }) }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 }
+  };
+}
+
+function generationInput(actividades_momentos = SELECTED_ACTIVITIES, tema = 'Tema sintético') {
+  return { materia: 'Ciencias', nivel: 'Secundaria', unidad: 'Unidad 1', tema, duracion: 50, actividades_momentos };
+}
+
+test('accepts the exact structured activity for every selected moment', async () => {
+  const { validateTablaIaActividadesSeleccionadas } = await loadService();
+  const result = validateTablaIaActividadesSeleccionadas(generatedRows(), SELECTED_ACTIVITIES);
+  assert.equal(result.ok, true);
+  assert.deepEqual(Array.from(result.violations), []);
+});
+
+test('rejects wrong, missing and swapped structured activities by moment', async () => {
+  const { validateTablaIaActividadesSeleccionadas } = await loadService();
+  const wrong = validateTablaIaActividadesSeleccionadas(generatedRows({
+    conocimientos_previos: { actividad_seleccionada: 'Preguntas detonadoras' },
+    desarrollo: { actividad_seleccionada: 'Lluvia de ideas' },
+    cierre: { actividad_seleccionada: '' }
+  }), SELECTED_ACTIVITIES);
+  assert.equal(wrong.ok, false);
+  assert.deepEqual(Array.from(wrong.violations, (item) => item.key), [
+    'conocimientos_previos', 'desarrollo', 'cierre'
+  ]);
+  assert.deepEqual(Array.from(wrong.violations, (item) => item.reason), [
+    'mismatch', 'mismatch', 'missing_field'
+  ]);
+});
+
+test('retries once with moment-specific correction and accepts only the corrected table', async () => {
+  const prompts = [];
+  const first = generatedRows({
+    conocimientos_previos: { actividad_seleccionada: 'Preguntas detonadoras' },
+    cierre: { actividad_seleccionada: 'Debate grupal' }
+  });
+  const { generarTablaIa } = await loadService({
+    prompts,
+    completions: [syntheticCompletion(first), syntheticCompletion(generatedRows())]
+  });
+  const result = await generarTablaIa(generationInput());
+  assert.equal(prompts.length, 2);
+  assert.doesNotMatch(prompts[0], /CORRECCION OBLIGATORIA/);
+  assert.match(prompts[1], /Conocimientos previos debía usar exactamente "Lluvia de ideas"/);
+  assert.match(prompts[1], /Cierre debía usar exactamente "Evaluación y retroalimentación"/);
+  assert.match(prompts[1], /El Cierre debe usar evidencia producida en Desarrollo y no repetir su actividad principal/);
+  assert.doesNotMatch(prompts[1], /Desarrollo debía usar exactamente/);
+  assert.equal(result.tablaIa[0].actividad_seleccionada, 'Lluvia de ideas');
+  assert.equal(result.tablaIa[2].actividad_seleccionada, 'Evaluación y retroalimentación');
+});
+
+test('stops after two incompatible responses and does not return a fallback', async () => {
+  const prompts = [];
+  const invalid = generatedRows({ conocimientos_previos: { actividad_seleccionada: 'Preguntas detonadoras' } });
+  const { generarTablaIa } = await loadService({
+    prompts,
+    completions: [syntheticCompletion(invalid), syntheticCompletion(invalid)]
+  });
+  await assert.rejects(
+    generarTablaIa(generationInput()),
+    (error) => error.status === 502 && error.message.includes('Conocimientos previos')
+  );
+  assert.equal(prompts.length, 2);
+});
+
+test('never uses fallback after two malformed responses when selections are explicit', async () => {
+  const malformed = {
+    choices: [{ message: { content: 'not-json' }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+  };
+  const prompts = [];
+  const { generarTablaIa } = await loadService({ prompts, completions: [malformed, malformed] });
+  await assert.rejects(
+    generarTablaIa(generationInput()),
+    (error) => error.status === 502 && error.message.includes('Conocimientos previos')
+  );
+  assert.equal(prompts.length, 2);
+});
+
+test('empty sentinel keeps free generation and never inserts sentinel text', async () => {
+  const prompts = [];
+  const freeRows = generatedRows({
+    conocimientos_previos: { actividad_seleccionada: 'Preguntas detonadoras' },
+    desarrollo: { actividad_seleccionada: '' },
+    cierre: { actividad_seleccionada: '' }
+  });
+  const { generarTablaIa } = await loadService({ prompts, completions: [syntheticCompletion(freeRows)] });
+  const result = await generarTablaIa(generationInput({}));
+  assert.equal(prompts.length, 1);
+  assert.equal(result.tablaIa[0].actividad_seleccionada, 'Preguntas detonadoras');
+  assert.doesNotMatch(JSON.stringify(result.tablaIa), /Sin actividad específica/i);
+});
+
+test('separate themes validate only their own selections and correction', async () => {
+  const prompts = [];
+  const firstSelections = { conocimientos_previos: 'Lluvia de ideas' };
+  const secondSelections = { cierre: 'Ticket de salida' };
+  const firstRows = generatedRows();
+  const secondInvalid = generatedRows({ cierre: { actividad_seleccionada: 'Debate grupal' } });
+  const secondValid = generatedRows({ cierre: { actividad_seleccionada: 'Ticket de salida' } });
+  const { generarTablaIa } = await loadService({
+    prompts,
+    completions: [syntheticCompletion(firstRows), syntheticCompletion(secondInvalid), syntheticCompletion(secondValid)]
+  });
+  await generarTablaIa(generationInput(firstSelections, 'Tema uno'));
+  const second = await generarTablaIa(generationInput(secondSelections, 'Tema dos'));
+  assert.equal(prompts.length, 3);
+  assert.match(prompts[2], /Cierre debía usar exactamente "Ticket de salida"/);
+  assert.doesNotMatch(prompts[2], /Lluvia de ideas/);
+  assert.equal(second.tablaIa[2].actividad_seleccionada, 'Ticket de salida');
 });
