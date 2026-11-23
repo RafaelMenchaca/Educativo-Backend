@@ -186,8 +186,11 @@ busca reducirlos, no garantizar cero retries. El límite de 3000 tokens se
 conserva porque cada llamada genera solo un grupo de secciones; el truncamiento
 explícito permite medir antes de decidir un aumento. El frontend tipado, el
 renderer web v2 y el exportador Word v2 están implementados y conservan sus
-dispatches v1. La migración productiva está preparada pero no ejecutada; no se
-declara rollout ni deploy completado.
+dispatches v1. La columna nullable y su CHECK canónico están aplicados y
+postverificados en Supabase test y producción; `NULL` continúa identificando
+históricos v1 y el tipo canónico externo acompaña a `schema_version: 2`. El
+rollback productivo no fue ejecutado. El código todavía permanece en las ramas
+`work/features`, por lo que no se declara rollout ni deploy completado.
 
 ### Métricas y elementos protegidos
 

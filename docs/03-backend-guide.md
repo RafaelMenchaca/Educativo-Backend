@@ -147,8 +147,12 @@ El frontend tipado, el renderer web v2 y la exportación Word v2 están
 implementados, conservando los consumidores v1. En test se completó una
 generación real controlada de cada tipo; hubo retries reparados por slots y el
 resolver de representaciones busca reducirlos, no garantizar cero retries.
-La migración productiva está preparada en
-`docs/production/anexos-cuadernillo-v2/`, pero no se ha ejecutado ni desplegado.
+La migración de `tipo_cuadernillo text NULL` está aplicada y postverificada en
+Supabase test y producción; los históricos conservan `NULL`. El paquete
+productivo y su evidencia se preservan en
+`docs/production/anexos-cuadernillo-v2/`; su rollback nunca se ejecutó. Esta
+actualización de schema no equivale a un despliegue: el código continúa en las
+ramas `work/features` hasta completar push, PR, merge y deploy.
 
 ## SSE y jobs
 

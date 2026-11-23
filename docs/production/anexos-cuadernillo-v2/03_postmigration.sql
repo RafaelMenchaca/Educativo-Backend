@@ -138,20 +138,146 @@ BEGIN
 END
 $postmigration_produccion$;
 
-SELECT count(*)::bigint AS total_anexos,
-  count(*) FILTER (WHERE tipo_cuadernillo IS NULL)::bigint AS anexos_tipo_null,
-  count(*) FILTER (WHERE tipo_cuadernillo IS NOT NULL)::bigint AS anexos_tipo_no_null
-FROM public.anexos;
--- Comparar manualmente total_anexos y la metadata de columnas con la evidencia
+-- Comparar manualmente total_anexos y la metadata catalogal con la evidencia
 -- guardada del preflight; archivos separados no comparten estado.
-SELECT ordinal_position, column_name, data_type, udt_name, is_nullable, column_default
-FROM information_schema.columns
-WHERE table_schema = 'public' AND table_name = 'anexos'
-ORDER BY ordinal_position;
-SELECT table_schema, table_name, column_name, data_type, is_nullable, column_default
-FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'anexos'
-  AND column_name = 'tipo_cuadernillo';
-SELECT conname, pg_get_constraintdef(oid, true) AS definition FROM pg_constraint
-WHERE conrelid = 'public.anexos'::regclass AND contype = 'c'
-  AND pg_get_expr(conbin, conrelid, true) ILIKE '%tipo_cuadernillo%';
-SELECT 'POSTMIGRATION PRODUCCION PASS' AS verdict;
+WITH
+conteos AS (
+  SELECT
+    count(*)::bigint AS total_anexos,
+    count(*) FILTER (WHERE a.tipo_cuadernillo IS NULL)::bigint AS anexos_tipo_null,
+    count(*) FILTER (WHERE a.tipo_cuadernillo IS NOT NULL)::bigint AS anexos_tipo_no_null
+  FROM public.anexos AS a
+),
+tipo_cuadernillo AS (
+  SELECT
+    (count(*) = 1) AS existe,
+    max(cols.data_type) AS data_type,
+    max(cols.udt_name) AS udt_name,
+    max(cols.is_nullable) AS is_nullable,
+    max(cols.column_default) AS column_default
+  FROM information_schema.columns AS cols
+  WHERE cols.table_schema = 'public'
+    AND cols.table_name = 'anexos'
+    AND cols.column_name = 'tipo_cuadernillo'
+),
+contenido AS (
+  SELECT jsonb_build_object(
+    'data_type', max(cols.data_type),
+    'udt_name', max(cols.udt_name),
+    'is_nullable', max(cols.is_nullable),
+    'column_default', max(cols.column_default)
+  ) AS contrato
+  FROM information_schema.columns AS cols
+  WHERE cols.table_schema = 'public'
+    AND cols.table_name = 'anexos'
+    AND cols.column_name = 'contenido'
+),
+columnas AS (
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'ordinal_position', cols.ordinal_position,
+    'column_name', cols.column_name,
+    'data_type', cols.data_type,
+    'udt_name', cols.udt_name,
+    'is_nullable', cols.is_nullable,
+    'column_default', cols.column_default
+  ) ORDER BY cols.ordinal_position), '[]'::jsonb) AS metadata
+  FROM information_schema.columns AS cols
+  WHERE cols.table_schema = 'public' AND cols.table_name = 'anexos'
+),
+constraints_catalogo AS (
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'name', constraints.conname,
+    'type', constraints.contype,
+    'definition', pg_get_constraintdef(constraints.oid, true)
+  ) ORDER BY constraints.conname), '[]'::jsonb) AS metadata
+  FROM pg_constraint AS constraints
+  WHERE constraints.conrelid = 'public.anexos'::regclass
+),
+check_canonico AS (
+  SELECT jsonb_build_object(
+    'name', constraints.conname,
+    'type', constraints.contype,
+    'definition', pg_get_constraintdef(constraints.oid, true)
+  ) AS metadata
+  FROM pg_constraint AS constraints
+  WHERE constraints.conrelid = 'public.anexos'::regclass
+    AND constraints.conname = 'anexos_tipo_cuadernillo_check'
+    AND constraints.contype = 'c'
+),
+indices AS (
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'name', indexes.indexname,
+    'definition', indexes.indexdef
+  ) ORDER BY indexes.indexname), '[]'::jsonb) AS metadata
+  FROM pg_indexes AS indexes
+  WHERE indexes.schemaname = 'public' AND indexes.tablename = 'anexos'
+),
+rls AS (
+  SELECT jsonb_build_object(
+    'enabled', classes.relrowsecurity,
+    'forced', classes.relforcerowsecurity
+  ) AS estado
+  FROM pg_class AS classes
+  WHERE classes.oid = 'public.anexos'::regclass
+),
+policies_catalogo AS (
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'name', policies.policyname,
+    'permissive', policies.permissive,
+    'roles', to_jsonb(policies.roles),
+    'command', policies.cmd,
+    'using', policies.qual,
+    'with_check', policies.with_check
+  ) ORDER BY policies.policyname, policies.cmd), '[]'::jsonb) AS metadata
+  FROM pg_policies AS policies
+  WHERE policies.schemaname = 'public' AND policies.tablename = 'anexos'
+),
+triggers_catalogo AS (
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'name', triggers.tgname,
+    'definition', pg_get_triggerdef(triggers.oid, true)
+  ) ORDER BY triggers.tgname), '[]'::jsonb) AS metadata
+  FROM pg_trigger AS triggers
+  WHERE triggers.tgrelid = 'public.anexos'::regclass AND NOT triggers.tgisinternal
+),
+grants_catalogo AS (
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'grantee', grants.grantee,
+    'privilege_type', grants.privilege_type,
+    'is_grantable', grants.is_grantable
+  ) ORDER BY grants.grantee, grants.privilege_type), '[]'::jsonb) AS metadata
+  FROM information_schema.role_table_grants AS grants
+  WHERE grants.table_schema = 'public'
+    AND grants.table_name = 'anexos'
+    AND grants.grantee IN ('anon', 'authenticated')
+)
+SELECT
+  'POSTMIGRATION PRODUCCION PASS' AS verdict,
+  conteos.total_anexos,
+  conteos.anexos_tipo_null,
+  conteos.anexos_tipo_no_null,
+  tipo_cuadernillo.existe AS tipo_cuadernillo_existe,
+  tipo_cuadernillo.data_type AS tipo_cuadernillo_tipo,
+  tipo_cuadernillo.udt_name AS tipo_cuadernillo_udt_name,
+  tipo_cuadernillo.is_nullable AS tipo_cuadernillo_nullable,
+  tipo_cuadernillo.column_default AS tipo_cuadernillo_default,
+  contenido.contrato AS contenido_contrato,
+  columnas.metadata AS columnas,
+  constraints_catalogo.metadata AS constraints,
+  check_canonico.metadata AS tipo_cuadernillo_check,
+  indices.metadata AS indices,
+  rls.estado AS rls,
+  policies_catalogo.metadata AS policies,
+  triggers_catalogo.metadata AS triggers,
+  grants_catalogo.metadata AS grants
+FROM conteos
+CROSS JOIN tipo_cuadernillo
+CROSS JOIN contenido
+CROSS JOIN columnas
+CROSS JOIN constraints_catalogo
+CROSS JOIN check_canonico
+CROSS JOIN indices
+CROSS JOIN rls
+CROSS JOIN policies_catalogo
+CROSS JOIN triggers_catalogo
+CROSS JOIN grants_catalogo;

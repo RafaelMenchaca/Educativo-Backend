@@ -94,5 +94,6 @@ disponible:
 - rollback: nunca ejecutado.
 
 Este paquete continúa siendo exclusivamente de test y no autoriza ejecución en
-producción. El paquete productivo separado está preparado, pero no ejecutado,
-en `docs/production/anexos-cuadernillo-v2/`.
+producción. La operación productiva se realizó únicamente con el paquete
+separado de `docs/production/anexos-cuadernillo-v2/`, cuyo README conserva su
+evidencia aprobada; ello no cambia ni vuelve reutilizable este paquete de test.
