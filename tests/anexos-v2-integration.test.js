@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { TIPO_CUADERNILLO_IDS } from '../src/domain/cuadernillos.js';
+import { resolverRepresentacionSlotCuadernilloV3 } from '../src/domain/cuadernilloV3Representations.js';
 import { createCuadernilloV2Completer, generarAnexo, regenerarAnexo } from '../src/services/anexos.service.js';
 import { postGenerarAnexo, postRegenerarAnexo } from '../src/controllers/anexos.controller.js';
 
@@ -16,11 +17,19 @@ function fixtureCompleter({ invalidFirst = false, alwaysInvalid = false, calls =
   return async (request) => {
     calls.push(request);
     if (alwaysInvalid || (invalidFirst && calls.length === 1)) return { content: '{', usage: {} };
+    const materialize = (value, slot) => {
+      if (typeof value === 'string' && value.startsWith('<')) return `Desarrolla ${value.slice(1, -1)} para ${slot.nombre}.`;
+      if (Array.isArray(value)) return value.map((item) => materialize(item, slot));
+      if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, materialize(item, slot)]));
+      return value;
+    };
     return {
       content: JSON.stringify({
         respuestas: request.slots.map((slot) => ({
           slot_id: slot.slotId,
-          bloque: {
+          bloque: request.schemaVersion === 3
+            ? materialize(resolverRepresentacionSlotCuadernilloV3(slot).esquemaMinimo, slot)
+            : {
             tipo: 'texto',
             titulo: 'Contenido util',
             contenido: `Desarrollo para ${slot.nombre}`
@@ -101,11 +110,12 @@ for (const tipo of TIPO_CUADERNILLO_IDS) {
     assert.equal(calls.length, 4);
     assert.equal(state.inserts.length, 1);
     assert.equal(state.inserts[0].tipo_cuadernillo, tipo);
-    assert.equal(state.inserts[0].contenido.schema_version, 2);
+    assert.equal(state.inserts[0].contenido.schema_version, 3);
+    assert.equal(state.inserts[0].contenido.datos_generales, undefined);
     assert.equal(state.inserts[0].contenido.tipo_cuadernillo, undefined);
-    assert.equal(state.inserts[0].prompt_version, 'v2_cuadernillo_segmentado');
+    assert.equal(state.inserts[0].prompt_version, 'v3_cuadernillo_academico_tipado');
     assert.equal(state.inserts[0].tokens_total, 120);
-    assert.equal(result.schema_version, 2);
+    assert.equal(result.schema_version, 3);
     assert.match(calls[0].userPrompt, /Ecuaciones lineales/);
     assert.doesNotMatch(calls[0].userPrompt, /materia manipulada/i);
   });
@@ -244,6 +254,29 @@ test('failure in any segment and final validation failure produce zero inserts',
   assert.equal(finalDb.state.inserts.length, 0);
 });
 
+test('provider failure before the first v3 completion is sanitized and persists nothing', async () => {
+  const db = fakeDb();
+  let calls = 0;
+  await assert.rejects(generarAnexo({
+    supabaseClient: db.client,
+    userId: 'user-1',
+    planeacionId: 'plan-1',
+    tipoCuadernillo: 'ejercicios_aplicacion',
+    completarV2: async () => {
+      calls += 1;
+      const error = new Error('provider request contained secret detail');
+      error.isCuadernilloV3ProviderError = true;
+      error.safeDetails = { providerClass: 'invalid_json_schema', retryable: false, stage: 'provider_request' };
+      throw error;
+    },
+    metricas: fakeMetrics().api
+  }), (error) => error.status === 502
+    && error.message === 'No se pudo generar un cuadernillo valido.'
+    && !error.message.includes('secret'));
+  assert.equal(calls, 1);
+  assert.equal(db.state.inserts.length, 0);
+});
+
 test('already_exists and a 23505 race return the owned record without changing its type', async () => {
   const existing = { id: 'a-1', planeacion_id: 'plan-1', user_id: 'user-1', tipo_cuadernillo: 'ejercicios_aplicacion', prompt_version: 'v2_cuadernillo_segmentado' };
   let calls = 0;
@@ -280,8 +313,14 @@ test('already_exists and a 23505 race return the owned record without changing i
 });
 
 test('regeneration preserves the persisted version and performs one final update', async () => {
-  for (const tipo of [null, 'actividades_integradoras']) {
-    const existing = { id: 'a-1', planeacion_id: 'plan-1', user_id: 'user-1', tipo_cuadernillo: tipo };
+  for (const { tipo, schemaVersion } of [
+    { tipo: null, schemaVersion: 1 },
+    { tipo: 'actividades_integradoras', schemaVersion: 2 },
+    { tipo: 'aprendizaje_guiado', schemaVersion: 3 }
+  ]) {
+    const existing = { id: 'a-1', planeacion_id: 'plan-1', user_id: 'user-1', tipo_cuadernillo: tipo,
+      contenido: tipo ? { schema_version: schemaVersion } : { anexos: [] },
+      prompt_version: tipo ? `${schemaVersion === 3 ? 'v3_cuadernillo_editorial' : 'v2_cuadernillo'}_segmentado` : 'v1_anexos_desde_planeacion' };
     const db = fakeDb({ existing });
     let v1Calls = 0;
     const result = await regenerarAnexo({
@@ -290,6 +329,8 @@ test('regeneration preserves the persisted version and performs one final update
     });
     assert.equal(db.state.updates.length, 1);
     assert.equal(result.tipo_cuadernillo, tipo);
+    assert.equal(result.schema_version, tipo ? schemaVersion : null);
+    assert.equal(db.state.updates[0].contenido.schema_version ?? null, tipo ? schemaVersion : null);
     assert.equal(v1Calls, tipo ? 0 : 1);
     assert.equal(db.state.updates[0].tipo_cuadernillo, undefined);
   }

@@ -3,6 +3,14 @@ import {
   obtenerBlueprintCuadernillo,
   esTipoCuadernillo
 } from '../domain/cuadernillos.js';
+import {
+  ANEXO_SCHEMA_VERSION_V3,
+  obtenerBlueprintCuadernilloV3,
+  obtenerNivelProcedimentalSlotV3,
+  obtenerSlotsCuadernilloV3
+} from '../domain/cuadernillosV3.js';
+import { evaluarContratoCuantitativo } from '../domain/cuadernilloV3Quantitative.js';
+import { CUADERNILLO_V3_QUANTITATIVE_FAMILIES } from '../domain/cuadernilloV3Contracts.js';
 
 export const CUADERNILLO_V2_BLOCK_TYPES = Object.freeze([
   'texto',
@@ -335,7 +343,191 @@ export function construirBloqueV2DesdeSlot(slot, inputBlock) {
   return finalBlock;
 }
 
-function validateSectionsAgainstBlueprint(secciones, blueprint, pathRoot, { allowMissingCoverage = false } = {}) {
+const V3_FORBIDDEN_EDITORIAL_PATTERNS = Object.freeze([
+  ['editorial_instrucciones_genericas', /\binstrucciones claras\b/],
+  ['editorial_placeholder', /\bcontenido pedagogico util\b/],
+  ['editorial_placeholder', /\belemento pedagogico desarrollado\b/],
+  ['editorial_metadiscurso', /\besta actividad permitira\b/],
+  ['editorial_metadiscurso', /\besta seccion sirve\b/],
+  ['editorial_metadiscurso', /\bel objetivo de este apartado\b/],
+  ['editorial_docente', /\bel docente debera\b/],
+  ['editorial_generador', /\bcomo inteligencia artificial\b/],
+  ['editorial_generador', /\bcomo modelo de lenguaje\b/],
+  ['editorial_metadiscurso', /\bproporcionar al estudiante\b/],
+  ['editorial_metadiscurso', /\beste cuadernillo tiene como objetivo\b/],
+  ['editorial_metadiscurso', /\beste material permitira\b/],
+  ['editorial_metadiscurso', /\besta seccion permitira\b/],
+  ['editorial_cierre_generico', /\bes fundamental para comprender\b/],
+  ['editorial_cierre_generico', /\bes crucial para entender\b/],
+  ['latex_no_permitido', /\\\(|\\\)|\\begin\b|\\end\b|\\frac\b|\$\$|\$[^$]+\$/],
+  ['editorial_marcador_estructural', /<[^>]+>/]
+]);
+
+function normalizeEditorialText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function findEditorialViolation(value, path) {
+  if (typeof value === 'string') {
+    const normalized = normalizeEditorialText(value);
+    const match = V3_FORBIDDEN_EDITORIAL_PATTERNS.find(([, pattern]) => pattern.test(normalized));
+    return match ? { code: match[0], path } : null;
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const violation = findEditorialViolation(value[index], `${path}[${index}]`);
+      if (violation) return violation;
+    }
+    return null;
+  }
+  if (isObject(value)) {
+    for (const [key, nested] of Object.entries(value)) {
+      const violation = findEditorialViolation(nested, `${path}.${key}`);
+      if (violation) return violation;
+    }
+  }
+  return null;
+}
+
+export function lintCuadernilloV3Block(block, path = 'bloque') {
+  const violation = findEditorialViolation(block, path);
+  if (violation) fail(violation.code, violation.path);
+  return Object.freeze({ ok: true });
+}
+
+const GENERIC_DEMONSTRATIVE_STEPS = new Set([
+  'calcula el resultado',
+  'aplica la formula',
+  'resuelve el problema',
+  'verifica la solucion',
+  'identifica los elementos',
+  'analiza la informacion',
+  'realiza las operaciones',
+  'obten la respuesta'
+]);
+
+function normalizeProcedureStep(value) {
+  return normalizeEditorialText(value)
+    .replace(/^[\s.,;:¡!¿?"'()\[\]{}-]+|[\s.,;:¡!¿?"'()\[\]{}-]+$/g, '');
+}
+
+function validateV3ProcedureDepth(block, level, path) {
+  if (!['procedimiento', 'ejemplo_resuelto'].includes(block?.tipo)) return;
+  const steps = block.pasos;
+  if (!Array.isArray(steps) || steps.length === 0) fail('pasos_requeridos', `${path}.pasos`);
+  if (level === 'demostrativo' && steps.length < 2) fail('procedimiento_demostrativo_superficial', `${path}.pasos`);
+  const seen = new Set();
+  steps.forEach((step, index) => {
+    const normalized = normalizeProcedureStep(step);
+    if (seen.has(normalized)) fail('paso_procedimiento_duplicado', `${path}.pasos[${index}]`);
+    seen.add(normalized);
+    if (level === 'demostrativo' && GENERIC_DEMONSTRATIVE_STEPS.has(normalized)) {
+      fail('paso_demostrativo_generico', `${path}.pasos[${index}]`);
+    }
+  });
+}
+
+function validateTaskContract(value, path) {
+  if (!isObject(value)) fail('contrato_tarea_requerido', path);
+  assertExactKeys(value, new Set(['conceptos_requeridos', 'familia_tarea', 'datos_necesarios', 'objetivo', 'condicion_suficiencia', 'aplicacion_tema']), path);
+  assertStringArray(value.conceptos_requeridos, `${path}.conceptos_requeridos`);
+  assertStringArray(value.datos_necesarios, `${path}.datos_necesarios`);
+  ['familia_tarea', 'objetivo', 'condicion_suficiencia', 'aplicacion_tema'].forEach((key) => assertText(value[key], `${path}.${key}`));
+}
+
+export function construirBloqueV3DesdeSlot(slot, inputBlock) {
+  const path = `slots[${slot.slotId}].bloque`;
+  let finalBlock;
+  if (inputBlock?.tipo === 'ejemplo_resuelto') {
+    const { verificacion, contrato_cuantitativo: quantitative, ...historicalInput } = inputBlock;
+    if (!quantitative) fail('contrato_cuantitativo_requerido', `${path}.contrato_cuantitativo`);
+    const verified = evaluarContratoCuantitativo(quantitative, CUADERNILLO_V3_QUANTITATIVE_FAMILIES, `${path}.contrato_cuantitativo`);
+    if (!verified.ok) fail(verified.code, verified.path, { familia: verified.familia, solverStage: verified.solverStage });
+    if (quantitative.familia_problema === 'no_cuantitativo') {
+      finalBlock = construirBloqueV2DesdeSlot(slot, historicalInput);
+      validateV3Verification(verificacion, `${path}.verificacion`);
+      if (/=|\d+\s*[+*/×÷]\s*\d+/.test(finalBlock.resultado) || /^-?(?:\d+|\d+\.\d+|\d+\/-?\d+)$/.test(finalBlock.resultado.trim())) {
+        fail('familia_cuantitativa_requerida', `${path}.contrato_cuantitativo.familia_problema`);
+      }
+      finalBlock.verificacion = structuredClone(verificacion);
+    } else {
+      assertExactKeys(inputBlock, new Set(['tipo', 'contrato_cuantitativo']), path);
+      finalBlock = {
+        tipo: 'ejemplo_resuelto',
+        enunciado: verified.visible.enunciado,
+        pasos: structuredClone(verified.visible.pasos),
+        resultado: verified.visible.resultado,
+        interpretacion: verified.visible.interpretacion,
+        verificacion: structuredClone(verified.visible.verificaciones),
+        cobertura: [slot.numero]
+      };
+      if (verified.visible.matrices) finalBlock.matrices = structuredClone(verified.visible.matrices);
+    }
+    validateV3Verification(finalBlock.verificacion, `${path}.verificacion`);
+  } else if (['actividad', 'proyecto'].includes(inputBlock?.tipo)) {
+    const { contrato_tarea: taskContract, ...historicalInput } = inputBlock;
+    validateTaskContract(taskContract, `${path}.contrato_tarea`);
+    finalBlock = construirBloqueV2DesdeSlot(slot, historicalInput);
+  } else {
+    finalBlock = construirBloqueV2DesdeSlot(slot, inputBlock);
+  }
+  validateV3ProcedureDepth(finalBlock, obtenerNivelProcedimentalSlotV3(slot), path);
+  if (finalBlock.tipo === 'evaluacion' && finalBlock.modalidad === 'autoevaluacion') {
+    fail('autoevaluacion_no_permitida', `slots[${slot.slotId}].bloque.modalidad`);
+  }
+  lintCuadernilloV3Block(finalBlock, `slots[${slot.slotId}].bloque`);
+  return finalBlock;
+}
+
+const GENERIC_VERIFICATION_PATTERNS = Object.freeze([
+  /^la respuesta es correcta[.!]?$/,
+  /^se verifico el resultado[.!]?$/,
+  /^la solucion cumple[.!]?$/,
+  /^comprobacion realizada[.!]?$/
+]);
+
+function validateV3Verification(value, path) {
+  if (!Array.isArray(value) || value.length === 0) fail('verificacion_requerida', path);
+  value.forEach((item, index) => {
+    assertText(item, `${path}[${index}]`);
+    const normalized = normalizeEditorialText(item).replace(/[¡!¿?]+$/g, '').trim();
+    if (GENERIC_VERIFICATION_PATTERNS.some((pattern) => pattern.test(normalized))) {
+      fail('verificacion_generica', `${path}[${index}]`);
+    }
+  });
+}
+
+function validateBlockV3(block, path, allowedCoverage, activityIds, proceduralLevel = null) {
+  if (block?.tipo !== 'ejemplo_resuelto') {
+    const coverage = validateBlock(block, path, allowedCoverage, activityIds);
+    validateV3ProcedureDepth(block, proceduralLevel, path);
+    return coverage;
+  }
+  const { verificacion, matrices, ...historicalBlock } = block;
+  const coverage = validateBlock(historicalBlock, path, allowedCoverage, activityIds);
+  validateV3Verification(verificacion, `${path}.verificacion`);
+  if (matrices !== undefined) {
+    if (!Array.isArray(matrices) || matrices.length === 0) fail('matrices_invalidas', `${path}.matrices`);
+    matrices.forEach((matrix, index) => {
+      assertText(matrix?.titulo, `${path}.matrices[${index}].titulo`);
+      assertStringArray(matrix?.columnas, `${path}.matrices[${index}].columnas`);
+      if (!Array.isArray(matrix?.filas) || matrix.filas.length === 0
+        || matrix.filas.some((row) => !Array.isArray(row) || row.length !== matrix.columnas.length)) {
+        fail('tabla_no_rectangular', `${path}.matrices[${index}].filas`);
+      }
+      matrix.filas.forEach((row, rowIndex) => assertStringArray(row, `${path}.matrices[${index}].filas[${rowIndex}]`));
+    });
+  }
+  validateV3ProcedureDepth(block, proceduralLevel, path);
+  return coverage;
+}
+
+function validateSectionsAgainstBlueprint(secciones, blueprint, pathRoot, { allowMissingCoverage = false, schemaVersion = 2, tipoCuadernillo = null } = {}) {
   if (!Array.isArray(secciones) || secciones.length !== blueprint.length) {
     fail('cantidad_secciones_invalida', pathRoot);
   }
@@ -345,6 +537,10 @@ function validateSectionsAgainstBlueprint(secciones, blueprint, pathRoot, { allo
   const sectionIds = new Set();
   const activityIds = new Set();
   const missingCoverage = [];
+  const statements = new Set();
+  const v3SlotsByNumber = schemaVersion === 3
+    ? new Map(obtenerSlotsCuadernilloV3(tipoCuadernillo).map((slot) => [slot.numero, slot]))
+    : new Map();
 
   secciones.forEach((section, index) => {
     const expected = blueprint[index];
@@ -362,7 +558,27 @@ function validateSectionsAgainstBlueprint(secciones, blueprint, pathRoot, { allo
     const allowedCoverage = new Set(expected.cobertura_requerida.map(({ numero }) => numero));
     const sectionCovered = new Set();
     for (let blockIndex = 0; blockIndex < section.bloques.length; blockIndex += 1) {
-      const blockCoverage = validateBlock(section.bloques[blockIndex], `${path}.bloques[${blockIndex}]`, allowedCoverage, activityIds);
+      const block = section.bloques[blockIndex];
+      const proceduralLevels = schemaVersion === 3
+        ? [...new Set((block.cobertura || []).map((numero) => obtenerNivelProcedimentalSlotV3(v3SlotsByNumber.get(numero))).filter(Boolean))]
+        : [];
+      const proceduralLevel = proceduralLevels.length === 1 ? proceduralLevels[0] : null;
+      const blockCoverage = schemaVersion === 3
+        ? validateBlockV3(block, `${path}.bloques[${blockIndex}]`, allowedCoverage, activityIds, proceduralLevel)
+        : validateBlock(section.bloques[blockIndex], `${path}.bloques[${blockIndex}]`, allowedCoverage, activityIds);
+      if (schemaVersion === 3) {
+        const candidates = block.tipo === 'actividad'
+          ? block.items.map(({ enunciado }, itemIndex) => ({ value: enunciado, path: `${path}.bloques[${blockIndex}].items[${itemIndex}].enunciado` }))
+          : block.tipo === 'evaluacion'
+            ? block.criterios.map(({ texto }, itemIndex) => ({ value: texto, path: `${path}.bloques[${blockIndex}].criterios[${itemIndex}].texto` }))
+            : [];
+        for (const candidate of candidates) {
+          const normalized = normalizeEditorialText(candidate.value)
+            .replace(/^[\s.,;:¡!¿?"'()\[\]{}-]+|[\s.,;:¡!¿?"'()\[\]{}-]+$/g, '');
+          if (statements.has(normalized)) fail('enunciado_duplicado', candidate.path);
+          statements.add(normalized);
+        }
+      }
       for (const numero of blockCoverage) {
         if (covered.has(numero)) fail('cobertura_duplicada', `${path}.bloques[${blockIndex}].cobertura`, { duplicados: [numero] });
         covered.add(numero);
@@ -436,4 +652,65 @@ export function validateCuadernilloV2(tipoCuadernillo, contenido) {
     fail('seccion_datos_generales_incoherente', 'contenido.secciones[0]');
   }
   return Object.freeze({ ok: true, schemaVersion: ANEXO_SCHEMA_VERSION_V2, tipoCuadernillo });
+}
+
+function expectedSegmentBlueprintV3(tipoCuadernillo, expectedSectionIds) {
+  if (!esTipoCuadernillo(tipoCuadernillo)) fail('tipo_cuadernillo_invalido', 'tipoCuadernillo');
+  if (!Array.isArray(expectedSectionIds) || expectedSectionIds.length === 0) {
+    fail('segmento_sin_secciones', 'expectedSectionIds');
+  }
+  const fullBlueprint = obtenerBlueprintCuadernilloV3(tipoCuadernillo);
+  const expectedBlueprint = expectedSectionIds.map((id, index) => {
+    const section = fullBlueprint.find((item) => item.id === id);
+    if (!section) fail('blueprint_segmento_invalido', `expectedSectionIds[${index}]`);
+    return section;
+  });
+  if (new Set(expectedSectionIds).size !== expectedSectionIds.length) {
+    fail('blueprint_segmento_invalido', 'expectedSectionIds');
+  }
+  for (let index = 1; index < expectedBlueprint.length; index += 1) {
+    if (expectedBlueprint[index].orden !== expectedBlueprint[index - 1].orden + 1) {
+      fail('blueprint_segmento_invalido', 'expectedSectionIds');
+    }
+  }
+  return expectedBlueprint;
+}
+
+function assertNoV3ForbiddenContent(secciones) {
+  for (let sectionIndex = 0; sectionIndex < secciones.length; sectionIndex += 1) {
+    const section = secciones[sectionIndex];
+    if (section.id === 'datos_generales') fail('datos_generales_no_permitidos', `contenido.secciones[${sectionIndex}].id`);
+    for (let blockIndex = 0; blockIndex < section.bloques.length; blockIndex += 1) {
+      const block = section.bloques[blockIndex];
+      if (block.tipo === 'evaluacion' && block.modalidad === 'autoevaluacion') {
+        fail('autoevaluacion_no_permitida', `contenido.secciones[${sectionIndex}].bloques[${blockIndex}].modalidad`);
+      }
+      lintCuadernilloV3Block(block, `contenido.secciones[${sectionIndex}].bloques[${blockIndex}]`);
+      if (Object.hasOwn(block, 'slot_id')) fail('slot_crudo_no_permitido', `contenido.secciones[${sectionIndex}].bloques[${blockIndex}].slot_id`);
+    }
+  }
+}
+
+export function validateCuadernilloV3Segment(tipoCuadernillo, expectedSectionIds, payload) {
+  if (!isObject(payload)) fail('raiz_segmento_invalida', 'segmento');
+  assertExactKeys(payload, new Set(['secciones']), 'segmento');
+  const expectedBlueprint = expectedSegmentBlueprintV3(tipoCuadernillo, expectedSectionIds);
+  validateSectionsAgainstBlueprint(payload.secciones, expectedBlueprint, 'segmento.secciones', { schemaVersion: 3, tipoCuadernillo });
+  assertNoV3ForbiddenContent(payload.secciones);
+  return Object.freeze({ ok: true, secciones: expectedSectionIds.length });
+}
+
+export function validateCuadernilloV3(tipoCuadernillo, contenido) {
+  if (!esTipoCuadernillo(tipoCuadernillo)) fail('tipo_cuadernillo_invalido', 'tipoCuadernillo');
+  if (!isObject(contenido)) fail('raiz_invalida', 'contenido');
+  if (Object.hasOwn(contenido, 'tipo_cuadernillo')) fail('tipo_no_permitido_en_contenido', 'contenido.tipo_cuadernillo');
+  assertExactKeys(contenido, new Set(['schema_version', 'titulo', 'descripcion', 'secciones']), 'contenido');
+  if (contenido.schema_version !== ANEXO_SCHEMA_VERSION_V3) fail('schema_version_invalida', 'contenido.schema_version');
+  assertText(contenido.titulo, 'contenido.titulo');
+  assertText(contenido.descripcion, 'contenido.descripcion');
+  lintCuadernilloV3Block({ titulo: contenido.titulo, descripcion: contenido.descripcion }, 'contenido');
+  const blueprint = obtenerBlueprintCuadernilloV3(tipoCuadernillo);
+  validateSectionsAgainstBlueprint(contenido.secciones, blueprint, 'contenido.secciones', { schemaVersion: 3, tipoCuadernillo });
+  assertNoV3ForbiddenContent(contenido.secciones);
+  return Object.freeze({ ok: true, schemaVersion: ANEXO_SCHEMA_VERSION_V3, tipoCuadernillo });
 }
