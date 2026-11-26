@@ -335,6 +335,7 @@ Reglas contractuales:
 - Para componentes condicionales no aplicables literalmente, desarrolla la alternativa canonica.
 - Para componentes para completar, solicita una accion concreta y deja espacio; no inventes la respuesta.
 - En toda consigna usa una oracion completa: no escribas guiones bajos, lineas, puntos repetidos, recuadros textuales ni frases como "escribe en la linea" o "responde en el recuadro de abajo"; el backend agrega los espacios visuales.
+- Entrega parrafos como texto normal; no escribas secuencias visibles \\n, \\r\\n ni caracteres de escape para separarlos.
 - En completar con banco de palabras, cada item describe de forma completa el concepto que debe identificarse, conserva el banco en opciones y no muestra la solucion.
 - En completar, incluye respuesta_correcta como metadata interna que coincide exactamente con una opcion; no menciones ese termino en el enunciado. El backend valida y elimina esta metadata antes de persistir.
 - En Desarrollo teorico explica, define, compara y muestra relaciones: no pidas responder, completar, clasificar, calcular ni comprobar la comprension. Los ejemplos alli deben estar resueltos o ser ilustrativos; las consignas pertenecen exclusivamente a Actividades de comprension.
