@@ -29,6 +29,10 @@ import {
   lintCuadernilloV3Block,
   validateCuadernilloV3
 } from '../src/validators/cuadernilloV2.validator.js';
+import {
+  normalizeCuadernilloV3EditorialBlock,
+  normalizeParagraphSeparators
+} from '../src/utils/cuadernilloV3EditorialText.js';
 
 const expectedCounts = Object.freeze({ ejercicios_aplicacion: 21, actividades_integradoras: 17, aprendizaje_guiado: 19 });
 const expectedSections = Object.freeze({ ejercicios_aplicacion: 6, actividades_integradoras: 5, aprendizaje_guiado: 5 });
@@ -122,6 +126,47 @@ function syntheticCompleter(handler = null) {
     }
   };
 }
+
+test('v3 editorial paragraph normalization repairs only unequivocal separators', () => {
+  assert.equal(normalizeParagraphSeparators('Uno.\\n\\nDos.'), 'Uno.\n\nDos.');
+  assert.equal(normalizeParagraphSeparators('Uno.\\r\\n\\r\\nDos.'), 'Uno.\n\nDos.');
+  assert.equal(normalizeParagraphSeparators('Uno.\\n\\n\\n\\nDos.'), 'Uno.\n\nDos.');
+  assert.equal(normalizeParagraphSeparators('Uno.\r\n\r\nDos.'), 'Uno.\n\nDos.');
+  assert.equal(normalizeParagraphSeparators('Uno.\n\n\nDos.'), 'Uno.\n\nDos.');
+  assert.equal(normalizeParagraphSeparators('En JavaScript, "\\n" representa un salto'), 'En JavaScript, "\\n" representa un salto');
+
+  const parsedRealBreaks = JSON.parse('{"texto":"Uno.\\n\\nDos."}').texto;
+  const parsedLiteralEscapes = JSON.parse('{"texto":"Uno.\\\\n\\\\nDos."}').texto;
+  assert.equal(parsedRealBreaks, 'Uno.\n\nDos.');
+  assert.equal(parsedLiteralEscapes, 'Uno.\\n\\nDos.');
+});
+
+test('v3 block normalization excludes structured mathematics', () => {
+  const matrix = [['2', '1'], ['1', '-1']];
+  const quantitative = { familia_problema: 'sistema_lineal_2x2', datos: { ecuaciones: matrix } };
+  const block = { tipo: 'tabla', titulo: 'Datos\\n\\ndel caso', columnas: ['x', 'y'], filas: matrix, contrato_cuantitativo: quantitative };
+  normalizeCuadernilloV3EditorialBlock(block);
+  assert.equal(block.titulo, 'Datos\n\ndel caso');
+  assert.deepEqual(block.filas, matrix);
+  assert.deepEqual(block.contrato_cuantitativo, quantitative);
+});
+
+test('repairable paragraph separators persist normalized without triggering retry', async () => {
+  const { completar, calls } = syntheticCompleter((request) => {
+    if (request.segmento.id !== 'segmento_1') return null;
+    const payload = responseFor(request.slots);
+    const prose = payload.respuestas.find(({ bloque }) => bloque.tipo === 'texto');
+    prose.bloque.contenido = 'Primer parrafo.\\n\\nSegundo parrafo.';
+    return { content: JSON.stringify(payload), finishReason: 'stop' };
+  });
+  const { contenido } = await generarCuadernilloV3({ tipoCuadernillo: 'aprendizaje_guiado', contextoPlaneacion: context, completar });
+  const persisted = contenido.secciones.flatMap(({ bloques }) => bloques).find(({ tipo, contenido: text }) => tipo === 'texto' && text?.startsWith('Primer parrafo'));
+  assert.equal(persisted.contenido, 'Primer parrafo.\n\nSegundo parrafo.');
+  assert.equal(persisted.contenido.includes('\\n\\n'), false);
+  assert.equal(calls.length, 4);
+  assert.equal(calls.some(({ intento }) => intento === 2), false);
+  assert.equal(calls[0].userPrompt.includes('no escribas secuencias visibles \\n, \\r\\n'), true);
+});
 
 test('v3 blueprints derive the 2O counts and omit general data plus evaluation', () => {
   for (const tipo of TIPO_CUADERNILLO_IDS) {

@@ -13,6 +13,7 @@ import {
 } from '../domain/cuadernillosV3.js';
 import { evaluarContratoCuantitativo } from '../domain/cuadernilloV3Quantitative.js';
 import { CUADERNILLO_V3_QUANTITATIVE_FAMILIES } from '../domain/cuadernilloV3Contracts.js';
+import { normalizeCuadernilloV3EditorialBlock } from '../utils/cuadernilloV3EditorialText.js';
 
 export const CUADERNILLO_V2_BLOCK_TYPES = Object.freeze([
   'texto',
@@ -712,6 +713,7 @@ export function construirBloqueV3DesdeSlot(slot, inputBlock, { contextoPlaneacio
   } else {
     finalBlock = construirBloqueV2DesdeSlot(slot, inputBlock);
   }
+  normalizeCuadernilloV3EditorialBlock(finalBlock);
   validatePedagogicalSlotContract(slot, finalBlock, path);
   validateV3ProcedureDepth(finalBlock, obtenerNivelProcedimentalSlotV3(slot), path);
   validateTheoreticalExposition(slot, finalBlock, path);
