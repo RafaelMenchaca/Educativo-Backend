@@ -463,6 +463,16 @@ function buildTrustedV2Context(planeacion, tablaIa, actividadesMomentos) {
   };
 }
 
+function buildTrustedV3Context(planeacion, tablaIa, actividadesMomentos) {
+  return {
+    ...buildTrustedV2Context(planeacion, tablaIa, actividadesMomentos),
+    unidad: planeacion.unidad == null ? '' : String(planeacion.unidad).trim(),
+    subtema: normalizeString(planeacion.subtema),
+    titulo: normalizeString(planeacion.custom_title),
+    actividad_cierre: normalizeString(planeacion.actividad_cierre)
+  };
+}
+
 async function generateV2Content({
   planeacion,
   tablaIa,
@@ -518,10 +528,12 @@ async function generateV3Content({
   logCall
 }) {
   try {
+    const model = resolveCuadernilloV3Model();
     const result = await generarCuadernilloV3({
       tipoCuadernillo,
-      contextoPlaneacion: buildTrustedV2Context(planeacion, tablaIa, actividadesMomentos),
+      contextoPlaneacion: buildTrustedV3Context(planeacion, tablaIa, actividadesMomentos),
       diagnosticar: logCuadernilloV3Diagnostic,
+      modelo: model,
       completar: completar || createCuadernilloV3Completer({
         jobId, userId, tipoCuadernillo, logCall, diagnosticar: logCuadernilloV3Diagnostic
       })
@@ -611,7 +623,7 @@ export async function generarAnexo({
   // Fetch planeacion validando que pertenezca al usuario
   const planeacionQuery = client
     .from('planeaciones')
-    .select('id, tema_id, batch_id, tema, materia, nivel, duracion, tabla_ia, actividades_momentos')
+    .select('id, tema_id, batch_id, tema, subtema, materia, nivel, unidad, custom_title, duracion, actividad_cierre, tabla_ia, actividades_momentos')
     .eq('id', normalizedPlaneacionId);
 
   if (userId) {
@@ -846,7 +858,7 @@ export async function regenerarAnexo({
   // Re-obtener la planeacion original
   const planeacionQuery = client
     .from('planeaciones')
-    .select('id, tema_id, batch_id, tema, materia, nivel, duracion, tabla_ia, actividades_momentos')
+    .select('id, tema_id, batch_id, tema, subtema, materia, nivel, unidad, custom_title, duracion, actividad_cierre, tabla_ia, actividades_momentos')
     .eq('id', anexo.planeacion_id);
 
   if (userId) planeacionQuery.eq('user_id', userId);

@@ -9,7 +9,8 @@ import { postGenerarAnexo, postRegenerarAnexo } from '../src/controllers/anexos.
 
 const planeacion = Object.freeze({
   id: 'plan-1', user_id: 'user-1', tema_id: 'tema-1', batch_id: 'batch-1',
-  tema: 'Ecuaciones lineales', materia: 'Matematicas', nivel: 'Secundaria', duracion: 50,
+  tema: 'Ecuaciones lineales', subtema: 'Sistemas 2x2', materia: 'Matematicas', nivel: 'Secundaria',
+  unidad: 'Modelos algebraicos', custom_title: 'Sistemas en contexto', actividad_cierre: 'Explica la solución obtenida.', duracion: 50,
   tabla_ia: [{ momento: 'Desarrollo', actividad: 'Resolver situaciones' }],
   actividades_momentos: { desarrollo: 'Resolucion guiada' }
 });
@@ -30,8 +31,23 @@ function fixtureCompleter({ invalidFirst = false, alwaysInvalid = false, calls =
           slot_id: slot.slotId,
           bloque: request.schemaVersion === 3
             ? (() => {
+              if (slot.slotId === 'actividades_integradoras:presentacion_proyecto:8') return {
+                tipo: 'lista',
+                aprendizaje_1: 'Analiza los elementos proporcionados en el caso.',
+                aprendizaje_2: 'Justifica las decisiones para construir la evidencia.',
+                aprendizaje_3: 'Interpreta los hallazgos de la actividad.'
+              };
+              if (slot.slotId === 'actividades_integradoras:presentacion_proyecto:11') return {
+                tipo: 'lista',
+                accion_1: 'Analiza el caso y los datos incluidos.',
+                accion_2: 'Construye la evidencia y sustenta las conclusiones.'
+              };
               if (slot.tipoCuadernillo === 'ejercicios_aplicacion' && slot.numero === 36) return {
-                tipo: 'ejemplo_resuelto', contrato_cuantitativo: { familia_problema: 'determinante_2x2', datos: { matriz: [['2', '3'], ['1', '-1']] } }
+                tipo: 'ejemplo_resuelto', contrato_cuantitativo: {
+                  familia_problema: 'sistema_lineal_2x2',
+                  datos: { ecuaciones: [{ coeficiente_x: '1', coeficiente_y: '1', termino_independiente: '5' }, { coeficiente_x: '2', coeficiente_y: '-1', termino_independiente: '1' }] },
+                  metodo: 'cramer'
+                }
               };
               if (slot.tipoCuadernillo === 'ejercicios_aplicacion' && slot.numero === 15) return {
                 tipo: 'ejemplo_resuelto', contrato_cuantitativo: {
@@ -148,6 +164,8 @@ for (const tipo of TIPO_CUADERNILLO_IDS) {
     assert.equal(state.inserts[0].tokens_total, 120);
     assert.equal(result.schema_version, 3);
     assert.match(calls[0].userPrompt, /Ecuaciones lineales/);
+    assert.match(calls[0].userPrompt, /Modelos algebraicos/);
+    assert.match(calls[0].userPrompt, /Sistemas en contexto/);
     assert.doesNotMatch(calls[0].userPrompt, /materia manipulada/i);
   });
 }

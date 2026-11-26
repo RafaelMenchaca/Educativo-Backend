@@ -59,6 +59,17 @@ function responseFor(slots, contextoPlaneacion = context) {
 }
 
 function blockFor(slot, contextoPlaneacion = null) {
+  if (slot.slotId === 'actividades_integradoras:presentacion_proyecto:8') return {
+    tipo: 'lista',
+    aprendizaje_1: 'Analiza los elementos proporcionados en el caso mediante los conceptos del tema.',
+    aprendizaje_2: 'Justifica las decisiones necesarias para construir la evidencia solicitada.',
+    aprendizaje_3: 'Interpreta los hallazgos obtenidos al desarrollar la actividad.'
+  };
+  if (slot.slotId === 'actividades_integradoras:presentacion_proyecto:11') return {
+    tipo: 'lista',
+    accion_1: 'Analiza el caso y los datos incluidos en la actividad.',
+    accion_2: 'Construye la evidencia y sustenta sus conclusiones.'
+  };
   if (slot.slotId === 'actividades_integradoras:contextualizacion:18'
     && contextoPlaneacion?.tema === 'Algebra lineal') return {
     tipo: 'tabla',
@@ -315,6 +326,97 @@ test('integrative presentation cardinalities are structural and hydrate canonica
   assert.doesNotMatch(JSON.stringify(visible20), /pregunta_[123]/);
 });
 
+test('integrative presentation cannot own future case quantities or disciplinary category lists', () => {
+  const slots = obtenerSlotsCuadernilloV3('actividades_integradoras');
+  const learnings = slots.find(({ numero }) => numero === 8);
+  const route = slots.find(({ numero }) => numero === 11);
+  assert.throws(() => construirBloqueV3DesdeSlot(learnings, {
+    tipo: 'lista',
+    aprendizaje_1: 'Clasifica las cuatro sustancias proporcionadas.',
+    aprendizaje_2: 'Justifica la clasificación obtenida.',
+    aprendizaje_3: 'Interpreta los hallazgos del caso.'
+  }), (error) => error.code === 'promesa_datos_prematura' && error.path.endsWith('.items[0]'));
+  assert.throws(() => construirBloqueV3DesdeSlot(learnings, {
+    tipo: 'lista',
+    aprendizaje_1: 'Integra sustancias con enlaces covalentes, iónicos y metálicos.',
+    aprendizaje_2: 'Justifica la clasificación obtenida.',
+    aprendizaje_3: 'Interpreta los hallazgos del caso.'
+  }), (error) => error.code === 'promesa_datos_prematura');
+  assert.throws(() => construirBloqueV3DesdeSlot(route, {
+    tipo: 'lista', accion_1: 'Compara los tres documentos del caso.', accion_2: 'Construye la evidencia solicitada.'
+  }), (error) => error.code === 'promesa_datos_prematura');
+});
+
+test('general integrative presentation remains valid with any later case size across disciplines', () => {
+  const slots = obtenerSlotsCuadernilloV3('actividades_integradoras');
+  const learnings = slots.find(({ numero }) => numero === 8);
+  const route = slots.find(({ numero }) => numero === 11);
+  assert.doesNotThrow(() => construirBloqueV3DesdeSlot(learnings, {
+    tipo: 'lista',
+    aprendizaje_1: 'Analiza los elementos proporcionados en la actividad.',
+    aprendizaje_2: 'Justifica las decisiones necesarias para construir la evidencia.',
+    aprendizaje_3: 'Interpreta los hallazgos obtenidos en el caso.'
+  }));
+  assert.doesNotThrow(() => construirBloqueV3DesdeSlot(route, {
+    tipo: 'lista',
+    accion_1: 'Analiza, compara y sustenta tus decisiones con los textos incluidos en el caso histórico.',
+    accion_2: 'Construye la evidencia y sustenta la conclusión.'
+  }));
+});
+
+test('contextualization receives the safe product summary but not presentation learning or route prose', async () => {
+  const { completar, calls } = syntheticCompleter();
+  await generarCuadernilloV3({ tipoCuadernillo: 'actividades_integradoras', contextoPlaneacion: context, completar });
+  const contextualization = calls.find(({ segmento, intento }) => segmento.id === 'segmento_3' && intento === 1);
+  assert.match(contextualization.userPrompt, /producto final sintetico/i);
+  assert.doesNotMatch(contextualization.userPrompt, /Justifica las decisiones necesarias para construir la evidencia solicitada/);
+  assert.doesNotMatch(contextualization.userPrompt, /Analiza el caso y los datos incluidos en la actividad/);
+});
+
+test('premature integrative promise retries only its causal presentation slot and then succeeds', async () => {
+  const diagnostics = [];
+  const { completar, calls } = syntheticCompleter((request) => {
+    if (request.tipoCuadernillo !== 'actividades_integradoras' || request.segmento.id !== 'segmento_1' || request.intento !== 1) return null;
+    const payload = responseFor(request.slots);
+    payload.respuestas.find(({ slot_id }) => slot_id.endsWith(':8')).bloque.aprendizaje_1 = 'Clasifica los cuatro elementos del caso.';
+    return { content: JSON.stringify(payload), finishReason: 'stop' };
+  });
+  const result = await generarCuadernilloV3({
+    tipoCuadernillo: 'actividades_integradoras', contextoPlaneacion: context, completar,
+    diagnosticar: (event) => diagnostics.push(event)
+  });
+  const retry = calls.find(({ segmento, intento }) => segmento.id === 'segmento_1' && intento === 2);
+  assert.deepEqual(retry.slots.map(({ slotId }) => slotId), ['actividades_integradoras:presentacion_proyecto:8']);
+  assert.match(retry.userPrompt, /promesa_datos_prematura/);
+  assert.match(retry.userPrompt, /los elementos proporcionados/);
+  const event = diagnostics.find(({ eventType, segmentoId }) => eventType === 'segment_slot_retry' && segmentoId === 'segmento_1');
+  assert.equal(event.errorCode, 'promesa_datos_prematura');
+  assert.equal(event.slotCausal, 'actividades_integradoras:presentacion_proyecto:8');
+  assert.equal(calls.filter(({ segmento }) => segmento.id === 'segmento_1').length, 2);
+  assert.doesNotThrow(() => validateCuadernilloV3('actividades_integradoras', result.contenido));
+});
+
+test('a repeated premature promise reports the causal error and aborts without a third call', async () => {
+  const diagnostics = [];
+  const { completar, calls } = syntheticCompleter((request) => {
+    if (request.tipoCuadernillo !== 'actividades_integradoras' || request.segmento.id !== 'segmento_1') return null;
+    const payload = responseFor(request.slots);
+    payload.respuestas.find(({ slot_id }) => slot_id.endsWith(':8')).bloque.aprendizaje_1 = 'Compara los tres documentos proporcionados.';
+    return { content: JSON.stringify(payload), finishReason: 'stop' };
+  });
+  await assert.rejects(
+    generarCuadernilloV3({
+      tipoCuadernillo: 'actividades_integradoras', contextoPlaneacion: context, completar,
+      diagnosticar: (event) => diagnostics.push(event)
+    }),
+    (error) => error.code === 'segmento_invalido_tras_retry'
+  );
+  assert.equal(calls.filter(({ segmento }) => segmento.id === 'segmento_1').length, 2);
+  const failed = diagnostics.find(({ eventType, segmentoId }) => eventType === 'segment_slot_retry_failed' && segmentoId === 'segmento_1');
+  assert.equal(failed.errorCode, 'promesa_datos_prematura');
+  assert.equal(failed.slotCausal, 'actividades_integradoras:presentacion_proyecto:8');
+});
+
 test('guided slot 8 retry is isolated, preserves valid siblings and exposes only safe cardinality metadata', async () => {
   const diagnostics = [];
   const { completar, calls } = syntheticCompleter((request) => {
@@ -393,6 +495,7 @@ test('missing structured central data retries the whole group with the causal er
   await assert.rejects(
     generarCuadernilloV3({
       tipoCuadernillo: 'actividades_integradoras', contextoPlaneacion: context, completar,
+      modelo: 'gpt-6-luna',
       diagnosticar: (event) => diagnostics.push(event)
     }),
     (error) => error.code === 'segmento_invalido_tras_retry'
@@ -405,6 +508,9 @@ test('missing structured central data retries the whole group with the causal er
   assert.equal(failed.errorCode, 'datos_actividad_incompletos');
   assert.equal(failed.slotCausal, 'actividades_integradoras:contextualizacion:18');
   assert.equal(failed.retryScope, 'group');
+  assert.equal(failed.representacion, 'tabla');
+  assert.equal(failed.modalidad, null);
+  assert.equal(failed.modelo, 'gpt-6-luna');
   assert.equal(calls.filter(({ segmento }) => segmento.id === 'segmento_3').length, 2);
 });
 
@@ -714,13 +820,13 @@ test('every advertised allowed schema is structurally valid for its slot', () =>
   }
 });
 
-test('resolved-example contract requires a visible quantitative check and field consistency', () => {
+test('resolved-example contract is universally demonstrative while quantitative hydration remains backend-owned', () => {
   const slot = TIPO_CUADERNILLO_IDS.flatMap(obtenerSlotsCuadernilloV3)
     .find((item) => resolverRepresentacionSlotCuadernilloV3(item).recomendacionPrincipal.tipo === 'ejemplo_resuelto');
   const representation = resolverRepresentacionSlotCuadernilloV3(slot);
-  assert.match(representation.reglas.join(' '), /devuelve exclusivamente datos matematicos de entrada racionales/);
-  assert.match(representation.reglas.join(' '), /backend construye pasos, determinantes, solucion, resultado, comprobacion/);
-  assert.match(representation.reglas.join(' '), /No incluyas .*resultado_estructurado/);
+  assert.match(representation.reglas.join(' '), /caso concreto del tema.*al menos tres acciones distinguibles/);
+  assert.match(representation.reglas.join(' '), /evidencia del caso.*conclusion/);
+  assert.doesNotMatch(representation.reglas.join(' '), /determinantes|cramer|matrices/);
   const consistent = {
     tipo: 'ejemplo_resuelto',
     contrato_cuantitativo: {
@@ -771,8 +877,9 @@ test('v3 prompt requires strict thematic relevance and self-control without keyw
   const prompt = construirPromptSegmentoCuadernilloV3({ tipoCuadernillo: 'ejercicios_aplicacion', contextoPlaneacion: context, segmento: segment }).userPrompt;
   assert.match(prompt, /debe requerir realmente los conceptos del tema/);
   assert.match(prompt, /no basta con pertenecer a la misma asignatura/);
-  assert.match(prompt, /formula un modelo que use explicitamente el tema/);
-  assert.match(prompt, /vectores, matrices, determinantes, sistemas lineales, transformaciones/);
+  assert.match(prompt, /no introduzcas contenidos, herramientas o metodos de otra asignatura/);
+  assert.match(prompt, /POLITICA DISCIPLINAR CONDICIONAL/);
+  assert.match(prompt, /familias cuantitativas indicadas por el owner/);
   assert.match(prompt, /si podria resolverse sin utilizar el tema; si la respuesta es si, reemplazala/);
   assert.match(prompt, /Grupos de coherencia solicitados/);
   assert.match(prompt, /actividad_integradora_28_30/);

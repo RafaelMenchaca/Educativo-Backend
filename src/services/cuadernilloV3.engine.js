@@ -17,7 +17,8 @@ import {
   CUADERNILLO_V3_QUANTITATIVE_FAMILIES,
   construirJsonSchemaCompletionV3,
   obtenerContratoAcademicoSlotV3,
-  obtenerFamiliasCuantitativasContextoV3
+  obtenerFamiliasCuantitativasContextoV3,
+  obtenerPoliticaCuantitativaContextoV3
 } from '../domain/cuadernilloV3Contracts.js';
 import {
   CUADERNILLO_V2_SLOT_BLOCK_CONTRACTS,
@@ -27,7 +28,10 @@ import {
   validateCuadernilloV3Segment
 } from '../validators/cuadernilloV2.validator.js';
 
-const CONTEXT_KEYS = new Set(['materia', 'nivel', 'tema', 'duracion', 'tabla_ia', 'actividades_momentos', 'datos_generales']);
+const CONTEXT_KEYS = new Set([
+  'materia', 'nivel', 'unidad', 'tema', 'subtema', 'titulo', 'duracion',
+  'actividad_cierre', 'tabla_ia', 'actividades_momentos', 'datos_generales'
+]);
 const RESPONSE_ROOT_KEYS = new Set(['respuestas']);
 const RESPONSE_KEYS = new Set(['slot_id', 'bloque']);
 const MAX_SAFE_DIAGNOSTICS = 8;
@@ -80,8 +84,12 @@ function normalizeContext(contextoPlaneacion) {
   return Object.freeze({
     materia,
     nivel,
+    unidad: cleanText(contextoPlaneacion.unidad),
     tema,
+    subtema: cleanText(contextoPlaneacion.subtema),
+    titulo: cleanText(contextoPlaneacion.titulo),
     duracion,
+    actividad_cierre: cleanText(contextoPlaneacion.actividad_cierre),
     tabla_ia: structuredClone(contextoPlaneacion.tabla_ia),
     actividades_momentos: structuredClone(contextoPlaneacion.actividades_momentos)
   });
@@ -107,8 +115,12 @@ function promptContext(context) {
   return {
     materia: context.materia,
     nivel: context.nivel,
+    ...(context.unidad ? { unidad: context.unidad } : {}),
     tema: context.tema,
+    ...(context.subtema ? { subtema: context.subtema } : {}),
+    ...(context.titulo ? { titulo: context.titulo } : {}),
     duracion_minutos: context.duracion,
+    ...(context.actividad_cierre ? { proposito_cierre: context.actividad_cierre } : {}),
     tabla_ia: context.tabla_ia,
     actividades_momentos: context.actividades_momentos
   };
@@ -123,6 +135,11 @@ function promptSlot(slot, familiasEsperadas = new Map(), contextoPlaneacion = nu
     ...baseContract,
     familiasCuantitativas: expectedFamilies,
     fallbackCuantitativo: 'Selecciona una familia soportada del schema; no uses no_cuantitativo.'
+  } : expectedFamilies === 'no_cuantitativo' ? {
+    ...baseContract,
+    permiteCuantitativo: false,
+    familiasCuantitativas: [],
+    fallbackCuantitativo: 'Desarrolla un ejemplo conceptual del tema; no declares familias matematicas ni resultados numericos como verificados.'
   } : baseContract;
   return {
     slot_id: slot.slotId,
@@ -250,6 +267,11 @@ function correctionForSlot(slot, error, inputBlock = null, familiaEsperada = nul
   if (error?.code === 'producto_inconsistente') {
     correctionRules.push('Conserva exactamente el unico producto final definido en la Presentacion del proyecto; no lo sustituyas ni agregues otro entregable.');
   }
+  if (error?.code === 'promesa_datos_prematura') {
+    correctionRules.push('Mantiene la Presentacion general: elimina cantidades de casos, elementos, fuentes, objetos o categorias que todavia no existen en Contextualizacion.');
+    correctionRules.push('No enumeres categorias disciplinares del caso; usa referencias como "los elementos proporcionados", "los textos del caso" o "los datos incluidos en la actividad".');
+    correctionRules.push('Conserva el proposito, aprendizaje, producto o accion del slot sin inventar ni anticipar datos concretos.');
+  }
   const quantitativeFamily = familiaEsperada || cleanText(inputBlock?.contrato_cuantitativo?.familia_problema);
   const quantitativeInputFields = quantitativeFamily === 'sistema_lineal_2x2'
     ? ['familia_problema', 'datos.ecuaciones[2].coeficiente_x', 'datos.ecuaciones[2].coeficiente_y', 'datos.ecuaciones[2].termino_independiente', 'metodo']
@@ -258,12 +280,15 @@ function correctionForSlot(slot, error, inputBlock = null, familiaEsperada = nul
       : quantitativeFamily === 'aritmetica_racional'
         ? ['familia_problema', 'datos.valor_inicial', 'operaciones[].operacion', 'operaciones[].operando']
         : [];
-  if (quantitativeFamily) {
+  if (quantitativeFamily && quantitativeFamily !== 'no_cuantitativo') {
     correctionRules.push(`Conserva obligatoriamente la familia ${quantitativeFamily}; no uses no_cuantitativo ni otra familia.`);
     correctionRules.push('Devuelve solo datos matematicos de entrada como racionales literales; no uses expresiones, igualdades ni unidades dentro de un numero.');
     correctionRules.push('No devuelvas soluciones, resultados, determinantes, lados de comprobacion ni operaciones ya calculadas; el backend los deriva.');
     correctionRules.push('No devuelvas contexto_pedagogico, interpretacion, pasos ni otro texto libre dentro del contrato cuantitativo.');
     correctionRules.push('Usa valores pedagogicamente manejables y evita denominadores cero o sistemas singulares.');
+  } else if (quantitativeFamily === 'no_cuantitativo') {
+    correctionRules.push('Conserva la familia no_cuantitativo y desarrolla el caso concreto de la materia y tema actuales.');
+    correctionRules.push('Incluye al menos tres pasos especificos con evidencia, observacion o comparacion, decision y conclusion; no introduzcas metodos matematicos ajenos.');
   }
   return Object.freeze({
     code: cleanText(error?.code) || 'contenido_slot_invalido',
@@ -311,9 +336,12 @@ export function construirPromptSegmentoCuadernilloV3({
   ].join(' ');
   const resolveRepresentation = (slot) => resolverRepresentacionSlotCuadernilloV3(slot, contextoPlaneacion);
   const jsonSchema = construirJsonSchemaCompletionV3(slots, resolveRepresentation, familiasEsperadas);
+  const contextualPolicy = obtenerPoliticaCuantitativaContextoV3(contextoPlaneacion);
   const userPrompt = `${retry}POLITICA EDITORIAL COMUN OBLIGATORIA:\n- ${CUADERNILLO_V3_COMMON_EDITORIAL_POLICY.join('\n- ')}
 
 POLITICA ESPECIFICA DE ${tipoCuadernillo}:\n- ${CUADERNILLO_V3_TYPE_POLICIES[tipoCuadernillo].join('\n- ')}
+
+${contextualPolicy.length ? `POLITICA DISCIPLINAR CONDICIONAL:\n- ${contextualPolicy.join('\n- ')}\n` : ''}
 
 Slots solicitados:\n${JSON.stringify(slots.map((slot) => promptSlot(slot, familiasEsperadas, contextoPlaneacion)))}
 
@@ -341,12 +369,11 @@ Reglas contractuales:
 - En Desarrollo teorico explica, define, compara y muestra relaciones: no pidas responder, completar, clasificar, calcular ni comprobar la comprension. Los ejemplos alli deben estar resueltos o ser ilustrativos; las consignas pertenecen exclusivamente a Actividades de comprension.
 - En relacionar usa elementos y opciones completos con identificadores neutrales; en clasificar entrega categorias y elementos completos, nunca celdas dibujadas con caracteres.
 - Adapta el contenido a materia, nivel, tema, duracion y planeacion sin copiarla literalmente.
-- Para actividades y proyectos declara conceptos, datos suficientes, objetivo y aplicacion real del tema; evita area, porcentajes, division de costos o distancia/velocidad aislados, y optimizacion sin objetivo y restricciones suficientes.
+- Para actividades y proyectos declara conceptos, datos suficientes, objetivo y aplicacion real del tema; no introduzcas herramientas, metodos ni ejemplos de otra asignatura.
 - No reutilices ningun escenario, conjunto de variables, datos, ecuaciones u objetivo de la lista de actividades ya utilizadas; no reformules el mismo problema. La Actividad integradora debe usar un escenario nuevo y combinar los conceptos principales sin duplicar ejemplos o ejercicios basicos.
-- En ejemplos cuantitativos usa solo una familia permitida y devuelve exclusivamente sus datos matematicos de entrada; el backend construye enunciado, operaciones, determinantes, solucion, resultado, comprobaciones e interpretacion.
-- No agregues contexto_pedagogico, interpretacion, pasos, solucion, resultado_estructurado, verificacion_estructurada, lados calculados ni operaciones resueltas: son propiedad exclusiva del backend.
-- Fuera de las familias soportadas usa no_cuantitativo sin presentar una solucion numerica como validada.
-- No uses LaTeX (\\(...\\), $, $$, \\begin, \\end, \\frac). Usa texto plano, Unicode basico, fracciones a/b y matrices mediante tablas.
+- En cada ejemplo resuelto desarrolla un caso concreto del tema con al menos tres acciones distinguibles, evidencia del caso, resultado o conclusion e interpretacion; no basta con "analiza", "aplica" o "revisa" sin mostrar como se ejecuta.
+- Cuando el schema exija no_cuantitativo, desarrolla un analisis disciplinar concreto y no presentes una solucion numerica libre como verificada.
+- No uses LaTeX (\\(...\\), $, $$, \\begin, \\end, \\frac). Usa texto plano y Unicode basico.
 - Devuelve JSON directo, sin fences ni texto externo.`;
   return Object.freeze({ systemPrompt, userPrompt, jsonSchema });
 }
@@ -392,6 +419,16 @@ function addMetrics(metrics, usage, durationMs, retry) {
   metrics.tokensTotal += Number.isFinite(total) ? total : 0;
   metrics.tokensReasoning += Number.isFinite(reasoning) ? reasoning : 0;
   metrics.duracionMs += durationMs;
+}
+
+export function construirFamiliasEsperadasSegmentoV3(tipoCuadernillo, context, segment) {
+  const familiasContexto = obtenerFamiliasCuantitativasContextoV3(context);
+  return new Map(segment.slots
+    .filter((slot) => resolverRepresentacionSlotCuadernilloV3(slot, context)?.recomendacionPrincipal?.tipo === 'ejemplo_resuelto')
+    .map(({ slotId }) => [slotId, familiasContexto.length
+      ? (tipoCuadernillo === 'ejercicios_aplicacion' ? [...familiasContexto] : null)
+      : 'no_cuantitativo'])
+    .filter(([, family]) => family !== null));
 }
 
 function safeValidation(error, slotId = null) {
@@ -706,15 +743,10 @@ function assembleSegment(tipoCuadernillo, segment, validBlocks) {
   return payload.secciones;
 }
 
-async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex, completar, metrics, diagnosticar, diagnostics, resumenesPrevios }) {
+async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex, completar, metrics, diagnosticar, diagnostics, resumenesPrevios, modelo }) {
   const validBlocks = new Map();
   const validSummaries = new Map();
-  const familiasContexto = tipoCuadernillo === 'ejercicios_aplicacion'
-    ? obtenerFamiliasCuantitativasContextoV3(context)
-    : [];
-  const familiasEsperadas = new Map(segment.slots
-    .filter(({ numero }) => familiasContexto.length && [15, 36].includes(numero))
-    .map(({ slotId }) => [slotId, [...familiasContexto]]));
+  const familiasEsperadas = construirFamiliasEsperadasSegmentoV3(tipoCuadernillo, context, segment);
   let pending = [...segment.slots];
   let safeErrors = [];
   let causalErrors = [];
@@ -817,6 +849,9 @@ async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex
       coherenceGroups = [];
       if (attempt === 1) pending = segment.slots.filter(({ slotId }) => !validBlocks.has(slotId));
     }
+    const causalSlotId = causalErrors[0]?.slotCausal || causalErrors[0]?.slotId || null;
+    const causalSlot = segment.slots.find(({ slotId }) => slotId === causalSlotId) || pending[0] || null;
+    const causalRepresentation = causalSlot ? resolverRepresentacionSlotCuadernilloV3(causalSlot, context)?.recomendacionPrincipal : null;
     emitDiagnostic(diagnosticar, diagnostics, {
       eventType: attempt === 1 ? 'segment_slot_retry' : 'segment_slot_retry_failed', schemaVersion: 3,
       tipoCuadernillo, segmentoId: segment.id, segmentoIndice: segmentIndex, intento: attempt,
@@ -832,6 +867,9 @@ async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex
       slotsConservadosFueraGrupo: validBlocks.size,
       errorCode: causalErrors[0]?.code || 'slots_incompletos', errorPath: causalErrors[0]?.path || null,
       slotCausal: causalErrors[0]?.slotCausal || causalErrors[0]?.slotId || null,
+      representacion: causalRepresentation?.tipo || null,
+      modalidad: causalRepresentation?.modalidad || null,
+      modelo: modelo || null,
       erroresCausales: causalErrors.slice(0, MAX_SAFE_CORRECTIONS).map(safeCausalDiagnostic),
       cantidadEsperada: causalErrors[0]?.cantidadEsperada ?? null,
       cantidadEsperadaMin: causalErrors[0]?.cantidadEsperadaMin ?? null,
@@ -852,7 +890,7 @@ async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex
   fail('segmento_invalido_tras_retry', segment.id, { diagnostics });
 }
 
-export async function generarCuadernilloV3({ tipoCuadernillo, contextoPlaneacion, completar, diagnosticar = null }) {
+export async function generarCuadernilloV3({ tipoCuadernillo, contextoPlaneacion, completar, diagnosticar = null, modelo = null }) {
   if (!esTipoCuadernillo(tipoCuadernillo)) fail('tipo_cuadernillo_invalido');
   if (typeof completar !== 'function') fail('completar_requerido');
   const context = normalizeContext(contextoPlaneacion);
@@ -865,7 +903,7 @@ export async function generarCuadernilloV3({ tipoCuadernillo, contextoPlaneacion
   for (let index = 0; index < plan.length; index += 1) {
     sections.push(...await generateSegment({
       tipoCuadernillo, context, segment: plan[index], segmentIndex: index + 1,
-      completar, metrics, diagnosticar, diagnostics, resumenesPrevios: resumenesActividades
+      completar, metrics, diagnosticar, diagnostics, resumenesPrevios: resumenesActividades, modelo
     }));
   }
   const contenido = {
