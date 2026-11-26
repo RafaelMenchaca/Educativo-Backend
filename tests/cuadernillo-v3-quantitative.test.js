@@ -10,9 +10,9 @@ import {
   rationalMultiply
 } from '../src/domain/rational.js';
 import { formatearExpresionLineal, verificarContratoCuantitativo } from '../src/domain/cuadernilloV3Quantitative.js';
-import { construirJsonSchemaCompletionV3 } from '../src/domain/cuadernilloV3Contracts.js';
+import { construirJsonSchemaCompletionV3, obtenerFamiliasCuantitativasContextoV3 } from '../src/domain/cuadernilloV3Contracts.js';
 import { resolverRepresentacionSlotCuadernilloV3 } from '../src/domain/cuadernilloV3Representations.js';
-import { obtenerGruposCoherenciaCuadernilloV3, obtenerSlotsCuadernilloV3 } from '../src/domain/cuadernillosV3.js';
+import { obtenerContratoPedagogicoSlotV3, obtenerGruposCoherenciaCuadernilloV3, obtenerSlotsCuadernilloV3 } from '../src/domain/cuadernillosV3.js';
 import {
   createCuadernilloV2Completer,
   createCuadernilloV3Completer,
@@ -28,7 +28,28 @@ function materialize(value, slot) {
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, materialize(item, slot)]));
   return value;
 }
-const responseFor = (slots) => ({ respuestas: slots.map((slot) => ({ slot_id: slot.slotId, bloque: materialize(resolverRepresentacionSlotCuadernilloV3(slot).esquemaMinimo, slot) })) });
+function blockFor(slot) {
+  if (slot.tipoCuadernillo === 'ejercicios_aplicacion' && slot.numero === 36) return { tipo: 'ejemplo_resuelto', contrato_cuantitativo: { familia_problema: 'determinante_2x2', datos: { matriz: [['2', '3'], ['1', '-1']] } } };
+  if (slot.tipoCuadernillo === 'ejercicios_aplicacion' && slot.numero === 15) return { tipo: 'ejemplo_resuelto', contrato_cuantitativo: systemContract() };
+  const block = materialize(resolverRepresentacionSlotCuadernilloV3(slot).esquemaMinimo, slot);
+  const contract = obtenerContratoPedagogicoSlotV3(slot);
+  const count = contract?.itemsExact ?? contract?.itemsMin;
+  if (count && Array.isArray(block.items)) {
+    block.items = Array.from({ length: count }, (_, index) => {
+      const item = structuredClone(block.items[0]);
+      if (typeof item === 'string') return `${item} ${index + 1}`;
+      if (item.enunciado) item.enunciado = `${item.enunciado} ${index + 1}`;
+      if (item.termino) item.termino = `${item.termino} ${index + 1}`;
+      return item;
+    });
+  }
+  if (contract?.filasMin && Array.isArray(block.filas)) {
+    block.filas = Array.from({ length: contract.filasMin }, (_, index) => block.filas[0].map((cell) => `${cell} ${index + 1}`));
+  }
+  if (contract?.productoOwner || contract?.productoReference) block.producto = 'Producto final sintetico';
+  return block;
+}
+const responseFor = (slots) => ({ respuestas: slots.map((slot) => ({ slot_id: slot.slotId, bloque: blockFor(slot) })) });
 
 test('exact rationals parse, reduce and operate without floating point equality', () => {
   assert.equal(formatRational(parseRational('-6/-8')), '3/4');
@@ -190,7 +211,7 @@ test('linear expression formatter omits unit and zero coefficients without chang
 
 function setNetworkActivity(response, equations, label) {
   response.bloque.instrucciones = `Analiza ${label} y construye el modelo lineal.`;
-  response.bloque.items = [{ enunciado: `Usa las relaciones ${equations.join('; ')} para resolver ${label}.` }];
+  response.bloque.items = [{ enunciado: `Usa las relaciones ${equations.join('; ')} para resolver ${label}.`, espacio_respuesta: { lineas: 4 } }];
   response.bloque.contrato_tarea = {
     conceptos_requeridos: ['sistemas lineales'], familia_tarea: 'red_lineal',
     datos_necesarios: [...equations], objetivo: `Determina los valores de ${label}.`,
@@ -199,24 +220,23 @@ function setNetworkActivity(response, equations, label) {
   };
 }
 
-test('structural duplicate detection rejects the later canonical slot regardless of response order', () => {
-  const segment = crearPlanSegmentosCuadernilloV3('ejercicios_aplicacion')[2];
-  const slots = segment.slots.filter(({ numero }) => [24, 28].includes(numero));
-  const payload = responseFor([...slots].reverse());
+test('structural duplicate detection rejects a later slot against prior segment summaries', () => {
+  const segment = crearPlanSegmentosCuadernilloV3('ejercicios_aplicacion')[3];
+  const slots = segment.slots.filter(({ numero }) => numero === 28);
+  const payload = responseFor(slots);
   const equations = ['x + y = 4', 'x + z = 5', 'y + z = 3'];
   const reformulated = ['y + x = 4', 'z + x = 5', 'z + y = 3'];
-  payload.respuestas.forEach((response) => setNetworkActivity(response, response.slot_id.includes(':24') ? equations : reformulated, response.slot_id.includes(':24') ? 'una red de nodos' : 'la red de tres nodos'));
-  const analysis = validarRespuestasSlotsCuadernilloV3({ segmento: segment, slotsSolicitados: slots, payload });
-  assert.equal(analysis.validas.has('ejercicios_aplicacion:retos_problemas:24'), true);
+  setNetworkActivity(payload.respuestas[0], reformulated, 'la red de tres nodos');
+  const resumenesPrevios = [{ seccion: 'ejercicios_basicos', modalidad: 'ejercicio', escenario: 'analiza una red de nodos y construye el modelo lineal', variables: ['x', 'y', 'z'], relaciones: ['x:1|y:1=4', 'x:1|z:1=5', 'y:1|z:1=3'], objetivo: 'determina los valores de una red de nodos', taskSignature: '' }];
+  const analysis = validarRespuestasSlotsCuadernilloV3({ segmento: segment, slotsSolicitados: slots, payload, resumenesPrevios });
   assert.equal(analysis.invalidas.get('ejercicios_aplicacion:actividad_integradora:28').code, 'actividad_repetida');
   assert.equal(analysis.invalidas.get('ejercicios_aplicacion:actividad_integradora:28').tipoCoincidencia, 'mismas_relaciones');
 
   const distinct = responseFor(slots);
-  setNetworkActivity(distinct.respuestas[0], equations, 'una red de nodos');
-  setNetworkActivity(distinct.respuestas[1], ['a + b = 8', 'a − b = 2'], 'la distribución de recursos');
-  const allowed = validarRespuestasSlotsCuadernilloV3({ segmento: segment, slotsSolicitados: slots, payload: distinct });
+  setNetworkActivity(distinct.respuestas[0], ['a + b = 8', 'a − b = 2'], 'la distribución de recursos');
+  const allowed = validarRespuestasSlotsCuadernilloV3({ segmento: segment, slotsSolicitados: slots, payload: distinct, resumenesPrevios });
   assert.equal(allowed.invalidas.size, 0);
-  assert.equal(allowed.validas.size, 2);
+  assert.equal(allowed.validas.size, 1);
 });
 
 test('a repeated integrative problem retries only its coherence group and preserves the earlier challenge', async () => {
@@ -229,19 +249,21 @@ test('a repeated integrative problem retries only its coherence group and preser
       calls.push(request);
       const payload = responseFor(request.slots);
       if (request.segmento.id === 'segmento_3') {
-        const challenge = payload.respuestas.find(({ slot_id }) => slot_id.endsWith(':24'));
-        const integrative = payload.respuestas.find(({ slot_id }) => slot_id.endsWith(':28'));
+        const challenge = payload.respuestas.find(({ slot_id }) => slot_id.endsWith(':18'));
         if (challenge) setNetworkActivity(challenge, repeated, 'una red de nodos');
+      }
+      if (request.segmento.id === 'segmento_4') {
+        const integrative = payload.respuestas.find(({ slot_id }) => slot_id.endsWith(':28'));
         if (integrative) setNetworkActivity(integrative, request.intento === 1 ? repeated : replacement, request.intento === 1 ? 'la red de tres nodos' : 'la distribución de recursos');
       }
       return { content: JSON.stringify(payload), finishReason: 'stop', usage: {} };
     }
   });
   assert.equal(calls.length, 5);
-  assert.deepEqual(calls[3].slots.map(({ numero }) => numero), [28, 29, 30]);
-  assert.match(calls[3].userPrompt, /actividad_repetida/);
-  const retos = result.contenido.secciones.find(({ id }) => id === 'retos_problemas');
-  assert.equal(retos.bloques.some(({ cobertura }) => cobertura.includes(24)), true);
+  assert.deepEqual(calls[4].slots.map(({ numero }) => numero), [28, 29, 30]);
+  assert.match(calls[4].userPrompt, /actividad_repetida/);
+  const basicos = result.contenido.secciones.find(({ id }) => id === 'ejercicios_basicos');
+  assert.equal(basicos.bloques.some(({ cobertura }) => cobertura.includes(18)), true);
 });
 
 test('a repeated integrative problem on the second attempt aborts without a third segment call', async () => {
@@ -252,17 +274,16 @@ test('a repeated integrative problem on the second attempt aborts without a thir
     completar: async (request) => {
       calls.push(request);
       const payload = responseFor(request.slots);
-      if (request.segmento.id === 'segmento_3') {
-        for (const response of payload.respuestas.filter(({ slot_id }) => slot_id.endsWith(':24') || slot_id.endsWith(':28'))) {
-          setNetworkActivity(response, equations, response.slot_id.endsWith(':24') ? 'una red de nodos' : 'la red reformulada');
-        }
-      }
+      const response = payload.respuestas.find(({ slot_id }) => request.segmento.id === 'segmento_3'
+        ? slot_id.endsWith(':18')
+        : request.segmento.id === 'segmento_4' && slot_id.endsWith(':28'));
+      if (response) setNetworkActivity(response, equations, request.segmento.id === 'segmento_3' ? 'una red de nodos' : 'la red reformulada');
       return { content: JSON.stringify(payload), finishReason: 'stop', usage: {} };
     }
   }), (error) => error.code === 'segmento_invalido_tras_retry'
     && error.diagnostics.some(({ errorCode }) => errorCode === 'actividad_repetida'));
-  assert.equal(calls.filter(({ segmento }) => segmento.id === 'segmento_3').length, 2);
-  assert.equal(calls.length, 4);
+  assert.equal(calls.filter(({ segmento }) => segmento.id === 'segmento_4').length, 2);
+  assert.equal(calls.length, 5);
 });
 
 test('dynamic strict schema exposes only requested slot IDs and principal blocks', () => {
@@ -300,11 +321,44 @@ test('supported quantitative schema accepts only inputs and backend alone hydrat
   }), (error) => error.code === 'propiedad_cuantitativa_no_permitida');
 });
 
-test('v3 prose prompts are smaller than the pre-2N baseline without dropping academic policy', () => {
-  const baseline = [9317, 21629, 19464, 11968];
+test('academic metadata constrains algebra examples from the first schema while conceptual subjects keep non-quantitative examples', async () => {
+  assert.deepEqual(obtenerFamiliasCuantitativasContextoV3(context), ['determinante_2x2', 'sistema_lineal_2x2']);
+  assert.deepEqual(obtenerFamiliasCuantitativasContextoV3({ materia: 'Historia', tema: 'Revoluciones modernas' }), []);
+
+  const algebraCalls = [];
+  const algebra = await generarCuadernilloV3({
+    tipoCuadernillo: 'ejercicios_aplicacion', contextoPlaneacion: context,
+    completar: async (request) => {
+      algebraCalls.push(request);
+      return { content: JSON.stringify(responseFor(request.slots)), finishReason: 'stop', usage: {} };
+    }
+  });
+  assert.equal(algebraCalls.length, 4);
+  const exampleSchema = JSON.stringify(algebraCalls[1].jsonSchema);
+  assert.match(exampleSchema, /determinante_2x2/);
+  assert.match(exampleSchema, /sistema_lineal_2x2/);
+  assert.doesNotMatch(exampleSchema, /no_cuantitativo/);
+  assert.equal(algebra.metricas.reintentos, 0);
+
+  const conceptualContext = { ...context, materia: 'Historia', tema: 'Revoluciones modernas' };
+  const conceptual = await generarCuadernilloV3({
+    tipoCuadernillo: 'ejercicios_aplicacion', contextoPlaneacion: conceptualContext,
+    completar: async (request) => {
+      const payload = responseFor(request.slots);
+      for (const response of payload.respuestas) {
+        const slot = request.slots.find(({ slotId }) => slotId === response.slot_id);
+        if ([15, 36].includes(slot.numero)) response.bloque = materialize(resolverRepresentacionSlotCuadernilloV3(slot).esquemaMinimo, slot);
+      }
+      return { content: JSON.stringify(payload), finishReason: 'stop', usage: {} };
+    }
+  });
+  assert.equal(conceptual.metricas.reintentos, 0);
+});
+
+test('v3 prose prompts remain bounded and keep academic policy after 2O specialization', () => {
   crearPlanSegmentosCuadernilloV3('ejercicios_aplicacion').forEach((segment, index) => {
     const prompt = construirPromptSegmentoCuadernilloV3({ tipoCuadernillo: 'ejercicios_aplicacion', contextoPlaneacion: context, segmento: segment });
-    assert.equal(prompt.systemPrompt.length + prompt.userPrompt.length < baseline[index], true);
+    assert.equal(prompt.systemPrompt.length + prompt.userPrompt.length < 30000, true, `segmento ${index + 1}`);
     assert.match(prompt.userPrompt, /pertinencia|conceptos|tema/i);
     assert.ok(prompt.jsonSchema.$defs);
   });
@@ -395,6 +449,12 @@ test('a second-attempt family change aborts without persistence or a third segme
             example.bloque = {
               tipo: 'ejemplo_resuelto',
               contrato_cuantitativo: { ...systemContract(), contexto_pedagogico: 'Texto libre que el contrato ya no permite.' }
+            };
+          } else if (example) {
+            example.bloque = {
+              tipo: 'ejemplo_resuelto', enunciado: 'Caso conceptual.', pasos: ['Analiza el caso.', 'Explica la relación.'],
+              resultado: 'Relación conceptual establecida.', verificacion: ['Contrasta la relación con las condiciones del caso.'],
+              interpretacion: 'La relación conecta los conceptos.', contrato_cuantitativo: { familia_problema: 'no_cuantitativo' }
             };
           }
         }

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { TIPO_CUADERNILLO_IDS } from '../src/domain/cuadernillos.js';
+import { obtenerContratoPedagogicoSlotV3 } from '../src/domain/cuadernillosV3.js';
 import { resolverRepresentacionSlotCuadernilloV3 } from '../src/domain/cuadernilloV3Representations.js';
 import { createCuadernilloV2Completer, generarAnexo, regenerarAnexo } from '../src/services/anexos.service.js';
 import { postGenerarAnexo, postRegenerarAnexo } from '../src/controllers/anexos.controller.js';
@@ -28,7 +29,37 @@ function fixtureCompleter({ invalidFirst = false, alwaysInvalid = false, calls =
         respuestas: request.slots.map((slot) => ({
           slot_id: slot.slotId,
           bloque: request.schemaVersion === 3
-            ? materialize(resolverRepresentacionSlotCuadernilloV3(slot).esquemaMinimo, slot)
+            ? (() => {
+              if (slot.tipoCuadernillo === 'ejercicios_aplicacion' && slot.numero === 36) return {
+                tipo: 'ejemplo_resuelto', contrato_cuantitativo: { familia_problema: 'determinante_2x2', datos: { matriz: [['2', '3'], ['1', '-1']] } }
+              };
+              if (slot.tipoCuadernillo === 'ejercicios_aplicacion' && slot.numero === 15) return {
+                tipo: 'ejemplo_resuelto', contrato_cuantitativo: {
+                  familia_problema: 'sistema_lineal_2x2',
+                  datos: { ecuaciones: [{ coeficiente_x: '2', coeficiente_y: '3', termino_independiente: '6' }, { coeficiente_x: '1', coeficiente_y: '-1', termino_independiente: '2' }] },
+                  metodo: 'cramer'
+                }
+              };
+              const block = materialize(resolverRepresentacionSlotCuadernilloV3(slot).esquemaMinimo, slot);
+              if (slot.slotId === 'aprendizaje_guiado:actividades_comprension:23') {
+                block.items[0].opciones = ['matriz', 'vector', 'determinante'];
+                block.items[0].respuesta_correcta = 'matriz';
+                block.items[0].enunciado = 'Identifica el concepto que corresponde a un arreglo rectangular organizado en filas y columnas.';
+              }
+              const contract = obtenerContratoPedagogicoSlotV3(slot);
+              const count = contract?.itemsExact ?? contract?.itemsMin;
+              if (count && Array.isArray(block.items)) block.items = Array.from({ length: count }, (_, index) => {
+                const item = structuredClone(block.items[0]);
+                if (typeof item === 'string') return `${item} ${index + 1}`;
+                if (item.enunciado) item.enunciado = `${item.enunciado} ${index + 1}`;
+                if (item.termino) item.termino = `${item.termino} ${index + 1}`;
+                return item;
+              });
+              if (contract?.filasMin && Array.isArray(block.filas)) block.filas = Array.from({ length: contract.filasMin }, (_, index) => block.filas[0].map((cell) => `${cell} ${index + 1}`));
+              if (contract?.filasMin && Array.isArray(block.elementos)) block.elementos = Array.from({ length: contract.filasMin }, (_, index) => `${block.elementos[0]} ${index + 1}`);
+              if (contract?.productoOwner || contract?.productoReference) block.producto = 'Producto final sintetico';
+              return block;
+            })()
             : {
             tipo: 'texto',
             titulo: 'Contenido util',

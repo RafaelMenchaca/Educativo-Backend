@@ -162,12 +162,26 @@ ramas `work/features` hasta completar push, PR, merge y deploy.
 ### Contrato editorial v3
 
 Las generaciones tipadas nuevas producen `schema_version: 3` y
-`prompt_version: v3_cuadernillo_academico_tipado`. El owner deriva del
-blueprint histórico las secciones pedagógicas sin Datos generales ni
-Autoevaluación, conserva números semánticos y obtiene 28/38/28 slots. Los
-prompts comparten escritura directa al estudiante y añaden políticas por
-modalidad: práctica progresiva, continuidad de proyecto para Integradoras y
-explicación gradual para Aprendizaje guiado.
+`prompt_version: v3_cuadernillo_academico_tipado`. El owner v3 es explícito y
+no reinterpreta el blueprint histórico: conserva números semánticos, elimina
+Datos generales, Autoevaluación y Evaluación, y termina siempre en Cierre y
+reflexión. Guiado contiene 5 secciones/19 slots; Ejercicios, 6/21; e
+Integradoras, 5/17. Las cardinalidades (dos ejemplos, tres ejercicios básicos,
+una actividad integradora compacta, evidencia única y reflexiones) pertenecen al owner y se
+validan en backend.
+
+Los tres aprendizajes esperados de Guiado son exactos: el schema del proveedor
+requiere `aprendizaje_1`, `aprendizaje_2` y `aprendizaje_3`, mientras el backend
+los hidrata a un único bloque visible `lista` y no persiste esos campos técnicos.
+Las actividades de escritura separan consigna y presentación: el modelo devuelve
+texto completo y opciones, el backend asigna `espacio_respuesta`; para clasificar,
+hidrata categorías y elementos a una tabla con celdas vacías utilizables.
+
+La segmentación conserva cuatro llamadas base: Guiado distribuye Presentación;
+Desarrollo+Apoyos; Comprensión; Cierre. Ejercicios distribuye Presentación;
+Repaso+Ejemplos; tres ejercicios básicos; Integradora+Cierre. Integradoras
+distribuye Presentación; Fundamentación; Contextualización con espacio de
+trabajo; Resultados+Cierre.
 
 El modelo aporta contenido por slot; el backend asigna sección, orden, cobertura
 e IDs, agrupa solo bloques adyacentes compatibles y valida el documento. El

@@ -1,8 +1,10 @@
 import {
   ANEXO_SCHEMA_VERSION_V3,
   CUADERNILLO_V3_COMMON_EDITORIAL_POLICY,
+  CUADERNILLO_V3_SEGMENT_SECTION_IDS,
   CUADERNILLO_V3_TYPE_POLICIES,
   obtenerBlueprintCuadernilloV3,
+  obtenerContratoPedagogicoSlotV3,
   obtenerFuncionEditorialSeccionV3,
   obtenerFuncionEditorialSlotV3,
   obtenerGruposCoherenciaCuadernilloV3,
@@ -14,7 +16,8 @@ import { resolverRepresentacionSlotCuadernilloV3 } from '../domain/cuadernilloV3
 import {
   CUADERNILLO_V3_QUANTITATIVE_FAMILIES,
   construirJsonSchemaCompletionV3,
-  obtenerContratoAcademicoSlotV3
+  obtenerContratoAcademicoSlotV3,
+  obtenerFamiliasCuantitativasContextoV3
 } from '../domain/cuadernilloV3Contracts.js';
 import {
   CUADERNILLO_V2_SLOT_BLOCK_CONTRACTS,
@@ -87,10 +90,11 @@ function normalizeContext(contextoPlaneacion) {
 export function crearPlanSegmentosCuadernilloV3(tipoCuadernillo) {
   if (!esTipoCuadernillo(tipoCuadernillo)) fail('tipo_cuadernillo_invalido');
   const blueprint = obtenerBlueprintCuadernilloV3(tipoCuadernillo);
-  const middle = blueprint.slice(1, -2);
-  const split = Math.ceil(middle.length / 2);
-  const groups = [blueprint.slice(0, 1), middle.slice(0, split), middle.slice(split), blueprint.slice(-2)];
+  const byId = new Map(blueprint.map((section) => [section.id, section]));
+  const groups = CUADERNILLO_V3_SEGMENT_SECTION_IDS[tipoCuadernillo]
+    .map((sectionIds) => sectionIds.map((id) => byId.get(id)).filter(Boolean));
   if (groups.some((group) => group.length === 0)) fail('plan_segmentos_invalido');
+  if (groups.flat().length !== blueprint.length || new Set(groups.flat().map(({ id }) => id)).size !== blueprint.length) fail('plan_segmentos_invalido');
   return Object.freeze(groups.map((secciones, index) => Object.freeze({
     id: `segmento_${index + 1}`,
     orden: index + 1,
@@ -110,10 +114,16 @@ function promptContext(context) {
   };
 }
 
-function promptSlot(slot) {
-  const representation = resolverRepresentacionSlotCuadernilloV3(slot);
+function promptSlot(slot, familiasEsperadas = new Map(), contextoPlaneacion = null) {
+  const representation = resolverRepresentacionSlotCuadernilloV3(slot, contextoPlaneacion);
   const { tipo, modalidad } = representation.recomendacionPrincipal;
-  const academicContract = obtenerContratoAcademicoSlotV3(slot, tipo);
+  const baseContract = obtenerContratoAcademicoSlotV3(slot, tipo);
+  const expectedFamilies = familiasEsperadas.get(slot.slotId);
+  const academicContract = Array.isArray(expectedFamilies) ? {
+    ...baseContract,
+    familiasCuantitativas: expectedFamilies,
+    fallbackCuantitativo: 'Selecciona una familia soportada del schema; no uses no_cuantitativo.'
+  } : baseContract;
   return {
     slot_id: slot.slotId,
     nombre: slot.nombre,
@@ -168,14 +178,32 @@ function promptCoherenceGroups(tipoCuadernillo, segmento, slots) {
     }));
 }
 
-function correctionForSlot(slot, error, inputBlock = null, familiaEsperada = null) {
-  const representation = resolverRepresentacionSlotCuadernilloV3(slot);
+function correctionForSlot(slot, error, inputBlock = null, familiaEsperada = null, contextoPlaneacion = null) {
+  const representation = resolverRepresentacionSlotCuadernilloV3(slot, contextoPlaneacion);
   const tipo = cleanText(inputBlock?.tipo) || representation.recomendacionPrincipal.tipo;
+  const threeLearningsSlot = slot.slotId === 'aprendizaje_guiado:presentacion_tema:8';
+  const threeProjectLearningsSlot = slot.slotId === 'actividades_integradoras:presentacion_proyecto:8';
+  const twoCompactActionsSlot = slot.slotId === 'actividades_integradoras:presentacion_proyecto:11';
+  const threeCaseQuestionsSlot = slot.slotId === 'actividades_integradoras:contextualizacion:20';
+  const centralMatrixDataSlot = representation.familia === 'datos_matriz_vector_actividad_central';
+  const classificationSlot = slot.slotId === 'aprendizaje_guiado:actividades_comprension:26';
   const contract = CUADERNILLO_V2_SLOT_BLOCK_CONTRACTS[tipo];
   const v3Internal = tipo === 'ejemplo_resuelto'
     ? ['contrato_cuantitativo', 'verificacion']
     : ['actividad', 'proyecto'].includes(tipo) ? ['contrato_tarea'] : [];
-  const allowed = contract ? [...contract.requeridas, ...contract.opcionales, ...v3Internal] : [];
+  const allowed = threeLearningsSlot
+    ? ['tipo', 'aprendizaje_1', 'aprendizaje_2', 'aprendizaje_3']
+    : threeProjectLearningsSlot
+      ? ['tipo', 'aprendizaje_1', 'aprendizaje_2', 'aprendizaje_3']
+      : twoCompactActionsSlot
+        ? ['tipo', 'accion_1', 'accion_2']
+        : centralMatrixDataSlot
+          ? ['tipo', 'variables', 'etiquetas_filas', 'matriz', 'vector_b']
+        : threeCaseQuestionsSlot
+          ? ['tipo', 'modalidad', 'instrucciones', 'pregunta_1', 'pregunta_2', 'pregunta_3', 'contrato_tarea']
+    : classificationSlot
+      ? ['tipo', 'categorias', 'elementos']
+    : contract ? [...contract.requeridas, ...contract.opcionales, ...v3Internal] : [];
   const detected = isObject(inputBlock)
     ? Object.keys(inputBlock).filter((key) => !allowed.includes(key))
     : [];
@@ -188,6 +216,39 @@ function correctionForSlot(slot, error, inputBlock = null, familiaEsperada = nul
   }
   if (tipo === 'conceptos') {
     correctionRules.push('Usa items; cada item requiere termino y explicacion, y ejemplo es opcional.');
+  }
+  if (threeLearningsSlot) {
+    correctionRules.push('Devuelve exactamente aprendizaje_1, aprendizaje_2 y aprendizaje_3 como strings no vacios y diferentes.');
+    correctionRules.push('Cada valor comienza con una capacidad observable dirigida al estudiante y relacionada con el tema; no redactes actividades ni evaluaciones.');
+  }
+  if (threeProjectLearningsSlot) {
+    correctionRules.push('Devuelve exactamente aprendizaje_1, aprendizaje_2 y aprendizaje_3 como capacidades observables, no vacias y diferentes.');
+  }
+  if (twoCompactActionsSlot) {
+    correctionRules.push('Devuelve exactamente accion_1 y accion_2 como acciones no vacias y diferentes de una ruta compacta; no anuncies fases.');
+  }
+  if (threeCaseQuestionsSlot) {
+    correctionRules.push('Devuelve exactamente pregunta_1, pregunta_2 y pregunta_3 como preguntas completas, no vacias y diferentes sobre el mismo caso.');
+  }
+  if (representation.familia === 'datos_matriz_vector_actividad_central') {
+    correctionRules.push('Incluye una matriz A numerica 3x3 rectangular, un vector b de tres componentes, tres variables ordenadas con significado y tres etiquetas de fila.');
+    correctionRules.push('No remitas a datos externos y no calcules determinante, rango, solucion ni conclusion.');
+  }
+  if (error?.code === 'editorial_placeholder_lineas') {
+    correctionRules.push('Elimina guiones bajos, lineas y caracteres repetidos; reformula cada enunciado como una oracion completa.');
+    correctionRules.push('Conserva la actividad y su banco de palabras, columnas o categorias; no muestres soluciones.');
+    correctionRules.push('No dibujes el espacio de respuesta: el backend lo agrega automaticamente.');
+  }
+  if (error?.code === 'respuesta_revelada') {
+    correctionRules.push('Conserva el banco de palabras y reformula la descripcion sin mencionar el termino correcto.');
+    correctionRules.push('Conserva respuesta_correcta unicamente como metadata interna, no agregues guiones bajos y no muestres la solucion.');
+  }
+  if (error?.code === 'actividad_en_desarrollo_teorico') {
+    correctionRules.push('Reformula el contenido como exposicion pedagogica: explica, define, compara o muestra relaciones sin pedir respuestas, tareas o ejercicios.');
+    correctionRules.push('Los ejemplos de Desarrollo teorico deben estar resueltos o ser puramente ilustrativos; reserva las consignas para Actividades de comprension.');
+  }
+  if (error?.code === 'producto_inconsistente') {
+    correctionRules.push('Conserva exactamente el unico producto final definido en la Presentacion del proyecto; no lo sustituyas ni agregues otro entregable.');
   }
   const quantitativeFamily = familiaEsperada || cleanText(inputBlock?.contrato_cuantitativo?.familia_problema);
   const quantitativeInputFields = quantitativeFamily === 'sistema_lineal_2x2'
@@ -208,14 +269,19 @@ function correctionForSlot(slot, error, inputBlock = null, familiaEsperada = nul
     code: cleanText(error?.code) || 'contenido_slot_invalido',
     path: cleanText(error?.path) || `slots[${slot.slotId}].bloque`,
     slotId: slot.slotId,
+    slotCausal: slot.slotId,
     tipoRecomendado: representation.recomendacionPrincipal,
     bloquesPermitidos: representation.bloquesPermitidos,
-    propiedadesRequeridas: contract?.requeridas || [],
-    propiedadesOpcionales: contract?.opcionales || [],
+    propiedadesRequeridas: threeLearningsSlot || threeProjectLearningsSlot || twoCompactActionsSlot || centralMatrixDataSlot || threeCaseQuestionsSlot || classificationSlot ? allowed : contract?.requeridas || [],
+    propiedadesOpcionales: threeLearningsSlot || threeProjectLearningsSlot || twoCompactActionsSlot || centralMatrixDataSlot || threeCaseQuestionsSlot || classificationSlot ? [] : contract?.opcionales || [],
     ...(detected.length ? { propiedadesProhibidasDetectadas: detected } : {}),
     schemaMinimoValido: quantitativeFamily
       ? { tipo: 'ejemplo_resuelto', contrato_cuantitativo: { familia_problema: quantitativeFamily, datos: 'entradas segun JSON Schema' } }
       : representation.esquemaMinimo,
+    ...(Number.isInteger(error?.details?.cantidadEsperada) ? { cantidadEsperada: error.details.cantidadEsperada } : {}),
+    ...(Number.isInteger(error?.details?.cantidadEsperadaMin) ? { cantidadEsperadaMin: error.details.cantidadEsperadaMin } : {}),
+    ...(Number.isInteger(error?.details?.cantidadEsperadaMax) ? { cantidadEsperadaMax: error.details.cantidadEsperadaMax } : {}),
+    ...(Number.isInteger(error?.details?.cantidadRecibida) ? { cantidadRecibida: error.details.cantidadRecibida } : {}),
     ...(quantitativeFamily
       ? { familiaCuantitativa: quantitativeFamily, camposEntradaRequeridos: quantitativeInputFields }
       : {}),
@@ -243,16 +309,17 @@ export function construirPromptSegmentoCuadernilloV3({
     'Sigue la politica editorial comun y la politica especifica del tipo.',
     'Devuelve solo el objeto solicitado por JSON Schema, sin Markdown ni texto adicional.'
   ].join(' ');
-  const jsonSchema = construirJsonSchemaCompletionV3(slots, resolverRepresentacionSlotCuadernilloV3, familiasEsperadas);
+  const resolveRepresentation = (slot) => resolverRepresentacionSlotCuadernilloV3(slot, contextoPlaneacion);
+  const jsonSchema = construirJsonSchemaCompletionV3(slots, resolveRepresentation, familiasEsperadas);
   const userPrompt = `${retry}POLITICA EDITORIAL COMUN OBLIGATORIA:\n- ${CUADERNILLO_V3_COMMON_EDITORIAL_POLICY.join('\n- ')}
 
 POLITICA ESPECIFICA DE ${tipoCuadernillo}:\n- ${CUADERNILLO_V3_TYPE_POLICIES[tipoCuadernillo].join('\n- ')}
 
-Slots solicitados:\n${JSON.stringify(slots.map(promptSlot))}
+Slots solicitados:\n${JSON.stringify(slots.map((slot) => promptSlot(slot, familiasEsperadas, contextoPlaneacion)))}
 
 Continuidad editorial segura (solo metadata canonica; no contiene completions previas):\n${JSON.stringify(promptContinuity(tipoCuadernillo, segmento))}
 
-Actividades y problemas ya utilizados (resumen estructural acotado):\n${JSON.stringify(actividadesPrevias.map(({ seccion, modalidad, escenario, variables, relaciones, objetivo }) => ({ seccion, modalidad, escenario, variables, relaciones, objetivo })))}
+Actividades, problemas y producto ya utilizados (resumen estructural acotado):\n${JSON.stringify(actividadesPrevias.map(({ seccion, modalidad, escenario, variables, relaciones, objetivo, producto }) => ({ seccion, modalidad, escenario, variables, relaciones, objetivo, producto })))}
 
 Grupos de coherencia solicitados:\n${JSON.stringify(promptCoherenceGroups(tipoCuadernillo, segmento, slots))}
 
@@ -267,9 +334,14 @@ Reglas contractuales:
 - El orden de respuestas es libre; no devuelvas slots desconocidos ni duplicados.
 - Para componentes condicionales no aplicables literalmente, desarrolla la alternativa canonica.
 - Para componentes para completar, solicita una accion concreta y deja espacio; no inventes la respuesta.
+- En toda consigna usa una oracion completa: no escribas guiones bajos, lineas, puntos repetidos, recuadros textuales ni frases como "escribe en la linea" o "responde en el recuadro de abajo"; el backend agrega los espacios visuales.
+- En completar con banco de palabras, cada item describe de forma completa el concepto que debe identificarse, conserva el banco en opciones y no muestra la solucion.
+- En completar, incluye respuesta_correcta como metadata interna que coincide exactamente con una opcion; no menciones ese termino en el enunciado. El backend valida y elimina esta metadata antes de persistir.
+- En Desarrollo teorico explica, define, compara y muestra relaciones: no pidas responder, completar, clasificar, calcular ni comprobar la comprension. Los ejemplos alli deben estar resueltos o ser ilustrativos; las consignas pertenecen exclusivamente a Actividades de comprension.
+- En relacionar usa elementos y opciones completos con identificadores neutrales; en clasificar entrega categorias y elementos completos, nunca celdas dibujadas con caracteres.
 - Adapta el contenido a materia, nivel, tema, duracion y planeacion sin copiarla literalmente.
 - Para actividades y proyectos declara conceptos, datos suficientes, objetivo y aplicacion real del tema; evita area, porcentajes, division de costos o distancia/velocidad aislados, y optimizacion sin objetivo y restricciones suficientes.
-- No reutilices ningun escenario, conjunto de variables, datos, ecuaciones u objetivo de la lista de actividades ya utilizadas; no reformules el mismo problema. La Actividad integradora debe usar un escenario nuevo y ser mas amplia que Retos y problemas.
+- No reutilices ningun escenario, conjunto de variables, datos, ecuaciones u objetivo de la lista de actividades ya utilizadas; no reformules el mismo problema. La Actividad integradora debe usar un escenario nuevo y combinar los conceptos principales sin duplicar ejemplos o ejercicios basicos.
 - En ejemplos cuantitativos usa solo una familia permitida y devuelve exclusivamente sus datos matematicos de entrada; el backend construye enunciado, operaciones, determinantes, solucion, resultado, comprobaciones e interpretacion.
 - No agregues contexto_pedagogico, interpretacion, pasos, solucion, resultado_estructurado, verificacion_estructurada, lados calculados ni operaciones resueltas: son propiedad exclusiva del backend.
 - Fuera de las familias soportadas usa no_cuantitativo sin presentar una solucion numerica como validada.
@@ -336,7 +408,7 @@ function emitDiagnostic(diagnosticar, diagnostics, payload) {
   try { diagnosticar?.(safe); } catch { /* Observability is non-blocking. */ }
 }
 
-export function validarRespuestasSlotsCuadernilloV3({ segmento, slotsSolicitados, payload, bloquesExistentes = [], familiasEsperadas = new Map(), resumenesPrevios = [] }) {
+export function validarRespuestasSlotsCuadernilloV3({ segmento, slotsSolicitados, payload, bloquesExistentes = [], familiasEsperadas = new Map(), resumenesPrevios = [], contextoPlaneacion = null }) {
   if (!isObject(payload)) fail('raiz_slots_invalida', segmento.id, { path: 'slots' });
   assertExactKeys(payload, RESPONSE_ROOT_KEYS, 'raiz_slots_invalida', segmento.id, 'slots');
   if (!Array.isArray(payload.respuestas)) fail('respuestas_slots_invalidas', segmento.id, { path: 'slots.respuestas' });
@@ -362,19 +434,34 @@ export function validarRespuestasSlotsCuadernilloV3({ segmento, slotsSolicitados
       assertExactKeys(response, RESPONSE_KEYS, 'respuesta_slot_invalida', segmento.id, path);
       const familiaEsperada = familiasEsperadas.get(slotId);
       const familiaRecibida = cleanText(response.bloque?.contrato_cuantitativo?.familia_problema);
-      if (familiaEsperada && familiaRecibida !== familiaEsperada) {
+      if (familiaEsperada && !(Array.isArray(familiaEsperada)
+        ? familiaEsperada.includes(familiaRecibida)
+        : familiaRecibida === familiaEsperada)) {
         throw new CuadernilloV2ValidationError(
           'familia_cuantitativa_inconsistente',
           `${path}.bloque.contrato_cuantitativo.familia_problema`,
-          { familia: familiaEsperada, solverStage: 'input_validation' }
+          { familia: Array.isArray(familiaEsperada) ? null : familiaEsperada, solverStage: 'input_validation' }
         );
       }
-      const representation = resolverRepresentacionSlotCuadernilloV3(slot);
+      const representation = resolverRepresentacionSlotCuadernilloV3(slot, contextoPlaneacion);
       if (!representation?.bloquesPermitidos.includes(response.bloque?.tipo)) {
-        throw new CuadernilloV2ValidationError('tipo_bloque_no_recomendado', `${path}.bloque.tipo`);
+        const centralDataRequired = representation?.familia === 'datos_matriz_vector_actividad_central';
+        throw new CuadernilloV2ValidationError(
+          centralDataRequired ? 'datos_actividad_incompletos' : 'tipo_bloque_no_recomendado',
+          centralDataRequired ? `${path}.bloque` : `${path}.bloque.tipo`
+        );
       }
-      const finalBlock = construirBloqueV3DesdeSlot(slot, response.bloque);
+      const finalBlock = construirBloqueV3DesdeSlot(slot, response.bloque, { contextoPlaneacion });
       const summary = buildActivitySummary(slot, response.bloque, finalBlock);
+      if (summary?.productoReference) {
+        const owner = resumenesPrevios.find(({ productoOwner }) => productoOwner);
+        if (!owner?.producto || summary.producto !== owner.producto) {
+          throw new CuadernilloV2ValidationError('producto_inconsistente', `${path}.bloque.producto`, {
+            seccionPrevia: owner?.seccion || 'presentacion_proyecto',
+            tipoCoincidencia: 'producto_distinto'
+          });
+        }
+      }
       const statements = blockStatements(finalBlock);
       const duplicateIndex = statements.findIndex((statement) => seenStatements.has(statement));
       if (duplicateIndex >= 0) {
@@ -391,7 +478,7 @@ export function validarRespuestasSlotsCuadernilloV3({ segmento, slotsSolicitados
       }
     } catch (error) {
       if (!(error instanceof CuadernilloV2ValidationError) && !(error instanceof CuadernilloV3GenerationError)) throw error;
-      invalidas.set(slotId, correctionForSlot(requested.get(slotId), error, response.bloque, familiasEsperadas.get(slotId)));
+      invalidas.set(slotId, correctionForSlot(requested.get(slotId), error, response.bloque, familiasEsperadas.get(slotId), contextoPlaneacion));
     }
   });
   const acceptedSummaries = [...resumenes.entries()]
@@ -407,7 +494,7 @@ export function validarRespuestasSlotsCuadernilloV3({ segmento, slotsSolicitados
       seccionPrevia: conflict.previous.seccion,
       tipoCoincidencia: conflict.type
     });
-    invalidas.set(slotId, correctionForSlot(requested.get(slotId), error, bloquesEntrada.get(slotId), familiasEsperadas.get(slotId)));
+    invalidas.set(slotId, correctionForSlot(requested.get(slotId), error, bloquesEntrada.get(slotId), familiasEsperadas.get(slotId), contextoPlaneacion));
     validas.delete(slotId);
     resumenes.delete(slotId);
   }
@@ -464,6 +551,8 @@ function buildActivitySummary(slot, inputBlock, finalBlock) {
   const scenarioSource = inputBlock?.instrucciones || inputBlock?.enunciado || inputBlock?.items?.[0]?.enunciado || '';
   const escenario = normalizeStructuralText(scenarioSource).slice(0, 180);
   const objetivo = normalizeStructuralText(task?.objetivo || '').slice(0, 140);
+  const product = normalizeStructuralText(inputBlock?.producto || '').slice(0, 140);
+  const pedagogical = obtenerContratoPedagogicoSlotV3(slot);
   const taskSignature = task ? JSON.stringify({
     familia: normalizeStructuralText(task.familia_tarea),
     objetivo,
@@ -472,7 +561,10 @@ function buildActivitySummary(slot, inputBlock, finalBlock) {
   if (!relations.length && !taskSignature && !escenario) return null;
   return Object.freeze({
     slotId: slot.slotId, seccion: slot.seccionId, modalidad: finalBlock.modalidad || finalBlock.tipo,
-    escenario, variables: Object.freeze(variables), relaciones: Object.freeze(relations), objetivo, taskSignature
+    escenario, variables: Object.freeze(variables), relaciones: Object.freeze(relations), objetivo, taskSignature,
+    producto: product,
+    productoOwner: Boolean(pedagogical?.productoOwner),
+    productoReference: Boolean(pedagogical?.productoReference)
   });
 }
 
@@ -485,7 +577,7 @@ function findActivityConflict(summary, previousSummaries) {
     if (summary.relaciones.length >= 2 && sameArray(summary.relaciones, previous.relaciones)) {
       return { previous, type: 'mismas_relaciones' };
     }
-    if (summary.taskSignature && summary.taskSignature === previous.taskSignature) {
+    if (!summary.productoReference && summary.taskSignature && summary.taskSignature === previous.taskSignature) {
       return { previous, type: 'mismo_contrato_tarea' };
     }
     if (summary.escenario && summary.escenario === previous.escenario
@@ -540,6 +632,49 @@ function expandPendingCoherenceGroups(tipoCuadernillo, segment, pending, validBl
   };
 }
 
+const CAUSAL_METADATA_KEYS = Object.freeze([
+  'cantidadEsperada', 'cantidadEsperadaMin', 'cantidadEsperadaMax', 'cantidadRecibida',
+  'familiaCuantitativa', 'solverStage', 'seccionPrevia', 'tipoCoincidencia'
+]);
+
+function copyCausalMetadata(target, cause) {
+  const result = { ...target, code: cause.code, path: cause.path, slotCausal: cause.slotCausal || cause.slotId };
+  for (const key of CAUSAL_METADATA_KEYS) {
+    if (cause[key] !== undefined) result[key] = cause[key];
+  }
+  return result;
+}
+
+function causalErrorsForPending(analysis, contextoPlaneacion = null) {
+  return analysis.pendientes.map((slot) => analysis.invalidas.get(slot.slotId)
+    || correctionForSlot(slot, { code: 'slot_ausente', path: `slots[${slot.slotId}]` }, null, null, contextoPlaneacion));
+}
+
+function causeForExpandedSlot(slot, causalErrors, groups) {
+  const own = causalErrors.find(({ slotCausal, slotId }) => (slotCausal || slotId) === slot.slotId);
+  if (own) return own;
+  const group = groups.find(({ miembros }) => miembros.some(({ slotId }) => slotId === slot.slotId));
+  if (!group) return causalErrors[0] || null;
+  const memberIds = new Set(group.miembros.map(({ slotId }) => slotId));
+  return causalErrors.find(({ slotCausal, slotId }) => memberIds.has(slotCausal || slotId)) || causalErrors[0] || null;
+}
+
+function safeCausalDiagnostic(error) {
+  return Object.fromEntries(Object.entries({
+    code: error?.code || 'contenido_slot_invalido',
+    path: error?.path || null,
+    slotCausal: error?.slotCausal || error?.slotId || null,
+    cantidadEsperada: error?.cantidadEsperada,
+    cantidadEsperadaMin: error?.cantidadEsperadaMin,
+    cantidadEsperadaMax: error?.cantidadEsperadaMax,
+    cantidadRecibida: error?.cantidadRecibida,
+    familiaCuantitativa: error?.familiaCuantitativa,
+    solverStage: error?.solverStage,
+    seccionPrevia: error?.seccionPrevia,
+    tipoCoincidencia: error?.tipoCoincidencia
+  }).filter(([, value]) => value !== undefined && value !== null));
+}
+
 function consolidateQuantitativeCoherenceGroups(tipoCuadernillo, segment, validBlocks) {
   for (const group of obtenerGruposCoherenciaCuadernilloV3(tipoCuadernillo)) {
     if (!group.ownerMatematico) continue;
@@ -573,9 +708,16 @@ function assembleSegment(tipoCuadernillo, segment, validBlocks) {
 async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex, completar, metrics, diagnosticar, diagnostics, resumenesPrevios }) {
   const validBlocks = new Map();
   const validSummaries = new Map();
-  const familiasEsperadas = new Map();
+  const familiasContexto = tipoCuadernillo === 'ejercicios_aplicacion'
+    ? obtenerFamiliasCuantitativasContextoV3(context)
+    : [];
+  const familiasEsperadas = new Map(segment.slots
+    .filter(({ numero }) => familiasContexto.length && [15, 36].includes(numero))
+    .map(({ slotId }) => [slotId, [...familiasContexto]]));
   let pending = [...segment.slots];
   let safeErrors = [];
+  let causalErrors = [];
+  let coherenceGroups = [];
   let responseCounts = { recibidas: 0, validas: 0, invalidas: 0, ausentes: 0 };
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     responseCounts = { recibidas: 0, validas: 0, invalidas: 0, ausentes: pending.length };
@@ -606,7 +748,9 @@ async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex
       if (!parsed) fail('json_segmento_invalido', segment.id, { path: 'slots' });
       for (const response of parsed.respuestas || []) {
         const family = cleanText(response?.bloque?.contrato_cuantitativo?.familia_problema);
-        if (response?.slot_id && CUADERNILLO_V3_QUANTITATIVE_FAMILIES.includes(family) && !familiasEsperadas.has(response.slot_id)) {
+        const expected = familiasEsperadas.get(response?.slot_id);
+        if (response?.slot_id && CUADERNILLO_V3_QUANTITATIVE_FAMILIES.includes(family)
+          && (!expected || Array.isArray(expected) && expected.includes(family))) {
           familiasEsperadas.set(response.slot_id, family);
         }
       }
@@ -616,7 +760,8 @@ async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex
         payload: parsed,
         bloquesExistentes: [...validBlocks.values()],
         familiasEsperadas,
-        resumenesPrevios: [...resumenesPrevios, ...validSummaries.values()]
+        resumenesPrevios: [...resumenesPrevios, ...validSummaries.values()],
+        contextoPlaneacion: context
       });
       analysis.familiasCuantitativas.forEach((family) => metrics.familiasCuantitativas.add(family));
       metrics.verificacionesExitosas += analysis.verificacionesExitosas;
@@ -629,6 +774,7 @@ async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex
         ausentes: analysis.pendientes.length - analysis.invalidas.size
       };
       const coherence = expandPendingCoherenceGroups(tipoCuadernillo, segment, analysis.pendientes, validBlocks);
+      coherenceGroups = coherence.groups;
       for (const slot of coherence.pending) validSummaries.delete(slot.slotId);
       if (coherence.pending.length === 0) {
         emitDiagnostic(diagnosticar, diagnostics, {
@@ -642,11 +788,17 @@ async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex
         return assembleSegment(tipoCuadernillo, segment, validBlocks);
       }
       const initiallyPending = new Set(analysis.pendientes.map(({ slotId }) => slotId));
+      causalErrors = causalErrorsForPending(analysis, context);
       pending = [...coherence.pending];
-      safeErrors = pending.map((slot) => analysis.invalidas.get(slot.slotId)
-        || correctionForSlot(slot, initiallyPending.has(slot.slotId)
-          ? { code: 'slot_ausente', path: `slots[${slot.slotId}]` }
-          : { code: 'grupo_coherencia_reintentado', path: `slots[${slot.slotId}]` }, null, familiasEsperadas.get(slot.slotId)))
+      safeErrors = pending.map((slot) => {
+        const cause = causeForExpandedSlot(slot, causalErrors, coherence.groups);
+        const correction = analysis.invalidas.get(slot.slotId)
+          || correctionForSlot(slot, cause || (initiallyPending.has(slot.slotId)
+            ? { code: 'slot_ausente', path: `slots[${slot.slotId}]` }
+            : { code: 'contenido_grupo_invalido', path: `slots[${slot.slotId}]` }), null,
+          typeof familiasEsperadas.get(slot.slotId) === 'string' ? familiasEsperadas.get(slot.slotId) : null, context);
+        return cause ? copyCausalMetadata(correction, cause) : correction;
+      })
         .slice(0, MAX_SAFE_CORRECTIONS);
       if (coherence.groups.length) {
         safeErrors = safeErrors.map((error) => ({
@@ -660,6 +812,8 @@ async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex
       const fatal = error instanceof CuadernilloV3GenerationError && ['slot_desconocido', 'slot_duplicado'].includes(error.code);
       if (fatal) throw error;
       safeErrors = [safeValidation(error)];
+      causalErrors = safeErrors.map((item) => ({ ...item, slotCausal: item.slotId || null }));
+      coherenceGroups = [];
       if (attempt === 1) pending = segment.slots.filter(({ slotId }) => !validBlocks.has(slotId));
     }
     emitDiagnostic(diagnosticar, diagnostics, {
@@ -670,14 +824,22 @@ async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex
       respuestasValidas: responseCounts.validas,
       respuestasInvalidas: responseCounts.invalidas,
       respuestasAusentes: responseCounts.ausentes,
+      retryScope: coherenceGroups.length ? 'group' : 'slot',
+      groupExpanded: coherenceGroups.length > 0,
       groupIds: promptCoherenceGroups(tipoCuadernillo, segment, pending).map(({ group_id }) => group_id),
       slotsGrupo: promptCoherenceGroups(tipoCuadernillo, segment, pending).flatMap(({ slots_miembros }) => slots_miembros).slice(0, MAX_SAFE_SLOT_IDS),
       slotsConservadosFueraGrupo: validBlocks.size,
-      errorCode: safeErrors[0]?.code || 'slots_incompletos', errorPath: safeErrors[0]?.path || null,
-      familiaCuantitativa: safeErrors[0]?.familiaCuantitativa || null,
-      solverStage: safeErrors[0]?.solverStage || null,
-      seccionPreviaConflicto: safeErrors[0]?.seccionPrevia || null,
-      tipoCoincidencia: safeErrors[0]?.tipoCoincidencia || null,
+      errorCode: causalErrors[0]?.code || 'slots_incompletos', errorPath: causalErrors[0]?.path || null,
+      slotCausal: causalErrors[0]?.slotCausal || causalErrors[0]?.slotId || null,
+      erroresCausales: causalErrors.slice(0, MAX_SAFE_CORRECTIONS).map(safeCausalDiagnostic),
+      cantidadEsperada: causalErrors[0]?.cantidadEsperada ?? null,
+      cantidadEsperadaMin: causalErrors[0]?.cantidadEsperadaMin ?? null,
+      cantidadEsperadaMax: causalErrors[0]?.cantidadEsperadaMax ?? null,
+      cantidadRecibida: causalErrors[0]?.cantidadRecibida ?? null,
+      familiaCuantitativa: causalErrors[0]?.familiaCuantitativa || null,
+      solverStage: causalErrors[0]?.solverStage || null,
+      seccionPreviaConflicto: causalErrors[0]?.seccionPrevia || null,
+      tipoCoincidencia: causalErrors[0]?.tipoCoincidencia || null,
       finishReason: completion.finishReason, ...tokenData, durationMs: completion.durationMs
     });
     if (attempt === 2) fail('segmento_invalido_tras_retry', segment.id, {

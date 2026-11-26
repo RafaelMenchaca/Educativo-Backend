@@ -216,8 +216,11 @@ El servicio esta integrado en planeaciones, examenes, listas de cotejo y anexos.
 
 La base histórica de cuadernillos v2 vive en `src/domain/cuadernillos.js`. Las
 generaciones tipadas nuevas usan los blueprints editoriales de
-`src/domain/cuadernillosV3.js`: omiten Datos generales y Autoevaluación,
-mantienen cuatro segmentos y persisten `schema_version: 3`. El
+`src/domain/cuadernillosV3.js`: omiten Datos generales, Autoevaluación y toda
+sección de Evaluación, mantienen cuatro segmentos y persisten
+`schema_version: 3`. Los owners especializados 2O.1 contienen 19 slots para
+Aprendizaje guiado, 21 para Ejercicios y aplicación y 17 para Actividades
+integradoras; las tres modalidades terminan en Cierre y reflexión. El
 endpoint individual acepta opcionalmente `tipo_cuadernillo`: si falta conserva
 v1 y si es canónico genera por segmentos, valida y persiste v3. La regeneración
 conserva la versión y el tipo almacenados. El frontend exige una modalidad por
@@ -226,7 +229,7 @@ renderers v1. La generación real controlada se completó para los tres tipos en
 test; el resolver de representaciones busca reducir retries previsibles sin
 garantizar cero retries. V3 diferencia procedimientos demostrativos,
 orientadores y operativos por slot: exige desarrollo concreto cuando enseña un
-método, pero conserva trabajo auténtico para práctica, evaluación y proyectos.
+método, pero conserva trabajo auténtico para práctica y proyectos.
 El pipeline académico v3 usa exclusivamente `gpt-6-luna` con Structured
 Outputs, sin temperatura, y verifica localmente racionales, determinantes 2×2
 y sistemas lineales 2×2. V1/v2 permanecen en `gpt-4o-mini`. Las familias no

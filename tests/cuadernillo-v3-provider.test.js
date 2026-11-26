@@ -116,7 +116,7 @@ test('v3 adapter emits safe request and provider error events, then stops before
   assert.equal(failed.requestId, 'req_safe_123');
   assert.equal(failed.retryable, false);
   assert.equal(failed.segmentoId, 'segmento_1');
-  assert.equal(failed.slotsSolicitados, 4);
+  assert.equal(failed.slotsSolicitados, 3);
   const logged = JSON.stringify(events);
   assert.doesNotMatch(logged, /sk-do-not-log|messages|prompt|properties|materia|Algebra/);
 });

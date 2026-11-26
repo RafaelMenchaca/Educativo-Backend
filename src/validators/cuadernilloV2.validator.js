@@ -6,6 +6,8 @@ import {
 import {
   ANEXO_SCHEMA_VERSION_V3,
   obtenerBlueprintCuadernilloV3,
+  obtenerContratoDatosActividadCentralV3,
+  obtenerContratoPedagogicoSlotV3,
   obtenerNivelProcedimentalSlotV3,
   obtenerSlotsCuadernilloV3
 } from '../domain/cuadernillosV3.js';
@@ -359,6 +361,10 @@ const V3_FORBIDDEN_EDITORIAL_PATTERNS = Object.freeze([
   ['editorial_metadiscurso', /\besta seccion permitira\b/],
   ['editorial_cierre_generico', /\bes fundamental para comprender\b/],
   ['editorial_cierre_generico', /\bes crucial para entender\b/],
+  ['editorial_tercera_persona', /\blos estudiantes (?:realizaran|deberan|haran)\b/],
+  ['editorial_calificacion', /\b(?:criterios de evaluacion|calificacion|rubrica|examen)\b/],
+  ['editorial_recurso_externo', /\b(?:consulta|busca|investiga) (?:en internet|en linea|un recurso externo)\b/],
+  ['editorial_placeholder_lineas', /_{3,}|-{4,}|\.{4,}|·{4,}|\bescribe en la linea\b|\bresponde en el recuadro de abajo\b|\bcompleta\s+_{2,}/],
   ['latex_no_permitido', /\\\(|\\\)|\\begin\b|\\end\b|\\frac\b|\$\$|\$[^$]+\$/],
   ['editorial_marcador_estructural', /<[^>]+>/]
 ]);
@@ -370,6 +376,74 @@ function normalizeEditorialText(value) {
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+}
+
+function normalizeExactLearning(value) {
+  return normalizeEditorialText(value)
+    .replace(/^[\s.,;:¡!¿?"'()\[\]{}-]+|[\s.,;:¡!¿?"'()\[\]{}-]+$/g, '');
+}
+
+function normalizeComparableText(value) {
+  return normalizeEditorialText(value)
+    .replace(/^[\s.,;:Â¡!Â¿?"'()\[\]{}-]+|[\s.,;:Â¡!Â¿?"'()\[\]{}-]+$/g, '');
+}
+
+function findTextMatch(value, path, patterns) {
+  if (typeof value === 'string') {
+    const normalized = normalizeEditorialText(value);
+    return patterns.some((pattern) => pattern.test(normalized)) ? path : null;
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const match = findTextMatch(value[index], `${path}[${index}]`, patterns);
+      if (match) return match;
+    }
+  } else if (isObject(value)) {
+    for (const [key, nested] of Object.entries(value)) {
+      const match = findTextMatch(nested, `${path}.${key}`, patterns);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
+const THEORETICAL_ACTIVITY_PATTERNS = Object.freeze([
+  /\bcomprueba tu comprension\s*:/,
+  /\bresponde\s*:/,
+  /\bahora resuelve\s*:/,
+  /\bcompleta el siguiente\b/
+]);
+
+function validateTheoreticalExposition(slot, block, path) {
+  if (slot?.tipoCuadernillo !== 'aprendizaje_guiado' || slot?.seccionId !== 'desarrollo_teorico') return;
+  const matchPath = findTextMatch(block, path, THEORETICAL_ACTIVITY_PATTERNS);
+  if (matchPath) fail('actividad_en_desarrollo_teorico', matchPath);
+}
+
+function prepareCompletarInput(inputBlock, path) {
+  if (inputBlock?.tipo !== 'actividad' || inputBlock.modalidad !== 'completar') return inputBlock;
+  if (!Array.isArray(inputBlock.items)) fail('arreglo_requerido', `${path}.items`);
+  const sanitized = structuredClone(inputBlock);
+  sanitized.items = inputBlock.items.map((item, index) => {
+    const itemPath = `${path}.items[${index}]`;
+    if (!isObject(item)) fail('item_invalido', itemPath);
+    assertExactKeys(item, new Set(['enunciado', 'opciones', 'respuesta_correcta']), itemPath);
+    assertText(item.enunciado, `${itemPath}.enunciado`);
+    assertStringArray(item.opciones, `${itemPath}.opciones`);
+    assertText(item.respuesta_correcta, `${itemPath}.respuesta_correcta`);
+    const normalizedOptions = item.opciones.map(normalizeComparableText);
+    if (new Set(normalizedOptions).size !== normalizedOptions.length) fail('opcion_duplicada', `${itemPath}.opciones`);
+    const normalizedAnswer = normalizeComparableText(item.respuesta_correcta);
+    if (!normalizedOptions.includes(normalizedAnswer)) fail('respuesta_fuera_banco', `${itemPath}.respuesta_correcta`);
+    if (normalizedOptions.length < 2) fail('opciones_pedagogicas_requeridas', `${itemPath}.opciones`);
+    const normalizedPrompt = normalizeComparableText(item.enunciado);
+    if (normalizedAnswer && new RegExp(`(^|[^a-z0-9])${normalizedAnswer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(normalizedPrompt)) {
+      fail('respuesta_revelada', `${itemPath}.enunciado`);
+    }
+    const { respuesta_correcta, ...persistible } = item;
+    return persistible;
+  });
+  return sanitized;
 }
 
 function findEditorialViolation(value, path) {
@@ -440,10 +514,170 @@ function validateTaskContract(value, path) {
   ['familia_tarea', 'objetivo', 'condicion_suficiencia', 'aplicacion_tema'].forEach((key) => assertText(value[key], `${path}.${key}`));
 }
 
-export function construirBloqueV3DesdeSlot(slot, inputBlock) {
+function validatePedagogicalSlotContract(slot, block, path) {
+  const contract = obtenerContratoPedagogicoSlotV3(slot);
+  if (!contract) return;
+  if (block.tipo !== contract.tipo) fail('representacion_pedagogica_invalida', `${path}.tipo`);
+  if (contract.modalidad && block.modalidad !== contract.modalidad) fail('modalidad_pedagogica_invalida', `${path}.modalidad`);
+  const collection = ['lista', 'conceptos', 'actividad'].includes(block.tipo) ? block.items : null;
+  if (collection) {
+    if (contract.itemsExact !== undefined && collection.length !== contract.itemsExact) fail('cantidad_pedagogica_invalida', `${path}.items`, { cantidadEsperada: contract.itemsExact, cantidadRecibida: collection.length });
+    if (contract.itemsMin !== undefined && collection.length < contract.itemsMin) fail('cantidad_pedagogica_invalida', `${path}.items`, { cantidadEsperadaMin: contract.itemsMin, cantidadEsperadaMax: contract.itemsMax ?? null, cantidadRecibida: collection.length });
+    if (contract.itemsMax !== undefined && collection.length > contract.itemsMax) fail('cantidad_pedagogica_invalida', `${path}.items`, { cantidadEsperadaMin: contract.itemsMin ?? null, cantidadEsperadaMax: contract.itemsMax, cantidadRecibida: collection.length });
+  }
+  if (block.tipo === 'tabla' && contract.filasMin !== undefined && block.filas.length < contract.filasMin) {
+    fail('cantidad_pedagogica_invalida', `${path}.filas`);
+  }
+  if (block.tipo === 'actividad' && contract.requiereEspacio) {
+    block.items.forEach((item, index) => {
+      if (!item.espacio_respuesta) fail('espacio_respuesta_requerido', `${path}.items[${index}].espacio_respuesta`);
+    });
+  }
+  if (block.tipo === 'actividad' && contract.requiereOpciones) {
+    block.items.forEach((item, index) => {
+      if (!Array.isArray(item.opciones) || item.opciones.length < 2) fail('opciones_pedagogicas_requeridas', `${path}.items[${index}].opciones`);
+    });
+  }
+}
+
+const RESPONSE_LINES_BY_MODALITY = Object.freeze({
+  preguntas: 3,
+  completar: 2,
+  relacionar: 2,
+  ejercicio: 4,
+  problema: 5,
+  reflexion: 5
+});
+
+function addBackendResponseSpaces(block) {
+  if (block?.tipo !== 'actividad') return block;
+  const lines = RESPONSE_LINES_BY_MODALITY[block.modalidad] || 3;
+  block.items = block.items.map((item) => ({
+    ...item,
+    espacio_respuesta: { lineas: lines }
+  }));
+  return block;
+}
+
+const RATIONAL_ACTIVITY_INPUT_PATTERN = /^-?(?:(?:0|[1-9]\d*)(?:\.\d+)?|(?:0|[1-9]\d*)\/(?:[1-9]\d*))$/;
+
+function assertActivityRational(value, path) {
+  assertText(value, path);
+  if (!RATIONAL_ACTIVITY_INPUT_PATTERN.test(value.trim())) fail('datos_actividad_incompletos', path);
+}
+
+export function construirBloqueV3DesdeSlot(slot, inputBlock, { contextoPlaneacion = null } = {}) {
   const path = `slots[${slot.slotId}].bloque`;
   let finalBlock;
-  if (inputBlock?.tipo === 'ejemplo_resuelto') {
+  const centralDataContract = slot.slotId === 'actividades_integradoras:contextualizacion:18'
+    ? obtenerContratoDatosActividadCentralV3(contextoPlaneacion)
+    : null;
+  if (centralDataContract) {
+    if (!isObject(inputBlock)) fail('datos_actividad_incompletos', path);
+    for (const key of ['tipo', 'variables', 'etiquetas_filas', 'matriz', 'vector_b']) {
+      if (!Object.hasOwn(inputBlock, key)) fail('datos_actividad_incompletos', `${path}.${key}`);
+    }
+    assertExactKeys(inputBlock, new Set(['tipo', 'variables', 'etiquetas_filas', 'matriz', 'vector_b']), path);
+    if (inputBlock.tipo !== 'tabla') fail('representacion_pedagogica_invalida', `${path}.tipo`);
+    if (!Array.isArray(inputBlock.variables) || inputBlock.variables.length !== centralDataContract.columnas) {
+      fail('datos_actividad_incompletos', `${path}.variables`);
+    }
+    const variables = inputBlock.variables.map((variable, index) => {
+      if (!isObject(variable)) fail('datos_actividad_incompletos', `${path}.variables[${index}]`);
+      assertExactKeys(variable, new Set(['simbolo', 'significado']), `${path}.variables[${index}]`);
+      assertText(variable.simbolo, `${path}.variables[${index}].simbolo`);
+      assertText(variable.significado, `${path}.variables[${index}].significado`);
+      return { simbolo: variable.simbolo.trim(), significado: variable.significado.trim() };
+    });
+    if (new Set(variables.map(({ simbolo }) => normalizeExactLearning(simbolo))).size !== variables.length) {
+      fail('datos_actividad_incompletos', `${path}.variables`);
+    }
+    assertStringArray(inputBlock.etiquetas_filas, `${path}.etiquetas_filas`);
+    if (inputBlock.etiquetas_filas.length !== centralDataContract.filas) fail('datos_actividad_incompletos', `${path}.etiquetas_filas`);
+    if (!Array.isArray(inputBlock.matriz) || inputBlock.matriz.length !== centralDataContract.filas) {
+      fail('datos_actividad_incompletos', `${path}.matriz`);
+    }
+    inputBlock.matriz.forEach((row, rowIndex) => {
+      if (!Array.isArray(row) || row.length !== centralDataContract.columnas) {
+        fail('datos_actividad_incompletos', `${path}.matriz[${rowIndex}]`);
+      }
+      row.forEach((value, columnIndex) => assertActivityRational(value, `${path}.matriz[${rowIndex}][${columnIndex}]`));
+    });
+    assertStringArray(inputBlock.vector_b, `${path}.vector_b`);
+    if (inputBlock.vector_b.length !== centralDataContract.filas) fail('datos_actividad_incompletos', `${path}.vector_b`);
+    inputBlock.vector_b.forEach((value, index) => assertActivityRational(value, `${path}.vector_b[${index}]`));
+    finalBlock = {
+      tipo: 'tabla',
+      titulo: 'Datos del caso: matriz A y vector b',
+      columnas: ['Fila', ...variables.map(({ simbolo, significado }) => `${simbolo}: ${significado}`), 'b'],
+      filas: inputBlock.matriz.map((row, index) => [inputBlock.etiquetas_filas[index].trim(), ...row.map((value) => value.trim()), inputBlock.vector_b[index].trim()]),
+      cobertura: [slot.numero]
+    };
+  } else if (slot.slotId === 'actividades_integradoras:contextualizacion:20') {
+    if (!isObject(inputBlock)) fail('bloque_invalido', path);
+    assertExactKeys(inputBlock, new Set(['tipo', 'modalidad', 'instrucciones', 'pregunta_1', 'pregunta_2', 'pregunta_3', 'contrato_tarea']), path);
+    if (inputBlock.tipo !== 'actividad') fail('representacion_pedagogica_invalida', `${path}.tipo`);
+    if (inputBlock.modalidad !== 'preguntas') fail('modalidad_pedagogica_invalida', `${path}.modalidad`);
+    assertText(inputBlock.instrucciones, `${path}.instrucciones`);
+    validateTaskContract(inputBlock.contrato_tarea, `${path}.contrato_tarea`);
+    const questions = ['pregunta_1', 'pregunta_2', 'pregunta_3'].map((key) => {
+      assertText(inputBlock[key], `${path}.${key}`);
+      return inputBlock[key].trim();
+    });
+    const normalized = questions.map(normalizeExactLearning);
+    if (new Set(normalized).size !== questions.length) fail('pregunta_caso_duplicada', `${path}.items`);
+    finalBlock = construirBloqueV2DesdeSlot(slot, {
+      tipo: 'actividad', modalidad: 'preguntas', instrucciones: inputBlock.instrucciones,
+      items: questions.map((enunciado) => ({ enunciado }))
+    });
+    addBackendResponseSpaces(finalBlock);
+  } else if (slot.slotId === 'actividades_integradoras:presentacion_proyecto:8') {
+    if (!isObject(inputBlock)) fail('bloque_invalido', path);
+    assertExactKeys(inputBlock, new Set(['tipo', 'aprendizaje_1', 'aprendizaje_2', 'aprendizaje_3']), path);
+    if (inputBlock.tipo !== 'lista') fail('representacion_pedagogica_invalida', `${path}.tipo`);
+    const items = ['aprendizaje_1', 'aprendizaje_2', 'aprendizaje_3'].map((key) => {
+      assertText(inputBlock[key], `${path}.${key}`);
+      return inputBlock[key].trim();
+    });
+    const normalized = items.map(normalizeExactLearning);
+    if (new Set(normalized).size !== items.length) fail('aprendizaje_duplicado', `${path}.items`);
+    finalBlock = construirBloqueV2DesdeSlot(slot, { tipo: 'lista', items });
+  } else if (slot.slotId === 'actividades_integradoras:presentacion_proyecto:11') {
+    if (!isObject(inputBlock)) fail('bloque_invalido', path);
+    assertExactKeys(inputBlock, new Set(['tipo', 'accion_1', 'accion_2']), path);
+    if (inputBlock.tipo !== 'lista') fail('representacion_pedagogica_invalida', `${path}.tipo`);
+    const items = ['accion_1', 'accion_2'].map((key) => {
+      assertText(inputBlock[key], `${path}.${key}`);
+      return inputBlock[key].trim();
+    });
+    const normalized = items.map(normalizeExactLearning);
+    if (new Set(normalized).size !== items.length) fail('accion_ruta_duplicada', `${path}.items`);
+    finalBlock = construirBloqueV2DesdeSlot(slot, { tipo: 'lista', items });
+  } else if (slot.slotId === 'aprendizaje_guiado:presentacion_tema:8') {
+    if (!isObject(inputBlock)) fail('bloque_invalido', path);
+    assertExactKeys(inputBlock, new Set(['tipo', 'aprendizaje_1', 'aprendizaje_2', 'aprendizaje_3']), path);
+    if (inputBlock.tipo !== 'lista') fail('representacion_pedagogica_invalida', `${path}.tipo`);
+    const items = ['aprendizaje_1', 'aprendizaje_2', 'aprendizaje_3'].map((key) => {
+      assertText(inputBlock[key], `${path}.${key}`);
+      return inputBlock[key].trim();
+    });
+    const normalized = items.map((item) => normalizeExactLearning(item));
+    if (new Set(normalized).size !== items.length) fail('aprendizaje_duplicado', `${path}.items`);
+    finalBlock = construirBloqueV2DesdeSlot(slot, { tipo: 'lista', items });
+  } else if (slot.slotId === 'aprendizaje_guiado:actividades_comprension:26') {
+    if (!isObject(inputBlock)) fail('bloque_invalido', path);
+    assertExactKeys(inputBlock, new Set(['tipo', 'categorias', 'elementos']), path);
+    if (inputBlock.tipo !== 'tabla') fail('representacion_pedagogica_invalida', `${path}.tipo`);
+    assertStringArray(inputBlock.categorias, `${path}.categorias`);
+    assertStringArray(inputBlock.elementos, `${path}.elementos`);
+    if (inputBlock.elementos.length < 4) fail('cantidad_pedagogica_invalida', `${path}.elementos`, { cantidadEsperadaMin: 4, cantidadRecibida: inputBlock.elementos.length });
+    finalBlock = {
+      tipo: 'tabla',
+      columnas: ['Elemento', `Clasificación (${inputBlock.categorias.join(' / ')})`],
+      filas: inputBlock.elementos.map((elemento) => [elemento.trim(), '']),
+      cobertura: [slot.numero]
+    };
+  } else if (inputBlock?.tipo === 'ejemplo_resuelto') {
     const { verificacion, contrato_cuantitativo: quantitative, ...historicalInput } = inputBlock;
     if (!quantitative) fail('contrato_cuantitativo_requerido', `${path}.contrato_cuantitativo`);
     const verified = evaluarContratoCuantitativo(quantitative, CUADERNILLO_V3_QUANTITATIVE_FAMILIES, `${path}.contrato_cuantitativo`);
@@ -470,15 +704,19 @@ export function construirBloqueV3DesdeSlot(slot, inputBlock) {
     }
     validateV3Verification(finalBlock.verificacion, `${path}.verificacion`);
   } else if (['actividad', 'proyecto'].includes(inputBlock?.tipo)) {
-    const { contrato_tarea: taskContract, ...historicalInput } = inputBlock;
+    const { contrato_tarea: taskContract, ...historicalInputRaw } = inputBlock;
     validateTaskContract(taskContract, `${path}.contrato_tarea`);
+    const historicalInput = prepareCompletarInput(historicalInputRaw, path);
     finalBlock = construirBloqueV2DesdeSlot(slot, historicalInput);
+    if (obtenerContratoPedagogicoSlotV3(slot)?.requiereEspacio) addBackendResponseSpaces(finalBlock);
   } else {
     finalBlock = construirBloqueV2DesdeSlot(slot, inputBlock);
   }
+  validatePedagogicalSlotContract(slot, finalBlock, path);
   validateV3ProcedureDepth(finalBlock, obtenerNivelProcedimentalSlotV3(slot), path);
-  if (finalBlock.tipo === 'evaluacion' && finalBlock.modalidad === 'autoevaluacion') {
-    fail('autoevaluacion_no_permitida', `slots[${slot.slotId}].bloque.modalidad`);
+  validateTheoreticalExposition(slot, finalBlock, path);
+  if (finalBlock.tipo === 'evaluacion') {
+    fail('evaluacion_no_permitida_v3', `slots[${slot.slotId}].bloque.tipo`);
   }
   lintCuadernilloV3Block(finalBlock, `slots[${slot.slotId}].bloque`);
   return finalBlock;
@@ -503,6 +741,19 @@ function validateV3Verification(value, path) {
 }
 
 function validateBlockV3(block, path, allowedCoverage, activityIds, proceduralLevel = null) {
+  if (block?.tipo === 'tabla' && Array.isArray(block.cobertura) && block.cobertura.length === 1 && block.cobertura[0] === 26) {
+    assertExactKeys(block, new Set(['tipo', 'titulo', 'columnas', 'filas', 'cobertura']), path);
+    const coverage = validateCoverage(block.cobertura, allowedCoverage, `${path}.cobertura`);
+    if (block.titulo !== undefined) assertText(block.titulo, `${path}.titulo`);
+    assertStringArray(block.columnas, `${path}.columnas`);
+    if (!Array.isArray(block.filas) || block.filas.length < 4) fail('cantidad_pedagogica_invalida', `${path}.filas`);
+    block.filas.forEach((row, index) => {
+      if (!Array.isArray(row) || row.length !== 2) fail('tabla_no_rectangular', `${path}.filas[${index}]`);
+      assertText(row[0], `${path}.filas[${index}][0]`);
+      if (row[1] !== '') fail('respuesta_clasificacion_debe_estar_vacia', `${path}.filas[${index}][1]`);
+    });
+    return coverage;
+  }
   if (block?.tipo !== 'ejemplo_resuelto') {
     const coverage = validateBlock(block, path, allowedCoverage, activityIds);
     validateV3ProcedureDepth(block, proceduralLevel, path);
