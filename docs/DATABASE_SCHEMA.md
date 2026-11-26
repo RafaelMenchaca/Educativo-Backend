@@ -254,8 +254,10 @@ execute FUNCTION set_updated_at ();
 producción, aplicadas dos veces para comprobar idempotencia y postverificadas en
 ambos ambientes. Es nullable y no tiene default ni backfill:
 `NULL` conserva los registros históricos v1 con `contenido.anexos[]`. Un valor
-de la allowlist identifica un documento v2 con `contenido.schema_version = 2` y
-`contenido.secciones[]`. La columna es la única fuente de verdad del tipo; el
+de la allowlist identifica un documento tipado con `contenido.schema_version`
+2 o 3 y `contenido.secciones[]`. V3 no persiste contratos internos de tarea o
+verificación cuantitativa: conserva únicamente los bloques pedagógicos ya
+validados. La columna es la única fuente de verdad del tipo; el
 JSON no debe duplicarla. La migración no cambia `unique_anexo_por_planeacion`,
 RLS ni FKs.
 
@@ -264,8 +266,9 @@ El paquete aplicado en test permanece en
 postverificado permanece en `docs/production/anexos-cuadernillo-v2/` como
 historial operativo y mecanismo idempotente; no debe repetirse rutinariamente.
 En producción se conservaron los `136` históricos con tipo `NULL`, sin backfill,
-y el rollback nunca se ejecutó. El schema productivo está actualizado, pero el
-código v2 continúa pendiente de push, PR, merge y deploy.
+y el rollback nunca se ejecutó. El schema productivo y el código v2 están
+desplegados. V3 vive exclusivamente en `contenido` JSONB y no modifica columna,
+CHECK ni migraciones.
 
 
 <!-- Table examen_generation_items -->

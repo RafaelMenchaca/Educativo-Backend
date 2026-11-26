@@ -100,8 +100,11 @@ Todas las rutas privadas se montan bajo `/api` desde `src/routes/index.js`.
 | `planeaciones.service.js` | planeaciones, batches, archivado, generación y métricas legacy |
 | `anexos.service.js` | generación/regeneración y persistencia de anexos por planeación |
 | `domain/cuadernillos.js` | owner de IDs, metadata y blueprints de los tres cuadernillos v2 |
+| `domain/cuadernillosV3.js` | blueprints v3 derivados, slots y políticas editoriales por modalidad |
+| `domain/cuadernilloV3Representations.js` | representaciones y schemas declarativos no copiables para v3 |
 | `validators/cuadernilloV2.validator.js` | validadores puros del contenido completo y de segmentos v2; reciben el tipo canónico como argumento externo |
 | `services/cuadernilloV2.engine.js` | núcleo puro de prompts segmentados, retry limitado, ensamblado y métricas en memoria; Anexos le inyecta el adaptador de completions |
+| `services/cuadernilloV3.engine.js` | motor editorial v3, retry por slot, linter acotado y agrupación determinista |
 | `listas_cotejo.service.js` | listas por selección de planeaciones y flujo legacy por unidad |
 | `examenes.service.js` | jobs, worker en proceso, validación y persistencia de exámenes |
 | `biblioteca.service.js` | lectura agregada y eliminación de bloques |
@@ -155,6 +158,75 @@ actualización de schema no equivale a un despliegue: el código continúa en la
 ramas `work/features` hasta completar push, PR, merge y deploy.
 
 ## SSE y jobs
+
+### Contrato editorial v3
+
+Las generaciones tipadas nuevas producen `schema_version: 3` y
+`prompt_version: v3_cuadernillo_academico_tipado`. El owner v3 es explícito y
+no reinterpreta el blueprint histórico: conserva números semánticos, elimina
+Datos generales, Autoevaluación y Evaluación, y termina siempre en Cierre y
+reflexión. Guiado contiene 5 secciones/19 slots; Ejercicios, 6/21; e
+Integradoras, 5/17. Las cardinalidades (dos ejemplos, tres ejercicios básicos,
+una actividad integradora compacta, evidencia única y reflexiones) pertenecen al owner y se
+validan en backend.
+
+Los tres aprendizajes esperados de Guiado son exactos: el schema del proveedor
+requiere `aprendizaje_1`, `aprendizaje_2` y `aprendizaje_3`, mientras el backend
+los hidrata a un único bloque visible `lista` y no persiste esos campos técnicos.
+Las actividades de escritura separan consigna y presentación: el modelo devuelve
+texto completo y opciones, el backend asigna `espacio_respuesta`; para clasificar,
+hidrata categorías y elementos a una tabla con celdas vacías utilizables.
+
+La segmentación conserva cuatro llamadas base: Guiado distribuye Presentación;
+Desarrollo+Apoyos; Comprensión; Cierre. Ejercicios distribuye Presentación;
+Repaso+Ejemplos; tres ejercicios básicos; Integradora+Cierre. Integradoras
+distribuye Presentación; Fundamentación; Contextualización con espacio de
+trabajo; Resultados+Cierre.
+
+El modelo aporta contenido por slot; el backend asigna sección, orden, cobertura
+e IDs, agrupa solo bloques adyacentes compatibles y valida el documento. El
+linter rechaza placeholders y metadiscurso inequívocos. Un fallo deja pendiente
+ese slot y no habilita una tercera llamada. V1 y v2 conservan sus motores para
+regenerar históricos sin actualización silenciosa.
+
+El owner v3 asigna a cada slot una política procedimental no persistida:
+demostrativa para enseñar un método con operaciones concretas, orientadora para
+dejar trabajo auténtico al estudiante y operativa para proyectos, productos y
+evidencias. Los pasos se mantienen breves y accionables; el validador rechaza
+duplicados exactos y, en modo demostrativo, órdenes genéricas aisladas. Esta
+regla no se aplica a documentos v1/v2 ni intenta verificar matemáticas mediante
+expresiones regulares.
+
+El adaptador v3 está aislado de v1/v2: usa `gpt-6-luna`, razonamiento `low`,
+Structured Outputs estricto y no envía temperatura. El modelo solo puede
+proceder de la allowlist backend mediante `OPENAI_CUADERNILLO_V3_MODEL`. Los
+schemas dinámicos incluyen únicamente los slots y representaciones principales
+de cada llamada. El verificador puro cubre racionales, determinantes 2×2 y
+sistemas lineales 2×2. La IA solo propone entradas matemáticas sin texto libre;
+el backend hidrata y deriva operaciones, determinantes, solución, comprobaciones,
+interpretación canónica y representación visible,
+y descarta toda metadata interna antes de persistir. Fuera de esas familias no se promete
+validación matemática. V3 rechaza LaTeX; preview y Word consumen texto plano,
+Unicode y tablas existentes.
+
+La familia soportada observada en el primer intento queda fijada por el backend
+durante el retry y restringe su JSON Schema. Para el grupo 15–17, el slot 15 es
+el owner matemático y se persiste un único bloque hidratado con la cobertura de
+los tres componentes, evitando fuentes o presentaciones duplicadas.
+
+El motor transmite entre segmentos solo una continuidad estructural acotada de
+las actividades ya aceptadas. Relaciones algebraicas idénticas aunque cambien de
+orden, contratos de tarea iguales o el mismo escenario con las mismas variables
+invalidan el slot posterior con `actividad_repetida`. Se conserva el segmento
+anterior y se usa únicamente el segundo intento ya disponible. Los bloques
+cuantitativos separan procedimiento, resultado y comprobación, y emplean un
+formateador canónico sin coeficientes `1`, términos cero ni secuencias `+ -`.
+
+El schema v3 se valida localmente antes del SDK. Los eventos
+`cuadernillo_v3:completion_request` y `cuadernillo_v3:completion_error` permiten
+distinguir configuración, schema, acceso, cuota, parámetros, rate limit,
+timeout y conexión sin registrar prompts, completions o datos académicos. Los
+fallos permanentes se detienen; no se convierten en retries pedagógicos.
 
 Planeaciones admite SSE en `POST /api/planeaciones/generate?stream=1` y `POST /api/unidades/:unidadId/generar?stream=1`; también se detecta `Accept: text/event-stream`. Los eventos observados incluyen `item_started`, `item_completed`, `item_error`, `item_skipped`, `done` y un evento de error del stream según el flujo.
 

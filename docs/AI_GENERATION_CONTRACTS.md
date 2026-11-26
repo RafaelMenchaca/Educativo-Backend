@@ -174,8 +174,207 @@ Compatibilidad prevista:
 - v1: `tipo_cuadernillo IS NULL` y `contenido.anexos[]`;
 - v2: tipo canónico no nulo, `contenido.schema_version = 2` y
   `contenido.secciones[]`.
+- v3: tipo canónico no nulo, `contenido.schema_version = 3`, sin
+  `datos_generales`, Autoevaluación ni secciones de Evaluación, y
+  `contenido.secciones[]`.
 
-El endpoint individual despacha por versión. El adaptador segmentario usa Chat
+Las generaciones tipadas nuevas usan v3 con
+`prompt_version = v3_cuadernillo_academico_tipado`. Sus blueprints se
+son owners explícitos sin renumerar componentes: 21 slots para Ejercicios,
+17 para Integradoras y 19 para Guiado. Conservan cuatro segmentos, máximo dos
+llamadas por segmento, retry exclusivo de slots pendientes y persistencia final
+atómica. La política común exige lenguaje directo al estudiante y prohíbe
+metadiscurso, placeholders copiables, reafirmaciones y conclusiones genéricas.
+Ejercicios contiene dos ejemplos, tres ejercicios básicos y una integradora;
+Integradoras conecta un caso compacto con una evidencia única; Guiado mantiene
+explicación gradual y cuatro actividades de comprensión, sin sección de aplicación.
+Todas terminan en Cierre y reflexión. La regeneración no actualiza versiones: v1 usa v1, un
+histórico v2 usa v2 y un documento v3 usa v3.
+
+Cada slot v3 incluye sus discriminadores permitidos y schemas locales exactos.
+La completion devuelve una entrada independiente por `slot_id`; no resume ni
+agrupa slots, porque la agrupación sucede después de validar en backend. Si una
+respuesta usa propiedades ajenas a su discriminador, el retry recibe tipo,
+propiedades requeridas/opcionales, propiedades prohibidas detectadas y schema
+mínimo, sin recibir la respuesta pedagógica rechazada. Las respuestas hermanas
+válidas se conservan.
+
+V3 usa un adaptador exclusivo de Chat Completions: modelo allowlisted
+`gpt-6-luna` (configurable solo mediante `OPENAI_CUADERNILLO_V3_MODEL`),
+`reasoning_effort: low`, sin `temperature`, `max_completion_tokens: 5000` y
+timeout de 120 segundos. La respuesta usa Structured Outputs con JSON Schema
+estricto y dinámico para los `slot_id` solicitados. V1 y v2 continúan con
+`gpt-4o-mini` y sus parámetros históricos; ningún modelo procede del request.
+Las tarifas de GPT-6 Luna difieren de `gpt-4o-mini` y el razonamiento puede
+aportar tokens adicionales. El costo y la latencia deben medirse con `usage` en
+Supabase test antes de producción; la compactación del prompt no constituye
+una garantía de ahorro.
+
+Antes de enviar una llamada v3, el backend valida offline que el JSON Schema
+sea serializable, no circular, use solo el subconjunto admitido por Structured
+Outputs, enumere como requeridas todas las propiedades de cada objeto y use
+`additionalProperties: false`. Cardinalidad exacta, contenido no vacío,
+rectangularidad y unicidad siguen siendo responsabilidad del validador backend;
+no se expresan mediante keywords incompatibles del proveedor.
+
+El evento seguro `completion_request` registra solo configuración, segmento,
+intento y cantidad de slots. Si el SDK o API falla, `completion_error` conserva
+etapa, clase normalizada, status, type/code/param, request ID, duración y si el
+fallo sería reintentable. No registra messages, prompt, schema completo,
+completion ni contexto académico. Errores permanentes de credenciales, cuota,
+acceso al modelo, parámetros o schema detienen el segmento y no consumen el
+segundo intento reservado a correcciones pedagógicas.
+
+La especialización pedagógica 2O cambia la distribución y cardinalidad de los
+segmentos, por lo que mediciones anteriores de caracteres no son comparables.
+El schema estricto también consume entrada: `usage` de una futura generación
+controlada en test sigue siendo la única medición autorizada de costo y latencia.
+
+V3 construye localmente descripciones directas para las tres modalidades; no
+reutiliza el objetivo metadiscursivo histórico de v2. Cada sección aporta al
+prompt una función editorial y un inventario canónico de componentes ya
+solicitados, nunca completions anteriores. En Aprendizaje guiado, Desarrollo
+define, Apoyos representa o resume, Comprensión ejercita cuatro modalidades,
+y Cierre sintetiza tres ideas y solicita dos reflexiones. El slot de aprendizajes
+esperados usa en Structured Outputs tres propiedades requeridas
+`aprendizaje_1/2/3`; el backend valida texto no vacío y unicidad, y las hidrata
+como una sola `lista.items` sin persistir esos nombres técnicos. V3 no genera
+calificación, rúbricas, listas de cotejo ni exámenes.
+
+Las consignas v3 nunca contienen líneas, guiones bajos ni recuadros escritos
+por el modelo. En actividades con escritura, la IA entrega oraciones completas,
+bancos u opciones; el backend añade `espacio_respuesta` con líneas canónicas por
+modalidad. La clasificación de Guiado recibe únicamente categorías y elementos,
+y el backend construye una tabla con celdas de respuesta vacías. El linter
+`editorial_placeholder_lineas` permanece fail-closed y el retry pide reformular
+sin limpiar silenciosamente el contenido rechazado.
+
+En la modalidad `completar`, cada item transitorio incluye
+`respuesta_correcta` para comprobar que pertenece al banco y que el enunciado
+no revela literalmente el término. El backend elimina esa metadata antes de
+hidratar y persistir la actividad. `Desarrollo teórico` es exclusivamente
+expositivo: define, compara, relaciona o presenta procedimientos y rechaza
+consignas inequívocas como `Comprueba tu comprensión:`; las actividades se
+reservan para `Actividades de comprensión`.
+
+`ejemplo_resuelto` exige coherencia entre enunciado, pasos, resultado e
+interpretación. En materias cuantitativas, el último paso debe mostrar una
+comprobación concisa en todas las ecuaciones o condiciones originales y
+conservar precisión decimal o fraccionaria. Esta es una defensa de prompt y
+revisión pedagógica: el backend no pretende resolver álgebra general ni certificar
+semánticamente resultados mediante expresiones regulares.
+
+V3 declara en el owner grupos pequeños de coherencia. Si falta o falla un
+miembro, el segundo intento descarta solo ese grupo y vuelve a solicitar todos
+sus slots; conserva los bloques válidos ajenos. Ejercicios agrupa por separado
+los ejemplos 15–17 y 36–38, además de la integradora 28–30. Integradoras agrupa
+situación/análisis, diseño, construcción del producto y resultados. El producto
+definido al presentar el proyecto es el único admitido en su construcción.
+Guiado no añade grupos sin dependencia real.
+
+La expansión de un retry por coherencia no sustituye su causa. Los eventos
+`segment_slot_retry` y `segment_slot_retry_failed` conservan `errorCode`,
+`errorPath` y `slotCausal` del miembro inválido, junto con una lista segura y
+acotada `erroresCausales` cuando hay más de uno. `retryScope`, `groupExpanded`,
+`groupIds` y `slotsGrupo` describen por separado el alcance de recuperación.
+El prompt correctivo recibe esos códigos y paths causales, nunca contenido
+rechazado ni el antiguo código artificial `grupo_coherencia_reintentado`.
+
+En la Presentación de Integradoras, los tres aprendizajes esperados y las dos
+acciones de la ruta compacta usan propiedades transitorias requeridas; el
+backend las hidrata como listas visibles sin persistir sus nombres técnicos.
+La Contextualización aplica el mismo límite estructural a exactamente tres
+preguntas del caso, que se hidratan como una actividad con espacios de respuesta
+backend. Así, Structured Outputs no puede producir arrays fuera de las
+cardinalidades que después exige el owner.
+
+En el contexto canónico Matemáticas/Álgebra lineal, el slot 18 de
+Contextualización es la única fuente de datos de la actividad central. Su
+contrato transitorio exige una matriz numérica 3×3, un vector `b` de tres
+componentes, tres variables ordenadas con significado y tres etiquetas de
+fila. El backend valida racionales, rectangularidad y correspondencia de
+dimensiones, y lo hidrata como una tabla aumentada visible; no persiste los
+nombres transitorios ni calcula rango, determinante o solución. Los slots
+17, 20 y 31 conservan respectivamente caso, tres consignas y espacio de
+trabajo. Un dato ausente produce `datos_actividad_incompletos` y reintenta el
+grupo 17–31 con la causa segura preservada.
+
+`ejemplo_resuelto` v3 añade `verificacion: string[]`, obligatoria, no vacía y
+visible. Rechaza fórmulas genéricas de comprobación; v2 no incorpora esta
+propiedad. El prompt exige pertinencia real al tema y autocontrol previo, sin
+clasificadores por palabras clave. Los enunciados exactamente duplicados se
+detectan tras normalizar caja, espacios y puntuación periférica. Un duplicado
+intersegmento se rechaza en la validación final: no se abre una tercera llamada
+para repararlo.
+
+Cada slot v3 recibe además un nivel procedimental canónico que no se persiste:
+`demostrativo` desarrolla datos, sustituciones, operaciones o decisiones;
+`orientador` ofrece una ruta sin resolver el trabajo del estudiante; y
+`operativo` ordena fases, entregables y evidencias sin inventar resultados. En
+Guiado, Desarrollo y Apoyos son demostrativos; en Ejercicios, los ejemplos son
+demostrativos, la práctica es orientadora y la actividad
+integradora es operativa; Integradoras usa procedimientos operativos. V3
+rechaza pasos demostrativos que sean solo una orden genérica o que se repitan
+exactamente. Profundidad significa operaciones y decisiones breves, no mayor
+verbosidad. `pasos`, `resultado`, `verificacion` e `interpretacion` conservan
+responsabilidades separadas.
+
+Para el contexto canónico Matemáticas/Álgebra lineal, el JSON Schema inicial de
+los dos ejemplos de Ejercicios admite únicamente `determinante_2x2` y
+`sistema_lineal_2x2`; no ofrece `no_cuantitativo`, por lo que evita el retry
+previsible por `familia_cuantitativa_requerida`. La clasificación procede de
+metadata académica canónica exacta. En materias conceptuales se conserva el
+ejemplo no cuantitativo desarrollado y no se presenta como cálculo verificado.
+
+Los ejemplos cuantitativos v3 pueden declarar únicamente
+`aritmetica_racional`, `determinante_2x2` o `sistema_lineal_2x2`. El backend
+es la única fuente de verdad matemática: la IA entrega únicamente racionales
+de entrada, secuencia de operaciones allowlisted y método.
+No puede entregar solución, determinantes, resultados, operaciones resueltas ni
+lados de comprobación; tampoco entrega contexto, interpretación ni texto libre
+dentro del contrato cuantitativo. El backend hidrata un contrato interno, opera racionales
+exactos y construye procedimiento, resultado, comprobaciones, matrices e
+interpretación canónica antes de descartar tanto la entrada como la hidratación.
+No es un CAS: otras
+familias no se anuncian como verificadas y deben quedar como práctica
+orientadora o fallar cerrado cuando el slot exija resolución. Los contratos de
+tarea estructuran conceptos, datos suficientes, objetivo y aplicación del
+tema, pero no pretenden demostrar pertinencia semántica general.
+
+Las entradas se limitan a numeradores de magnitud máxima 10,000 y denominadores
+máximos de 1,000; los derivados usan guardas mayores pero acotadas. Racionales
+inválidos, cero en denominador, sistemas singulares, valores fuera de límites o
+fallos de hidratación reintentan únicamente el slot o grupo canónico. El evento
+seguro conserva familia, código, path y etapa del solver, nunca coeficientes,
+ecuaciones, operaciones o soluciones.
+
+Si el primer intento declara una familia cuantitativa soportada, el backend la
+conserva como estado seguro del slot. El JSON Schema del retry admite únicamente
+esa familia: no puede degradarse a `no_cuantitativo` ni cambiar a otra familia.
+En el grupo 15–17 de Ejercicios, el slot 15 es el único owner matemático; después
+de validar el grupo, el backend persiste un solo bloque hidratado con cobertura
+`[15, 16, 17]`, sin duplicar procedimiento, resultado, comprobación o interpretación.
+
+La presentación cuantitativa mantiene responsabilidades separadas: `pasos`
+termina al calcular las variables, `resultado` contiene la solución una vez y
+`verificacion` contiene exclusivamente las sustituciones. El formateador lineal
+omite coeficientes unitarios y términos nulos, usa `−` para signos negativos y
+nunca genera secuencias `+ -`.
+
+Después de cada segmento, el motor conserva únicamente resúmenes acotados de
+actividades: sección, modalidad, escenario normalizado, variables, relaciones y
+objetivo. El siguiente prompt recibe estos resúmenes, no las completions. Una
+coincidencia inequívoca por conjunto de relaciones, contrato de tarea o escenario
+con variables produce `actividad_repetida` en el slot posterior y utiliza el retry
+normal del segmento; el segundo fallo aborta sin persistencia. La observabilidad
+solo registra sección previa y tipo de coincidencia, nunca el contenido comparado.
+
+V3 prohíbe LaTeX y conserva texto plano, Unicode básico, fracciones `a/b` y
+tablas. Preview y Word reciben solo bloques pedagógicos; no persisten ni
+muestran los contratos internos. Un fallo matemático usa el retry localizado o
+grupal vigente, con máximo dos llamadas y sin persistencia parcial.
+
+El endpoint individual despacha por versión. El adaptador v2 usa Chat
 Completions con `gpt-4o-mini`, temperatura `0.3`, `max_tokens: 3000`, JSON mode y
 timeout individual de 90 segundos. Solo se inserta o actualiza después de
 validar el documento completo; los tokens y datos del job se agregan al nivel
@@ -189,8 +388,8 @@ renderer web v2 y el exportador Word v2 están implementados y conservan sus
 dispatches v1. La columna nullable y su CHECK canónico están aplicados y
 postverificados en Supabase test y producción; `NULL` continúa identificando
 históricos v1 y el tipo canónico externo acompaña a `schema_version: 2`. El
-rollback productivo no fue ejecutado. El código todavía permanece en las ramas
-`work/features`, por lo que no se declara rollout ni deploy completado.
+rollback productivo no fue ejecutado. El flujo v2 está desplegado; v3 se prepara
+en `work/features` y todavía no se declara desplegado.
 
 ### Métricas y elementos protegidos
 

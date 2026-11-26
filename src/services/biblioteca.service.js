@@ -14,6 +14,11 @@ function buildHttpError(status, message) {
   return error;
 }
 
+function getAnexoSchemaVersion(anexo) {
+  if (!anexo?.tipo_cuadernillo) return null;
+  return String(anexo.prompt_version || '').startsWith('v3_') ? 3 : 2;
+}
+
 function buildConjuntoPayload(batch, planeaciones, examenes, listas, anexos) {
   return {
     id: batch.id,
@@ -75,7 +80,7 @@ function buildConjuntoPayload(batch, planeaciones, examenes, listas, anexos) {
       nivel: a.nivel,
       tema: a.tema,
       tipo_cuadernillo: a.tipo_cuadernillo ?? null,
-      schema_version: a.tipo_cuadernillo ? 2 : null,
+      schema_version: getAnexoSchemaVersion(a),
       prompt_version: a.prompt_version || null,
       status: a.status,
       created_at: a.created_at

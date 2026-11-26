@@ -6,6 +6,16 @@ import {
   CuadernilloV2GenerationError,
   generarCuadernilloV2
 } from './cuadernilloV2.engine.js';
+import {
+  CuadernilloV3GenerationError,
+  generarCuadernilloV3
+} from './cuadernilloV3.engine.js';
+import {
+  buildCuadernilloV3RequestMetadata,
+  classifyOpenAIProviderError,
+  CuadernilloV3ProviderError,
+  validateOpenAiStructuredOutputSchema
+} from './cuadernilloV3.provider.js';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -22,10 +32,26 @@ const ANEXOS_SYSTEM_PROMPT =
 const ANEXOS_PROMPT_VERSION = 'v1_anexos_desde_planeacion';
 const ANEXOS_TIMEOUT_MS = 90000;
 const CUADERNILLO_V2_PROMPT_VERSION = 'v2_cuadernillo_segmentado';
+const CUADERNILLO_V3_PROMPT_VERSION = 'v3_cuadernillo_academico_tipado';
 const CUADERNILLO_V2_MODEL = 'gpt-4o-mini';
 const CUADERNILLO_V2_TEMPERATURE = 0.3;
 const CUADERNILLO_V2_MAX_TOKENS = 3000;
 const CUADERNILLO_V2_TIMEOUT_MS = 90000;
+export const CUADERNILLO_V3_DEFAULT_MODEL = 'gpt-6-luna';
+export const CUADERNILLO_V3_ALLOWED_MODELS = Object.freeze(['gpt-6-luna']);
+const CUADERNILLO_V3_REASONING_EFFORT = 'low';
+const CUADERNILLO_V3_MAX_COMPLETION_TOKENS = 5000;
+const CUADERNILLO_V3_TIMEOUT_MS = 120000;
+
+export function resolveCuadernilloV3Model(env = process.env) {
+  const configured = Object.hasOwn(env, 'OPENAI_CUADERNILLO_V3_MODEL')
+    ? normalizeString(env.OPENAI_CUADERNILLO_V3_MODEL)
+    : CUADERNILLO_V3_DEFAULT_MODEL;
+  if (!configured || !CUADERNILLO_V3_ALLOWED_MODELS.includes(configured)) {
+    throw buildHttpError(500, 'Configuracion de modelo v3 invalida.', 'cuadernillo_v3_modelo_invalido');
+  }
+  return configured;
+}
 
 function buildHttpError(status, message, code = null) {
   const error = new Error(message);
@@ -53,7 +79,10 @@ function safeParseJson(value, fallback) {
 }
 
 function getSchemaVersion(anexo) {
-  return anexo?.tipo_cuadernillo ? 2 : null;
+  if (!anexo?.tipo_cuadernillo) return null;
+  const declared = Number(anexo?.contenido?.schema_version ?? anexo?.schema_version);
+  if ([2, 3].includes(declared)) return declared;
+  return anexo?.prompt_version === CUADERNILLO_V3_PROMPT_VERSION ? 3 : 2;
 }
 
 function withVersionSummary(anexo) {
@@ -284,7 +313,7 @@ export function createCuadernilloV2Completer({
   openaiClient = openai,
   logCall = logAiCall
 }) {
-  return async ({ systemPrompt, userPrompt, segmento, intento }) => {
+  return async ({ systemPrompt, userPrompt, segmento, intento, schemaVersion = 2 }) => {
     const callStart = Date.now();
     const completion = await withTimeout(
       openaiClient.chat.completions.create({
@@ -310,7 +339,7 @@ export function createCuadernilloV2Completer({
         artifactType: 'anexo',
         callPurpose: 'workbook_segment',
         model: CUADERNILLO_V2_MODEL,
-        promptVersion: CUADERNILLO_V2_PROMPT_VERSION,
+        promptVersion: schemaVersion === 3 ? CUADERNILLO_V3_PROMPT_VERSION : CUADERNILLO_V2_PROMPT_VERSION,
         usage: completion.usage,
         status: 'success',
         jsonOk: Boolean(content),
@@ -321,10 +350,92 @@ export function createCuadernilloV2Completer({
           segmento: segmento?.id || null,
           finish_reason: finishReason
         }
-      }).catch((err) => console.error('[aiMetrics] cuadernillo v2 logAiCall failed:', err?.message));
+      }).catch((err) => console.error('[aiMetrics] cuadernillo logAiCall failed:', err?.message));
     }
 
     return { content, usage: completion.usage || {}, durationMs, finishReason };
+  };
+}
+
+export function createCuadernilloV3Completer({
+  jobId,
+  userId,
+  tipoCuadernillo,
+  openaiClient = openai,
+  logCall = logAiCall,
+  env = process.env,
+  diagnosticar = null
+}) {
+  const model = resolveCuadernilloV3Model(env);
+  return async ({ systemPrompt, userPrompt, jsonSchema, segmento, segmentoIndice, slots, intento }) => {
+    const schemaName = 'cuadernillo_v3_slots';
+    const body = {
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: schemaName, strict: true, schema: jsonSchema }
+      },
+      reasoning_effort: CUADERNILLO_V3_REASONING_EFFORT,
+      max_completion_tokens: CUADERNILLO_V3_MAX_COMPLETION_TOKENS
+    };
+    const requestMetadata = buildCuadernilloV3RequestMetadata({
+      model, reasoningEffort: CUADERNILLO_V3_REASONING_EFFORT, body,
+      timeoutMs: CUADERNILLO_V3_TIMEOUT_MS, schemaName, slots, segmento
+    });
+    const eventBase = {
+      tipoCuadernillo,
+      segmentoId: requestMetadata.segmentId,
+      segmentoIndice: segmentoIndice ?? null,
+      intento,
+      model: requestMetadata.model,
+      reasoningEffort: requestMetadata.reasoningEffort,
+      hasTemperature: requestMetadata.hasTemperature,
+      maxCompletionTokens: requestMetadata.maxCompletionTokens,
+      responseFormatType: requestMetadata.responseFormatType,
+      schemaName: requestMetadata.schemaName,
+      slotsSolicitados: requestMetadata.slotCount,
+      timeoutMs: requestMetadata.timeoutMs
+    };
+    const emit = (payload) => {
+      try { diagnosticar?.(Object.freeze(payload)); } catch { /* non-blocking observability */ }
+    };
+    const callStart = Date.now();
+    let completion;
+    try {
+      validateOpenAiStructuredOutputSchema(jsonSchema);
+      emit({ eventType: 'completion_request', ...eventBase });
+      completion = await openaiClient.chat.completions.create(body, { timeout: CUADERNILLO_V3_TIMEOUT_MS });
+    } catch (error) {
+      const safe = classifyOpenAIProviderError(error, error?.stage || 'provider_request');
+      emit({ eventType: 'completion_error', ...eventBase, ...safe, durationMs: Date.now() - callStart });
+      if (error instanceof CuadernilloV3ProviderError) throw error;
+      throw new CuadernilloV3ProviderError(safe.stage, safe, error);
+    }
+    const durationMs = Date.now() - callStart;
+    const message = completion.choices?.[0]?.message || {};
+    const content = message.content || '';
+    const refusal = normalizeString(message.refusal) || null;
+    const finishReason = completion.choices?.[0]?.finish_reason || null;
+    if (jobId && userId) {
+      logCall({
+        jobId, userId, artifactType: 'anexo', callPurpose: 'workbook_segment', model,
+        promptVersion: CUADERNILLO_V3_PROMPT_VERSION, usage: completion.usage,
+        status: refusal || !content ? 'error' : 'success', jsonOk: Boolean(content),
+        retryNumber: Math.max(0, Number(intento || 1) - 1), durationMs,
+        metadata: {
+          tipo_cuadernillo: tipoCuadernillo,
+          segmento: segmento?.id || null,
+          finish_reason: finishReason,
+          reasoning_effort: CUADERNILLO_V3_REASONING_EFFORT,
+          tokens_reasoning: Number(completion.usage?.completion_tokens_details?.reasoning_tokens || 0) || 0
+        }
+      }).catch((err) => console.error('[aiMetrics] cuadernillo v3 logAiCall failed:', err?.message));
+    }
+    return { content, usage: completion.usage || {}, durationMs, finishReason, refusal };
   };
 }
 
@@ -332,6 +443,12 @@ function logCuadernilloV2Diagnostic(diagnostic) {
   const event = diagnostic?.eventType || 'structural_failure';
   const method = event === 'segment_slots_validated' ? 'info' : 'warn';
   console[method](`[anexos] cuadernillo_v2:${event}`, diagnostic);
+}
+
+function logCuadernilloV3Diagnostic(diagnostic) {
+  const event = diagnostic?.eventType || 'structural_failure';
+  const method = ['segment_slots_validated', 'completion_request'].includes(event) ? 'info' : 'warn';
+  console[method](`[anexos] cuadernillo_v3:${event}`, diagnostic);
 }
 
 function buildTrustedV2Context(planeacion, tablaIa, actividadesMomentos) {
@@ -390,11 +507,53 @@ async function generateV2Content({
   }
 }
 
+async function generateV3Content({
+  planeacion,
+  tablaIa,
+  actividadesMomentos,
+  tipoCuadernillo,
+  completar,
+  jobId,
+  userId,
+  logCall
+}) {
+  try {
+    const result = await generarCuadernilloV3({
+      tipoCuadernillo,
+      contextoPlaneacion: buildTrustedV2Context(planeacion, tablaIa, actividadesMomentos),
+      diagnosticar: logCuadernilloV3Diagnostic,
+      completar: completar || createCuadernilloV3Completer({
+        jobId, userId, tipoCuadernillo, logCall, diagnosticar: logCuadernilloV3Diagnostic
+      })
+    });
+    return {
+      contenido: result.contenido,
+      tokensPrompt: result.metricas.tokensPrompt,
+      tokensCompletion: result.metricas.tokensCompletion,
+      tokensTotal: result.metricas.tokensTotal,
+      metricasV2: result.metricas
+    };
+  } catch (error) {
+    if (error instanceof CuadernilloV3GenerationError) {
+      const safeError = buildHttpError(502, 'No se pudo generar un cuadernillo valido.', 'cuadernillo_v3_invalido');
+      safeError.structuralCause = {
+        code: error.code,
+        segmentId: error.segmentId,
+        path: error.path,
+        diagnostics: error.diagnostics
+      };
+      throw safeError;
+    }
+    throw error;
+  }
+}
+
 async function generateContentByVersion({
   planeacion,
   tablaIa,
   actividadesMomentos,
   tipoCuadernillo,
+  schemaVersion = tipoCuadernillo ? 3 : 1,
   completarV2,
   generarV1,
   jobId,
@@ -402,7 +561,9 @@ async function generateContentByVersion({
   logCall
 }) {
   if (tipoCuadernillo) {
-    return generateV2Content({
+    const generateTyped = schemaVersion === 2 ? generateV2Content : schemaVersion === 3 ? generateV3Content : null;
+    if (!generateTyped) throw buildHttpError(500, 'El anexo tiene una version no valida.', 'schema_version_persistida_invalida');
+    return generateTyped({
       planeacion,
       tablaIa,
       actividadesMomentos,
@@ -515,7 +676,7 @@ export async function generarAnexo({
           planeacion_id: planeacion.id,
           planeaciones_count: 1,
           tipo_cuadernillo: tipoCuadernillo,
-          schema_version: tipoCuadernillo ? 2 : 1
+          schema_version: tipoCuadernillo ? 3 : 1
         }
       });
     } catch (err) {
@@ -555,7 +716,7 @@ export async function generarAnexo({
   const titulo = tipoCuadernillo
     ? normalizeString(contenido.titulo)
     : normalizeString(contenido.titulo_general) || `Anexos: ${normalizeString(planeacion.tema) || 'Sin titulo'}`;
-  const promptVersion = tipoCuadernillo ? CUADERNILLO_V2_PROMPT_VERSION : ANEXOS_PROMPT_VERSION;
+  const promptVersion = tipoCuadernillo ? CUADERNILLO_V3_PROMPT_VERSION : ANEXOS_PROMPT_VERSION;
 
   const insertPayload = {
     user_id: userId,
@@ -622,10 +783,13 @@ export async function generarAnexo({
       outputSummary: {
         anexos_creados: tipoCuadernillo ? 1 : (Array.isArray(contenido?.anexos) ? contenido.anexos.length : 0),
         tipo_cuadernillo: tipoCuadernillo,
-        schema_version: tipoCuadernillo ? 2 : 1,
+        schema_version: tipoCuadernillo ? 3 : 1,
         segmentos: metricasV2?.segmentos ?? null,
         llamadas: metricasV2?.llamadas ?? 1,
-        retries: metricasV2?.reintentos ?? 0
+        retries: metricasV2?.reintentos ?? 0,
+        tokens_reasoning: metricasV2?.tokensReasoning ?? 0,
+        familias_cuantitativas: metricasV2?.familiasCuantitativas ?? [],
+        verificaciones_exitosas: metricasV2?.verificacionesExitosas ?? 0
       }
     }).catch(() => {});
   }
@@ -643,7 +807,7 @@ export async function generarAnexo({
     anexo_id: nuevoAnexo.id,
     status: 'generated',
     tipo_cuadernillo: tipoCuadernillo,
-    schema_version: tipoCuadernillo ? 2 : null,
+    schema_version: tipoCuadernillo ? 3 : null,
     anexo: withVersionSummary(nuevoAnexo)
   };
 }
@@ -673,6 +837,10 @@ export async function regenerarAnexo({
   const tipoCuadernillo = anexo.tipo_cuadernillo ?? null;
   if (tipoCuadernillo !== null && !esTipoCuadernillo(tipoCuadernillo)) {
     throw buildHttpError(500, 'El anexo tiene un tipo no valido.', 'tipo_cuadernillo_persistido_invalido');
+  }
+  const storedSchemaVersion = tipoCuadernillo ? Number(anexo.contenido?.schema_version) : 1;
+  if (tipoCuadernillo && ![2, 3].includes(storedSchemaVersion)) {
+    throw buildHttpError(500, 'El anexo tiene una version no valida.', 'schema_version_persistida_invalida');
   }
 
   // Re-obtener la planeacion original
@@ -704,7 +872,7 @@ export async function regenerarAnexo({
           planeacion_id: planeacion.id,
           planeaciones_count: 1,
           tipo_cuadernillo: tipoCuadernillo,
-          schema_version: tipoCuadernillo ? 2 : 1
+          schema_version: storedSchemaVersion
         }
       });
     } catch (err) {
@@ -719,6 +887,7 @@ export async function regenerarAnexo({
       tablaIa,
       actividadesMomentos,
       tipoCuadernillo,
+      schemaVersion: storedSchemaVersion,
       completarV2,
       generarV1,
       jobId: aiJobId,
@@ -744,7 +913,9 @@ export async function regenerarAnexo({
   const titulo = tipoCuadernillo
     ? normalizeString(contenido.titulo)
     : normalizeString(contenido.titulo_general) || `Anexos: ${normalizeString(planeacion.tema) || 'Sin titulo'}`;
-  const promptVersion = tipoCuadernillo ? CUADERNILLO_V2_PROMPT_VERSION : ANEXOS_PROMPT_VERSION;
+  const promptVersion = tipoCuadernillo
+    ? (storedSchemaVersion === 3 ? CUADERNILLO_V3_PROMPT_VERSION : CUADERNILLO_V2_PROMPT_VERSION)
+    : ANEXOS_PROMPT_VERSION;
 
   const { data: updated, error: updateError } = await client
     .from('anexos')
@@ -778,10 +949,13 @@ export async function regenerarAnexo({
       outputSummary: {
         anexos_creados: tipoCuadernillo ? 1 : (Array.isArray(contenido?.anexos) ? contenido.anexos.length : 0),
         tipo_cuadernillo: tipoCuadernillo,
-        schema_version: tipoCuadernillo ? 2 : 1,
+        schema_version: storedSchemaVersion,
         segmentos: metricasV2?.segmentos ?? null,
         llamadas: metricasV2?.llamadas ?? 1,
-        retries: metricasV2?.reintentos ?? 0
+        retries: metricasV2?.reintentos ?? 0,
+        tokens_reasoning: metricasV2?.tokensReasoning ?? 0,
+        familias_cuantitativas: metricasV2?.familiasCuantitativas ?? [],
+        verificaciones_exitosas: metricasV2?.verificacionesExitosas ?? 0
       }
     }).catch(() => {});
   }
@@ -797,7 +971,7 @@ export async function regenerarAnexo({
   return {
     ok: true,
     tipo_cuadernillo: tipoCuadernillo,
-    schema_version: tipoCuadernillo ? 2 : null,
+    schema_version: tipoCuadernillo ? storedSchemaVersion : null,
     anexo: withVersionSummary(updated)
   };
 }

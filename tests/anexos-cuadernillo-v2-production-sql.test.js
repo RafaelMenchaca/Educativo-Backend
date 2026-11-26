@@ -214,7 +214,8 @@ test('documentation records final feature state and no obsolete checkpoint claim
   assert.match(docs, /docs\/production\/anexos-cuadernillo-v2/);
   assert.doesNotMatch(docs, /migraci[oó]n productiva[^.\n]*(?:pendiente|no ejecutada)|producci[oó]n permanece sin migrar/i);
   assert.match(docs, /test y producci[oó]n[^.\n]*(?:aplicad|postverificad)|aplicad[^.\n]*test y producci[oó]n/i);
-  assert.match(docs, /c[oó]digo[^.\n]*(?:ramas `work\/features`|pendiente)[^.\n]*(?:push|deploy)/i);
+  assert.match(docs, /(?:flujo|c[oó]digo) v2[^.\n]*(?:desplegad|producci[oó]n)/i);
+  assert.match(docs, /v3[^.\n]*(?:work\/features|prepara|preparaci[oó]n)[^.\n]*(?:sin cambios SQL|no se declara desplegado)/i);
   assert.match(docs, /rollback[^.\n]*(?:nunca|no fue) ejecutado/i);
 });
 
