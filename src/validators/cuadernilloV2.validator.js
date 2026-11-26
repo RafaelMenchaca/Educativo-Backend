@@ -12,7 +12,7 @@ import {
   obtenerSlotsCuadernilloV3
 } from '../domain/cuadernillosV3.js';
 import { evaluarContratoCuantitativo } from '../domain/cuadernilloV3Quantitative.js';
-import { CUADERNILLO_V3_QUANTITATIVE_FAMILIES } from '../domain/cuadernilloV3Contracts.js';
+import { CUADERNILLO_V3_QUANTITATIVE_FAMILIES, construirContratoDistanciaPuntoMedio2dV3, esContextoDistanciaPuntoMedio2dV3, obtenerDatasetDistanciaPuntoMedio2dV3 } from '../domain/cuadernilloV3Contracts.js';
 import { normalizeCuadernilloV3EditorialBlock } from '../utils/cuadernilloV3EditorialText.js';
 
 export const CUADERNILLO_V2_BLOCK_TYPES = Object.freeze([
@@ -367,7 +367,11 @@ const V3_FORBIDDEN_EDITORIAL_PATTERNS = Object.freeze([
   ['editorial_recurso_externo', /\b(?:consulta|busca|investiga) (?:en internet|en linea|un recurso externo)\b/],
   ['editorial_placeholder_lineas', /_{3,}|-{4,}|\.{4,}|·{4,}|\bescribe en la linea\b|\bresponde en el recuadro de abajo\b|\bcompleta\s+_{2,}/],
   ['latex_no_permitido', /\\\(|\\\)|\\begin\b|\\end\b|\\frac\b|\$\$|\$[^$]+\$/],
-  ['editorial_marcador_estructural', /<[^>]+>/]
+  ['editorial_marcador_estructural', /<[^>]+>/],
+  ['metadata_tecnica_expuesta', /\b(?:aritmetica_racional|determinante_2x2|sistema_lineal_2x2|distancia_punto_medio_2d|no_cuantitativo)\b/],
+  ['metadata_tecnica_expuesta', /\b(?:aprendizaje_guiado|ejercicios_aplicacion|actividades_integradoras):[a-z0-9_]+:\d+\b/],
+  ['metadata_tecnica_expuesta', /\b(?:ejemplo_resuelto|actividad_integradora|actividad_central|resultados)_\d+(?:_\d+)+\b/],
+  ['metadata_tecnica_expuesta', /\b(?:contrato_cuantitativo|contrato_tarea|familia_problema|dataset[_ -]?id|dataset_[a-z0-9_]+)\b/]
 ]);
 
 function normalizeEditorialText(value) {
@@ -602,12 +606,50 @@ function assertActivityRational(value, path) {
   if (!RATIONAL_ACTIVITY_INPUT_PATTERN.test(value.trim())) fail('datos_actividad_incompletos', path);
 }
 
+function coordinateOperationPresentation(operation) {
+  if (operation === 'distancia') return Object.freeze({
+    requested: 'la distancia',
+    instructions: 'Calcula la distancia entre los puntos indicados. Usa la fórmula de distancia, muestra las operaciones, comprueba que el resultado sea una longitud e interpreta la separación obtenida.',
+    steps: Object.freeze([
+      'Identifica las coordenadas de los dos puntos y calcula las diferencias entre sus componentes.',
+      'Aplica la fórmula d = √((x₂ − x₁)² + (y₂ − y₁)²) y simplifica la raíz hasta obtener la longitud exacta.',
+      'Comprueba la distancia elevándola al cuadrado y comparándola con la suma de los cuadrados de las diferencias.'
+    ]),
+    interpretation: 'Explica qué representa la distancia obtenida como separación entre los dos puntos.'
+  });
+  if (operation === 'punto_medio') return Object.freeze({
+    requested: 'el punto medio',
+    instructions: 'Calcula el punto medio entre los puntos indicados. Promedia por separado las coordenadas, comprueba el par ordenado e interpreta su ubicación central.',
+    steps: Object.freeze([
+      'Identifica las coordenadas correspondientes de los dos puntos.',
+      'Aplica la fórmula M = ((x₁ + x₂)/2, (y₁ + y₂)/2) y obtiene el par ordenado.',
+      'Comprueba por separado que cada coordenada sea el promedio de las dos coordenadas originales.'
+    ]),
+    interpretation: 'Explica qué representa el punto medio obtenido como ubicación central del segmento.'
+  });
+  return Object.freeze({
+    requested: 'la distancia y el punto medio',
+    instructions: 'Calcula la distancia y el punto medio entre los puntos indicados. Usa las dos fórmulas, registra una longitud y un par ordenado, comprueba ambos resultados e interpreta por separado la separación y la ubicación central.',
+    steps: Object.freeze([
+      'Identifica las coordenadas de los dos puntos y calcula las diferencias entre sus componentes.',
+      'Aplica la fórmula d = √((x₂ − x₁)² + (y₂ − y₁)²) y simplifica la raíz hasta obtener la longitud exacta.',
+      'Aplica la fórmula M = ((x₁ + x₂)/2, (y₁ + y₂)/2) y obtiene el par ordenado.',
+      'Comprueba la distancia con la suma de cuadrados y comprueba cada coordenada del punto medio mediante su promedio.'
+    ]),
+    interpretation: 'Explica por separado qué representa la distancia como separación y qué representa el punto medio como ubicación central del segmento.'
+  });
+}
+
 export function construirBloqueV3DesdeSlot(slot, inputBlock, { contextoPlaneacion = null } = {}) {
   const path = `slots[${slot.slotId}].bloque`;
   let finalBlock;
   const centralDataContract = slot.slotId === 'actividades_integradoras:contextualizacion:18'
     ? obtenerContratoDatosActividadCentralV3(contextoPlaneacion)
     : null;
+  const coordinateActivity = esContextoDistanciaPuntoMedio2dV3(contextoPlaneacion)
+    && ['ejercicios_aplicacion:ejercicios_basicos:18', 'ejercicios_aplicacion:ejercicios_basicos:19', 'ejercicios_aplicacion:ejercicios_basicos:20', 'ejercicios_aplicacion:actividad_integradora:28'].includes(slot.slotId);
+  const coordinateActivitySupport = esContextoDistanciaPuntoMedio2dV3(contextoPlaneacion)
+    && ['ejercicios_aplicacion:actividad_integradora:29', 'ejercicios_aplicacion:actividad_integradora:30'].includes(slot.slotId);
   if (centralDataContract) {
     if (!isObject(inputBlock)) fail('datos_actividad_incompletos', path);
     for (const key of ['tipo', 'variables', 'etiquetas_filas', 'matriz', 'vector_b']) {
@@ -649,6 +691,39 @@ export function construirBloqueV3DesdeSlot(slot, inputBlock, { contextoPlaneacio
       filas: inputBlock.matriz.map((row, index) => [inputBlock.etiquetas_filas[index].trim(), ...row.map((value) => value.trim()), inputBlock.vector_b[index].trim()]),
       cobertura: [slot.numero]
     };
+  } else if (coordinateActivity) {
+    if (!isObject(inputBlock)) fail('datos_actividad_incompletos', path);
+    assertExactKeys(inputBlock, new Set(['tipo', 'modalidad', 'instrucciones', 'contrato_tarea']), path);
+    if (inputBlock.tipo !== 'actividad') fail('representacion_pedagogica_invalida', `${path}.tipo`);
+    const expectedModality = slot.slotId.endsWith(':28') ? 'problema' : 'ejercicio';
+    if (inputBlock.modalidad !== expectedModality) fail('modalidad_pedagogica_invalida', `${path}.modalidad`);
+    assertText(inputBlock.instrucciones, `${path}.instrucciones`);
+    validateTaskContract(inputBlock.contrato_tarea, `${path}.contrato_tarea`);
+    const dataset = obtenerDatasetDistanciaPuntoMedio2dV3(slot, contextoPlaneacion);
+    if (!dataset) fail('datos_actividad_incompletos', `${path}.dataset`, { solverStage: 'backend_dataset' });
+    const a = dataset.punto_a; const b = dataset.punto_b;
+    const presentation = coordinateOperationPresentation(dataset.operacion);
+    finalBlock = construirBloqueV2DesdeSlot(slot, {
+      tipo: 'actividad', modalidad: expectedModality, instrucciones: presentation.instructions,
+      items: [{ enunciado: `Calcula ${presentation.requested} entre A(${a.x.trim()}, ${a.y.trim()}) y B(${b.x.trim()}, ${b.y.trim()}). Muestra las operaciones y realiza las comprobaciones indicadas.` }]
+    });
+    addBackendResponseSpaces(finalBlock);
+  } else if (coordinateActivitySupport) {
+    if (!isObject(inputBlock)) fail('bloque_invalido', path);
+    const dataset = obtenerDatasetDistanciaPuntoMedio2dV3(slot, contextoPlaneacion);
+    if (!dataset) fail('datos_actividad_incompletos', `${path}.dataset`, { solverStage: 'backend_dataset' });
+    const presentation = coordinateOperationPresentation(dataset.operacion);
+    if (slot.slotId.endsWith(':29')) {
+      assertExactKeys(inputBlock, new Set(['tipo', 'pasos']), path);
+      if (inputBlock.tipo !== 'procedimiento') fail('representacion_pedagogica_invalida', `${path}.tipo`);
+      assertStringArray(inputBlock.pasos, `${path}.pasos`);
+      finalBlock = construirBloqueV2DesdeSlot(slot, { tipo: 'procedimiento', pasos: [...presentation.steps] });
+    } else {
+      assertExactKeys(inputBlock, new Set(['tipo', 'contenido']), path);
+      if (inputBlock.tipo !== 'texto') fail('representacion_pedagogica_invalida', `${path}.tipo`);
+      assertText(inputBlock.contenido, `${path}.contenido`);
+      finalBlock = construirBloqueV2DesdeSlot(slot, { tipo: 'texto', contenido: presentation.interpretation });
+    }
   } else if (slot.slotId === 'actividades_integradoras:contextualizacion:20') {
     if (!isObject(inputBlock)) fail('bloque_invalido', path);
     assertExactKeys(inputBlock, new Set(['tipo', 'modalidad', 'instrucciones', 'pregunta_1', 'pregunta_2', 'pregunta_3', 'contrato_tarea']), path);
@@ -716,7 +791,11 @@ export function construirBloqueV3DesdeSlot(slot, inputBlock, { contextoPlaneacio
   } else if (inputBlock?.tipo === 'ejemplo_resuelto') {
     const { verificacion, contrato_cuantitativo: quantitative, ...historicalInput } = inputBlock;
     if (!quantitative) fail('contrato_cuantitativo_requerido', `${path}.contrato_cuantitativo`);
-    const verified = evaluarContratoCuantitativo(quantitative, CUADERNILLO_V3_QUANTITATIVE_FAMILIES, `${path}.contrato_cuantitativo`);
+    const solverContract = quantitative.familia_problema === 'distancia_punto_medio_2d'
+      ? construirContratoDistanciaPuntoMedio2dV3(slot, contextoPlaneacion)
+      : quantitative;
+    if (!solverContract) fail('datos_cuantitativos_incompletos', `${path}.contrato_cuantitativo`, { solverStage: 'backend_dataset' });
+    const verified = evaluarContratoCuantitativo(solverContract, CUADERNILLO_V3_QUANTITATIVE_FAMILIES, `${path}.contrato_cuantitativo`);
     if (!verified.ok) fail(verified.code, verified.path, { familia: verified.familia, solverStage: verified.solverStage });
     if (quantitative.familia_problema === 'no_cuantitativo') {
       finalBlock = construirBloqueV2DesdeSlot(slot, historicalInput);
