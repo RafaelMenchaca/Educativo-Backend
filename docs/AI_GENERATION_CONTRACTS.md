@@ -391,6 +391,30 @@ históricos v1 y el tipo canónico externo acompaña a `schema_version: 2`. El
 rollback productivo no fue ejecutado. El flujo v2 está desplegado; v3 se prepara
 en `work/features` y todavía no se declara desplegado.
 
+### Universalidad contextual v3
+
+El contexto v3 procede exclusivamente de la planeación persistida y propiedad
+del usuario, no del request HTTP. Incluye materia, nivel, tema, duración y el
+contenido estructurado; cuando existen incorpora unidad, subtema, título
+personalizado y actividad de cierre. El engine normaliza una copia inmutable
+por job y la reutiliza en los cuatro segmentos y retries. Resúmenes, familias y
+fingerprints viven solo durante esa generación y no existe fallback disciplinar
+ni estado global entre planeaciones.
+
+Los ejemplos usan un contrato universal: caso concreto incluido, al menos tres
+acciones demostrativas distinguibles, evidencia observada o comparada,
+resultado o conclusión e interpretación. Cuando el owner no asigna una familia
+cuantitativa a la combinación exacta materia/tema, Structured Outputs solo
+admite `no_cuantitativo` y el prompt/schema omite ramas de racionales, matrices,
+determinantes y Cramer. Las tres familias soportadas permanecen aisladas y
+nunca se infieren desde contenido generado. La tabla matricial 3×3 de la
+actividad central también se activa únicamente para el contexto canónico
+Matemáticas/Álgebra lineal.
+
+Los diagnósticos de retry conservan tipo, segmento, intento, slot, código,
+path, representación, modalidad, familia cuando aplica, alcance grupal,
+`finishReason` y modelo, sin registrar el contexto académico ni contenido.
+
 ### Métricas y elementos protegidos
 
 Se crea un job `anexo` para generar o regenerar, se registra la llamada y se finaliza o falla el job. Se protegen el vínculo uno-a-uno, fuente de contexto, salida de 3–5 elementos, parser, validaciones, timeout, versión, modelo/parámetros, regeneración y métricas.

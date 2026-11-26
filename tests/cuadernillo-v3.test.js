@@ -393,6 +393,7 @@ test('missing structured central data retries the whole group with the causal er
   await assert.rejects(
     generarCuadernilloV3({
       tipoCuadernillo: 'actividades_integradoras', contextoPlaneacion: context, completar,
+      modelo: 'gpt-6-luna',
       diagnosticar: (event) => diagnostics.push(event)
     }),
     (error) => error.code === 'segmento_invalido_tras_retry'
@@ -405,6 +406,9 @@ test('missing structured central data retries the whole group with the causal er
   assert.equal(failed.errorCode, 'datos_actividad_incompletos');
   assert.equal(failed.slotCausal, 'actividades_integradoras:contextualizacion:18');
   assert.equal(failed.retryScope, 'group');
+  assert.equal(failed.representacion, 'tabla');
+  assert.equal(failed.modalidad, null);
+  assert.equal(failed.modelo, 'gpt-6-luna');
   assert.equal(calls.filter(({ segmento }) => segmento.id === 'segmento_3').length, 2);
 });
 
@@ -714,13 +718,13 @@ test('every advertised allowed schema is structurally valid for its slot', () =>
   }
 });
 
-test('resolved-example contract requires a visible quantitative check and field consistency', () => {
+test('resolved-example contract is universally demonstrative while quantitative hydration remains backend-owned', () => {
   const slot = TIPO_CUADERNILLO_IDS.flatMap(obtenerSlotsCuadernilloV3)
     .find((item) => resolverRepresentacionSlotCuadernilloV3(item).recomendacionPrincipal.tipo === 'ejemplo_resuelto');
   const representation = resolverRepresentacionSlotCuadernilloV3(slot);
-  assert.match(representation.reglas.join(' '), /devuelve exclusivamente datos matematicos de entrada racionales/);
-  assert.match(representation.reglas.join(' '), /backend construye pasos, determinantes, solucion, resultado, comprobacion/);
-  assert.match(representation.reglas.join(' '), /No incluyas .*resultado_estructurado/);
+  assert.match(representation.reglas.join(' '), /caso concreto del tema.*al menos tres acciones distinguibles/);
+  assert.match(representation.reglas.join(' '), /evidencia del caso.*conclusion/);
+  assert.doesNotMatch(representation.reglas.join(' '), /determinantes|cramer|matrices/);
   const consistent = {
     tipo: 'ejemplo_resuelto',
     contrato_cuantitativo: {
@@ -771,8 +775,9 @@ test('v3 prompt requires strict thematic relevance and self-control without keyw
   const prompt = construirPromptSegmentoCuadernilloV3({ tipoCuadernillo: 'ejercicios_aplicacion', contextoPlaneacion: context, segmento: segment }).userPrompt;
   assert.match(prompt, /debe requerir realmente los conceptos del tema/);
   assert.match(prompt, /no basta con pertenecer a la misma asignatura/);
-  assert.match(prompt, /formula un modelo que use explicitamente el tema/);
-  assert.match(prompt, /vectores, matrices, determinantes, sistemas lineales, transformaciones/);
+  assert.match(prompt, /no introduzcas contenidos, herramientas o metodos de otra asignatura/);
+  assert.match(prompt, /POLITICA DISCIPLINAR CONDICIONAL/);
+  assert.match(prompt, /familias cuantitativas indicadas por el owner/);
   assert.match(prompt, /si podria resolverse sin utilizar el tema; si la respuesta es si, reemplazala/);
   assert.match(prompt, /Grupos de coherencia solicitados/);
   assert.match(prompt, /actividad_integradora_28_30/);

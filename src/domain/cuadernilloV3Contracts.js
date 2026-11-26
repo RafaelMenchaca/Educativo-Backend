@@ -10,12 +10,24 @@ function normalizeAcademicId(value) {
 
 const QUANTITATIVE_CONTEXT_FAMILIES = Object.freeze({
   'matematicas|algebra lineal': Object.freeze(['determinante_2x2', 'sistema_lineal_2x2']),
-  'matematica|algebra lineal': Object.freeze(['determinante_2x2', 'sistema_lineal_2x2'])
+  'matematica|algebra lineal': Object.freeze(['determinante_2x2', 'sistema_lineal_2x2']),
+  'matematicas|ecuaciones lineales': Object.freeze(['sistema_lineal_2x2']),
+  'matematica|ecuaciones lineales': Object.freeze(['sistema_lineal_2x2'])
 });
 
 export function obtenerFamiliasCuantitativasContextoV3(contexto) {
   const key = `${normalizeAcademicId(contexto?.materia)}|${normalizeAcademicId(contexto?.tema)}`;
   return QUANTITATIVE_CONTEXT_FAMILIES[key] || Object.freeze([]);
+}
+
+export function obtenerPoliticaCuantitativaContextoV3(contexto) {
+  const familias = obtenerFamiliasCuantitativasContextoV3(contexto);
+  if (!familias.length) return Object.freeze([]);
+  return Object.freeze([
+    'Este contexto admite exclusivamente las familias cuantitativas indicadas por el owner; devuelve solo sus datos matematicos de entrada.',
+    'El backend construye operaciones, resultado, comprobacion e interpretacion y no puede ser sobrescrito por texto generado.',
+    'Usa texto plano y Unicode; representa estructuras tabulares mediante el bloque tabla y no uses LaTeX.'
+  ]);
 }
 
 // Keep the provider schema inside the Structured Outputs supported subset.
@@ -124,7 +136,12 @@ export function construirSchemaBloqueV3(tipo, modalidad = null, familiaCuantitat
     case 'procedimiento': return noExtras({ ...common, pasos: stringArray });
     case 'ejemplo_resuelto': return familiaCuantitativa ? noExtras({
       ...common,
-      contrato_cuantitativo: Array.isArray(familiaCuantitativa)
+      ...(familiaCuantitativa === 'no_cuantitativo'
+        ? { enunciado: string, pasos: stringArray, resultado: string, verificacion: stringArray, interpretacion: string }
+        : {}),
+      contrato_cuantitativo: familiaCuantitativa === 'no_cuantitativo'
+        ? noQuantitative
+        : Array.isArray(familiaCuantitativa)
         ? { anyOf: familiaCuantitativa.map((family) => QUANTITATIVE_SCHEMAS_BY_FAMILY[family]) }
         : QUANTITATIVE_SCHEMAS_BY_FAMILY[familiaCuantitativa]
     }) : {

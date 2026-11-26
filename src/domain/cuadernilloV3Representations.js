@@ -8,7 +8,7 @@ const SCHEMAS = Object.freeze({
   tabla: Object.freeze({ tipo: 'tabla', columnas: Object.freeze(['<encabezado concreto>']), filas: Object.freeze([Object.freeze(['<celda concreta>'])]) }),
   actividad: Object.freeze({ tipo: 'actividad', modalidad: '<modalidad indicada>', instrucciones: '<orden concreta al estudiante iniciada con verbo>', items: Object.freeze([Object.freeze({ enunciado: '<consigna completa vinculada con materia y tema>', espacio_respuesta: Object.freeze({ lineas: 4 }) })]), contrato_tarea: Object.freeze({ conceptos_requeridos: Object.freeze(['<concepto canonico usado>']), familia_tarea: '<familia concreta>', datos_necesarios: Object.freeze(['<dato suficiente>']), objetivo: '<resultado o producto solicitado>', condicion_suficiencia: '<por que los datos bastan>', aplicacion_tema: '<conexion explicita con el tema>' }) }),
   procedimiento: Object.freeze({ tipo: 'procedimiento', pasos: Object.freeze(['<primer paso ejecutable y especifico>', '<siguiente paso con la operacion o decision concreta>']) }),
-  ejemplo_resuelto: Object.freeze({ tipo: 'ejemplo_resuelto', enunciado: '<situacion completa>', pasos: Object.freeze(['<primer paso desarrollado>', '<siguiente operacion o transformacion concreta>']), resultado: '<resultado sin etiqueta repetida>', verificacion: Object.freeze(['<sustitucion u operacion concreta aplicada a todas las condiciones originales>']), interpretacion: '<interpretacion sin conclusion redundante>', contrato_cuantitativo: Object.freeze({ familia_problema: 'no_cuantitativo' }) }),
+  ejemplo_resuelto: Object.freeze({ tipo: 'ejemplo_resuelto', enunciado: '<situacion completa>', pasos: Object.freeze(['<observacion concreta de la evidencia incluida>', '<comparacion, seleccion u operacion aplicada al caso>', '<decision que conduce al resultado o conclusion>']), resultado: '<resultado o conclusion sin etiqueta repetida>', verificacion: Object.freeze(['<comprobacion concreta contra la evidencia o condiciones originales>']), interpretacion: '<interpretacion disciplinar sin conclusion redundante>', contrato_cuantitativo: Object.freeze({ familia_problema: 'no_cuantitativo' }) }),
   proyecto: Object.freeze({ tipo: 'proyecto', producto: '<entregable concreto>', instrucciones: '<orden directa al estudiante>', etapas: Object.freeze(['<etapa ejecutable>']), espacio_respuesta: Object.freeze({ lineas: 3 }), contrato_tarea: Object.freeze({ conceptos_requeridos: Object.freeze(['<concepto canonico usado>']), familia_tarea: '<familia concreta>', datos_necesarios: Object.freeze(['<dato suficiente>']), objetivo: '<resultado o producto solicitado>', condicion_suficiencia: '<por que los datos bastan>', aplicacion_tema: '<conexion explicita con el tema>' }) }),
   registro: Object.freeze({ tipo: 'registro', campos: Object.freeze(['<dato concreto que registra el estudiante>']), espacio_respuesta: Object.freeze({ lineas: 2 }) }),
   evaluacion: Object.freeze({ tipo: 'evaluacion', modalidad: '<modalidad indicada>', criterios: Object.freeze([Object.freeze({ texto: '<criterio observable>' })]) }),
@@ -56,10 +56,9 @@ function completeRepresentation(representation, slot = null) {
   const proceduralLevel = obtenerNivelProcedimentalSlotV3(slot);
   const consistencyRules = representation.recomendacionPrincipal.tipo === 'ejemplo_resuelto'
     ? [
-        'Para familias cuantitativas soportadas devuelve exclusivamente datos matematicos de entrada racionales.',
-        'El backend construye pasos, determinantes, solucion, resultado, comprobacion e interpretacion canonica.',
-        'No incluyas contexto, texto libre, resultado_estructurado, verificacion_estructurada, soluciones, igualdades calculadas ni operaciones resueltas.',
-        'Usa no_cuantitativo solo cuando no presentes una solucion numerica libre.'
+        'Desarrolla un caso concreto del tema con enunciado, al menos tres acciones distinguibles, resultado o conclusion e interpretacion.',
+        'En un ejemplo conceptual muestra la evidencia del caso, que se observa o compara, la decision aplicada y como se alcanza la conclusion.',
+        'No reduzcas el procedimiento a nombrar acciones genericas ni introduzcas metodos de otra disciplina.'
       ]
     : [];
   return Object.freeze({

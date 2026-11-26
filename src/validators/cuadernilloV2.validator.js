@@ -482,6 +482,10 @@ const GENERIC_DEMONSTRATIVE_STEPS = new Set([
   'verifica la solucion',
   'identifica los elementos',
   'analiza la informacion',
+  'analiza el caso',
+  'aplica el concepto',
+  'revisa la informacion',
+  'obten una conclusion',
   'realiza las operaciones',
   'obten la respuesta'
 ]);
@@ -495,7 +499,8 @@ function validateV3ProcedureDepth(block, level, path) {
   if (!['procedimiento', 'ejemplo_resuelto'].includes(block?.tipo)) return;
   const steps = block.pasos;
   if (!Array.isArray(steps) || steps.length === 0) fail('pasos_requeridos', `${path}.pasos`);
-  if (level === 'demostrativo' && steps.length < 2) fail('procedimiento_demostrativo_superficial', `${path}.pasos`);
+  const minimumSteps = level === 'demostrativo' && block.tipo === 'ejemplo_resuelto' ? 3 : 2;
+  if (level === 'demostrativo' && steps.length < minimumSteps) fail('procedimiento_demostrativo_superficial', `${path}.pasos`);
   const seen = new Set();
   steps.forEach((step, index) => {
     const normalized = normalizeProcedureStep(step);

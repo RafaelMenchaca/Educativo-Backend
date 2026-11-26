@@ -232,6 +232,17 @@ Planeaciones admite SSE en `POST /api/planeaciones/generate?stream=1` y `POST /a
 
 Exámenes usa un job persistido: el POST devuelve `202` con `job_id`, el worker se agenda dentro del proceso Node y el cliente consulta `GET /api/examenes/generacion/:jobId`. Los estados y reglas exactos están protegidos por `docs/AI_GENERATION_CONTRACTS.md`.
 
+### Universalidad contextual v3
+
+Anexos construye el contexto desde la planeación propia recuperada con el
+cliente del usuario: materia, nivel, tema, duración y contenido estructurado,
+además de unidad, subtema, título personalizado y actividad de cierre cuando
+existen. Los cuatro segmentos y sus retries reciben la misma copia inmutable.
+La especialización matemática se selecciona mediante combinaciones canónicas
+exactas de materia y tema; fuera de ellas, los ejemplos solo admiten el contrato
+no cuantitativo y no reciben narrativa matemática en prompt o schema. No hay
+estado compartido capaz de contaminar generaciones de otras disciplinas.
+
 ## Manejo de errores
 
 Los controllers validan entradas básicas y convierten errores conocidos con `error.status` en respuestas HTTP. Los fallos inesperados se responden con mensajes genéricos. En SSE, el error se escribe como evento antes de cerrar cuando la conexión sigue abierta.
