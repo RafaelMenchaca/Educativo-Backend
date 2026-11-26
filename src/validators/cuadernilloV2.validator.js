@@ -520,6 +520,36 @@ function validateTaskContract(value, path) {
   ['familia_tarea', 'objetivo', 'condicion_suficiencia', 'aplicacion_tema'].forEach((key) => assertText(value[key], `${path}.${key}`));
 }
 
+const INTEGRATIVE_PRESENTATION_SLOT_IDS = new Set([
+  'actividades_integradoras:presentacion_proyecto:7',
+  'actividades_integradoras:presentacion_proyecto:8',
+  'actividades_integradoras:presentacion_proyecto:10',
+  'actividades_integradoras:presentacion_proyecto:11'
+]);
+const PREMATURE_CASE_QUANTITY = /\b(?:[2-9]|\d{2,}|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|dieciseis|diecisiete|dieciocho|diecinueve|veinte)\b/;
+const PREMATURE_CASE_ENUMERATION = /\b(?:analiza|compara|clasifica|integra|incluye|considera|distingue|examina|relaciona)\b[^,.!?]{1,180},[^.!?]{0,100}\b(?:y|o)\b/;
+
+function presentationProseEntries(block, path) {
+  if (block?.tipo === 'texto') return [{ value: block.contenido, path: `${path}.contenido` }];
+  if (block?.tipo === 'lista') return (block.items || []).map((value, index) => ({ value, path: `${path}.items[${index}]` }));
+  if (block?.tipo === 'proyecto') return [
+    { value: block.producto, path: `${path}.producto` },
+    { value: block.instrucciones, path: `${path}.instrucciones` },
+    ...(block.etapas || []).map((value, index) => ({ value, path: `${path}.etapas[${index}]` }))
+  ];
+  return [];
+}
+
+function validateIntegrativePresentationScope(slot, block, path) {
+  if (!INTEGRATIVE_PRESENTATION_SLOT_IDS.has(slot?.slotId)) return;
+  for (const entry of presentationProseEntries(block, path)) {
+    const normalized = normalizeEditorialText(entry.value);
+    if (PREMATURE_CASE_QUANTITY.test(normalized) || PREMATURE_CASE_ENUMERATION.test(normalized)) {
+      fail('promesa_datos_prematura', entry.path);
+    }
+  }
+}
+
 function validatePedagogicalSlotContract(slot, block, path) {
   const contract = obtenerContratoPedagogicoSlotV3(slot);
   if (!contract) return;
@@ -719,6 +749,7 @@ export function construirBloqueV3DesdeSlot(slot, inputBlock, { contextoPlaneacio
     finalBlock = construirBloqueV2DesdeSlot(slot, inputBlock);
   }
   normalizeCuadernilloV3EditorialBlock(finalBlock);
+  validateIntegrativePresentationScope(slot, finalBlock, path);
   validatePedagogicalSlotContract(slot, finalBlock, path);
   validateV3ProcedureDepth(finalBlock, obtenerNivelProcedimentalSlotV3(slot), path);
   validateTheoreticalExposition(slot, finalBlock, path);

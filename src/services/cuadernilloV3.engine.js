@@ -267,6 +267,11 @@ function correctionForSlot(slot, error, inputBlock = null, familiaEsperada = nul
   if (error?.code === 'producto_inconsistente') {
     correctionRules.push('Conserva exactamente el unico producto final definido en la Presentacion del proyecto; no lo sustituyas ni agregues otro entregable.');
   }
+  if (error?.code === 'promesa_datos_prematura') {
+    correctionRules.push('Mantiene la Presentacion general: elimina cantidades de casos, elementos, fuentes, objetos o categorias que todavia no existen en Contextualizacion.');
+    correctionRules.push('No enumeres categorias disciplinares del caso; usa referencias como "los elementos proporcionados", "los textos del caso" o "los datos incluidos en la actividad".');
+    correctionRules.push('Conserva el proposito, aprendizaje, producto o accion del slot sin inventar ni anticipar datos concretos.');
+  }
   const quantitativeFamily = familiaEsperada || cleanText(inputBlock?.contrato_cuantitativo?.familia_problema);
   const quantitativeInputFields = quantitativeFamily === 'sistema_lineal_2x2'
     ? ['familia_problema', 'datos.ecuaciones[2].coeficiente_x', 'datos.ecuaciones[2].coeficiente_y', 'datos.ecuaciones[2].termino_independiente', 'metodo']

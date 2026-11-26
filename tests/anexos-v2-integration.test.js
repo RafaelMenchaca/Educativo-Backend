@@ -31,6 +31,17 @@ function fixtureCompleter({ invalidFirst = false, alwaysInvalid = false, calls =
           slot_id: slot.slotId,
           bloque: request.schemaVersion === 3
             ? (() => {
+              if (slot.slotId === 'actividades_integradoras:presentacion_proyecto:8') return {
+                tipo: 'lista',
+                aprendizaje_1: 'Analiza los elementos proporcionados en el caso.',
+                aprendizaje_2: 'Justifica las decisiones para construir la evidencia.',
+                aprendizaje_3: 'Interpreta los hallazgos de la actividad.'
+              };
+              if (slot.slotId === 'actividades_integradoras:presentacion_proyecto:11') return {
+                tipo: 'lista',
+                accion_1: 'Analiza el caso y los datos incluidos.',
+                accion_2: 'Construye la evidencia y sustenta las conclusiones.'
+              };
               if (slot.tipoCuadernillo === 'ejercicios_aplicacion' && slot.numero === 36) return {
                 tipo: 'ejemplo_resuelto', contrato_cuantitativo: {
                   familia_problema: 'sistema_lineal_2x2',

@@ -132,12 +132,22 @@ const PROCEDURAL_SECTION_LEVELS = Object.freeze({
 });
 
 const CUADERNILLO_V3_SLOT_EDITORIAL_OVERRIDES = Object.freeze({
+  'actividades_integradoras:presentacion_proyecto:7': 'Expresa el proposito general sin fijar cantidades, casos, elementos, fuentes, categorias ni datos que pertenecen a Contextualizacion.',
+  'actividades_integradoras:presentacion_proyecto:8': 'Formula capacidades generales sobre el tema y el producto; no prometas cantidades ni enumeres categorias o elementos concretos del caso futuro.',
+  'actividades_integradoras:presentacion_proyecto:10': 'Define un unico producto breve sin convertir su nombre o instrucciones en una lista anticipada de datos, casos o categorias.',
+  'actividades_integradoras:presentacion_proyecto:11': 'Describe dos acciones generales referidas a los elementos proporcionados en la actividad; no fijes cantidades ni listas concretas antes de Contextualizacion.',
   'ejercicios_aplicacion:repaso_teorico:11': 'Presenta un panorama breve de conceptos y de sus relaciones; no redactes definiciones completas repetidas.',
   'ejercicios_aplicacion:repaso_teorico:12': 'Formula definiciones operativas precisas de los conceptos necesarios; no repitas el panorama relacional.',
   'ejercicios_aplicacion:actividad_integradora:28': 'Integra varios conceptos en un escenario nuevo, con decisiones y evidencia; no reformules un ejemplo o ejercicio basico anterior ni repitas su sistema con instrucciones mas largas.',
   'aprendizaje_guiado:actividades_comprension:26': 'Clasifica elementos en una tabla con categorias explicitas y espacio utilizable.',
+  'actividades_integradoras:contextualizacion:17': 'Presenta el unico caso central y nombra aqui, no en Presentacion, los elementos concretos que se analizaran.',
   'actividades_integradoras:contextualizacion:18': 'Aporta la unica fuente de datos concretos del caso; cuando el owner exija operaciones, incluye aqui todos los valores, variables y correspondencias necesarios.',
-  'actividades_integradoras:contextualizacion:31': 'Proporciona un unico espacio estructurado para analizar el caso y construir la evidencia definida al inicio.'
+  'actividades_integradoras:contextualizacion:20': 'Formula preguntas exclusivamente sobre el caso y los datos efectivamente incluidos en los slots 17 y 18; no exijas categorias ni elementos ausentes.',
+  'actividades_integradoras:contextualizacion:31': 'Proporciona un unico espacio estructurado para analizar el caso y construir la evidencia definida al inicio.',
+  'actividades_integradoras:presentacion_resultados:35': 'Solicita presentar la evidencia construida solo con el caso y los datos incluidos en Contextualizacion.',
+  'actividades_integradoras:presentacion_resultados:36': 'Solicita explicar hallazgos obtenidos de los elementos realmente incluidos, sin agregar categorias o casos nuevos.',
+  'actividades_integradoras:presentacion_resultados:37': 'Relaciona los hallazgos efectivos con la teoria sin exigir elementos ausentes.',
+  'actividades_integradoras:presentacion_resultados:38': 'Solicita conclusiones sustentadas unicamente en la evidencia y los datos proporcionados.'
 });
 
 const pedagogicalContract = (tipo, options = {}) => Object.freeze({ tipo, ...options });
@@ -270,6 +280,8 @@ export const CUADERNILLO_V3_TYPE_POLICIES = Object.freeze({
     'Incluye en fundamentacion solo la informacion necesaria para ejecutar el proyecto.',
     'Presenta en contextualizacion una situacion concreta con toda la informacion necesaria y orientacion suficiente para construir la evidencia; nunca remitas a datos que no aparecen en el cuadernillo.',
     'La Presentacion define proposito, aprendizajes, producto y ruta compacta; la Contextualizacion aporta caso, datos y consignas operativas sin redefinir el producto ni repetir la ruta.',
+    'En Presentacion no fijes cantidades ni enumeres casos, fuentes, categorias u objetos concretos; refierete de forma general a los elementos que proporcionara la Contextualizacion.',
+    'Las preguntas, el espacio de trabajo, los resultados y las conclusiones deben referirse unicamente al caso y a los datos efectivamente incluidos en Contextualizacion.',
     'Pide resultados y evidencias como entregables o espacios de trabajo; no afirmes resultados que el estudiante aun no obtiene.',
     'Mantiene el cierre reflexivo breve y orientado a una accion del estudiante.'
   ]),

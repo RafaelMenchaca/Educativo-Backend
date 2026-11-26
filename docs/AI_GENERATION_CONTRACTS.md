@@ -415,6 +415,15 @@ Los diagnósticos de retry conservan tipo, segmento, intento, slot, código,
 path, representación, modalidad, familia cuando aplica, alcance grupal,
 `finishReason` y modelo, sin registrar el contexto académico ni contenido.
 
+En Actividades integradoras, Presentación solo posee propósito general, tres
+aprendizajes, producto único y ruta compacta. Sus slots 7, 8, 10 y 11 no pueden
+fijar cantidades de casos o elementos ni enumerar categorías disciplinares que
+todavía no existen. Contextualización posee el caso y sus datos concretos; sus
+preguntas y espacio de trabajo, así como Resultados y conclusiones, deben
+referirse únicamente a esos elementos. Una promesa prematura detectable falla
+con `promesa_datos_prematura` y usa el retry localizado existente, sin modificar
+ni completar artificialmente los datos posteriores.
+
 ### Métricas y elementos protegidos
 
 Se crea un job `anexo` para generar o regenerar, se registra la llamada y se finaliza o falla el job. Se protegen el vínculo uno-a-uno, fuente de contexto, salida de 3–5 elementos, parser, validaciones, timeout, versión, modelo/parámetros, regeneración y métricas.
