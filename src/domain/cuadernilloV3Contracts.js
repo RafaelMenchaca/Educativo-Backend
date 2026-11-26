@@ -1,7 +1,8 @@
 export const CUADERNILLO_V3_QUANTITATIVE_FAMILIES = Object.freeze([
   'aritmetica_racional',
   'determinante_2x2',
-  'sistema_lineal_2x2'
+  'sistema_lineal_2x2',
+  'distancia_punto_medio_2d'
 ]);
 
 function normalizeAcademicId(value) {
@@ -12,8 +13,39 @@ const QUANTITATIVE_CONTEXT_FAMILIES = Object.freeze({
   'matematicas|algebra lineal': Object.freeze(['determinante_2x2', 'sistema_lineal_2x2']),
   'matematica|algebra lineal': Object.freeze(['determinante_2x2', 'sistema_lineal_2x2']),
   'matematicas|ecuaciones lineales': Object.freeze(['sistema_lineal_2x2']),
-  'matematica|ecuaciones lineales': Object.freeze(['sistema_lineal_2x2'])
+  'matematica|ecuaciones lineales': Object.freeze(['sistema_lineal_2x2']),
+  'matematicas|segmentos de recta: calculo de distancia entre dos puntos y punto medio': Object.freeze(['distancia_punto_medio_2d'])
 });
+
+export function esContextoDistanciaPuntoMedio2dV3(contexto) {
+  return obtenerFamiliasCuantitativasContextoV3(contexto).includes('distancia_punto_medio_2d');
+}
+
+const DISTANCE_MIDPOINT_DATASETS = Object.freeze({
+  'aprendizaje_guiado:apoyos_aprendizaje:17': Object.freeze({ punto_a: Object.freeze({ x: '-1', y: '-1' }), punto_b: Object.freeze({ x: '2', y: '3' }), operacion: 'ambas' }),
+  'ejercicios_aplicacion:ejemplos_resueltos:15': Object.freeze({ punto_a: Object.freeze({ x: '1', y: '2' }), punto_b: Object.freeze({ x: '5', y: '5' }), operacion: 'ambas' }),
+  'ejercicios_aplicacion:ejemplos_resueltos:36': Object.freeze({ punto_a: Object.freeze({ x: '-2', y: '1' }), punto_b: Object.freeze({ x: '4', y: '9' }), operacion: 'ambas' }),
+  'ejercicios_aplicacion:ejercicios_basicos:18': Object.freeze({ punto_a: Object.freeze({ x: '0', y: '0' }), punto_b: Object.freeze({ x: '3', y: '4' }), operacion: 'distancia' }),
+  'ejercicios_aplicacion:ejercicios_basicos:19': Object.freeze({ punto_a: Object.freeze({ x: '-1', y: '2' }), punto_b: Object.freeze({ x: '5', y: '2' }), operacion: 'punto_medio' }),
+  'ejercicios_aplicacion:ejercicios_basicos:20': Object.freeze({ punto_a: Object.freeze({ x: '1', y: '-2' }), punto_b: Object.freeze({ x: '7', y: '6' }), operacion: 'ambas' }),
+  'ejercicios_aplicacion:actividad_integradora:28': Object.freeze({ punto_a: Object.freeze({ x: '-3', y: '-1' }), punto_b: Object.freeze({ x: '5', y: '5' }), operacion: 'ambas' })
+});
+
+const DISTANCE_MIDPOINT_DATASET_OWNERS = Object.freeze({
+  'ejercicios_aplicacion:actividad_integradora:29': 'ejercicios_aplicacion:actividad_integradora:28',
+  'ejercicios_aplicacion:actividad_integradora:30': 'ejercicios_aplicacion:actividad_integradora:28'
+});
+
+export function obtenerDatasetDistanciaPuntoMedio2dV3(slot, contexto) {
+  if (!esContextoDistanciaPuntoMedio2dV3(contexto)) return null;
+  const ownerSlotId = DISTANCE_MIDPOINT_DATASET_OWNERS[slot?.slotId] || slot?.slotId;
+  return DISTANCE_MIDPOINT_DATASETS[ownerSlotId] || null;
+}
+
+export function construirContratoDistanciaPuntoMedio2dV3(slot, contexto) {
+  const dataset = obtenerDatasetDistanciaPuntoMedio2dV3(slot, contexto);
+  return dataset ? Object.freeze({ familia_problema: 'distancia_punto_medio_2d', datos: Object.freeze({ punto_a: dataset.punto_a, punto_b: dataset.punto_b }), operacion: dataset.operacion }) : null;
+}
 
 export function obtenerFamiliasCuantitativasContextoV3(contexto) {
   const key = `${normalizeAcademicId(contexto?.materia)}|${normalizeAcademicId(contexto?.tema)}`;
@@ -23,6 +55,11 @@ export function obtenerFamiliasCuantitativasContextoV3(contexto) {
 export function obtenerPoliticaCuantitativaContextoV3(contexto) {
   const familias = obtenerFamiliasCuantitativasContextoV3(contexto);
   if (!familias.length) return Object.freeze([]);
+  if (familias.length === 1 && familias[0] === 'distancia_punto_medio_2d') return Object.freeze([
+    'Este contexto usa calculos de distancia entre puntos y punto medio asignados por el backend; no inventes coordenadas, operaciones ni resultados.',
+    'El backend asigna los datos del slot y construye operaciones, resultado, comprobacion e interpretacion de los ejemplos resueltos.',
+    'En ejercicios y actividad integradora el backend muestra datos completos y espacio de trabajo sin revelar la solucion; nunca uses identificadores internos como vocabulario pedagogico.'
+  ]);
   return Object.freeze([
     'Este contexto admite exclusivamente las familias cuantitativas indicadas por el owner; devuelve solo sus datos matematicos de entrada.',
     'El backend construye operaciones, resultado, comprobacion e interpretacion y no puede ser sobrescrito por texto generado.',
@@ -61,15 +98,19 @@ const system = noExtras({
   datos: noExtras({ ecuaciones: { type: 'array', items: equation } }),
   metodo: { type: 'string', enum: ['cramer'] }
 });
+const distanceMidpoint2d = noExtras({
+  familia_problema: { type: 'string', enum: ['distancia_punto_medio_2d'] }
+});
 
 const QUANTITATIVE_SCHEMAS_BY_FAMILY = Object.freeze({
   aritmetica_racional: arithmetic,
   determinante_2x2: determinant,
-  sistema_lineal_2x2: system
+  sistema_lineal_2x2: system,
+  distancia_punto_medio_2d: distanceMidpoint2d
 });
 
 export const CUADERNILLO_V3_QUANTITATIVE_SCHEMA = Object.freeze({
-  anyOf: [arithmetic, determinant, system]
+  anyOf: [arithmetic, determinant, system, distanceMidpoint2d]
 });
 const noQuantitative = Object.freeze(noExtras({ familia_problema: { type: 'string', enum: ['no_cuantitativo'] } }));
 
@@ -79,7 +120,7 @@ export function obtenerContratoAcademicoSlotV3(slot, blockType) {
     requiereContratoTarea: ['actividad', 'proyecto'].includes(blockType),
     permiteCuantitativo: quantitative,
     familiasCuantitativas: Object.freeze(quantitative ? [...CUADERNILLO_V3_QUANTITATIVE_FAMILIES] : []),
-    fallbackCuantitativo: quantitative ? 'Usa no_cuantitativo cuando el ejemplo no sea numerico; no inventes una familia.' : 'No presentes una solucion numerica libre.'
+    fallbackCuantitativo: quantitative ? 'Si el ejemplo no requiere calculos verificables, desarrolla un caso disciplinar concreto sin inventar una familia matematica.' : 'No presentes una solucion numerica libre.'
   });
 }
 
@@ -117,6 +158,12 @@ const centralMatrixVectorData = noExtras({
   etiquetas_filas: stringArray,
   matriz: { type: 'array', items: stringArray },
   vector_b: stringArray
+});
+const coordinateActivity = (modalidad) => noExtras({
+  tipo: { type: 'string', enum: ['actividad'] },
+  modalidad: { type: 'string', enum: [modalidad] },
+  instrucciones: string,
+  contrato_tarea: CUADERNILLO_V3_TASK_CONTRACT_SCHEMA
 });
 
 export function construirSchemaBloqueV3(tipo, modalidad = null, familiaCuantitativa = null, espacioRespuestaBackend = false) {
@@ -172,6 +219,7 @@ export function construirJsonSchemaCompletionV3(slots, resolveRepresentation, fa
     const centralMatrixDataSlot = slot.slotId === 'actividades_integradoras:contextualizacion:18'
       && representation.familia === 'datos_matriz_vector_actividad_central';
     const classificationSlot = slot.slotId === 'aprendizaje_guiado:actividades_comprension:26';
+    const coordinateActivitySlot = representation.familia === 'actividad_coordenadas_2d';
     const definitionId = threeLearningsSlot
       ? 'bloque_lista_tres_aprendizajes'
       : threeProjectLearningsSlot
@@ -184,6 +232,7 @@ export function construirJsonSchemaCompletionV3(slots, resolveRepresentation, fa
             ? 'bloque_actividad_tres_preguntas_caso'
       : classificationSlot
         ? 'bloque_tabla_clasificacion'
+      : coordinateActivitySlot ? `bloque_actividad_coordenadas_2d_${modalidad}`
       : `bloque_${tipo}${modalidad ? `_${modalidad}` : ''}${familyKey ? `_${familyKey}` : ''}`;
     definitions[definitionId] ||= threeLearningsSlot
       ? threeLearnings
@@ -197,6 +246,8 @@ export function construirJsonSchemaCompletionV3(slots, resolveRepresentation, fa
             ? threeCaseQuestions
       : classificationSlot
         ? noExtras({ tipo: { type: 'string', enum: ['tabla'] }, categorias: stringArray, elementos: stringArray })
+      : coordinateActivitySlot
+        ? coordinateActivity(modalidad)
         : construirSchemaBloqueV3(tipo, modalidad, familiaCuantitativa, representation.espacioRespuestaBackend === true);
     return noExtras({
       slot_id: { type: 'string', enum: [slot.slotId] },

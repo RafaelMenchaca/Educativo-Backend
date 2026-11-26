@@ -1,5 +1,6 @@
 import { resolverRepresentacionSlotCuadernillo } from './cuadernilloRepresentations.js';
 import { obtenerContratoDatosActividadCentralV3, obtenerContratoPedagogicoSlotV3, obtenerNivelProcedimentalSlotV3 } from './cuadernillosV3.js';
+import { esContextoDistanciaPuntoMedio2dV3 } from './cuadernilloV3Contracts.js';
 
 const SCHEMAS = Object.freeze({
   texto: Object.freeze({ tipo: 'texto', contenido: '<texto directo, especifico y no vacio>' }),
@@ -91,6 +92,22 @@ function representationForCompletable(slot) {
 }
 
 export function resolverRepresentacionSlotCuadernilloV3(slot, contextoPlaneacion = null) {
+  if (esContextoDistanciaPuntoMedio2dV3(contextoPlaneacion)
+    && (['ejercicios_aplicacion:ejercicios_basicos:18', 'ejercicios_aplicacion:ejercicios_basicos:19', 'ejercicios_aplicacion:ejercicios_basicos:20', 'ejercicios_aplicacion:actividad_integradora:28'].includes(slot.slotId))) {
+    const modalidad = slot.slotId.endsWith(':28') ? 'problema' : 'ejercicio';
+    return completeRepresentation({
+      familia: 'actividad_coordenadas_2d',
+      bloquesPermitidos: Object.freeze(['actividad']),
+      recomendacionPrincipal: Object.freeze({ tipo: 'actividad', modalidad }),
+      esquemaMinimo: Object.freeze({ tipo: 'actividad', modalidad, instrucciones: '<consigna sin solucion>', contrato_tarea: SCHEMAS.actividad.contrato_tarea }),
+      espacioRespuestaBackend: true,
+      reglas: Object.freeze([
+        'El backend agrega coordenadas concretas y la operacion del slot; no inventes, repitas ni solicites datos externos.',
+        'No calcules ni muestres distancia, punto medio, sustitucion o resultado: el estudiante los obtiene en el espacio de trabajo.',
+        'Las instrucciones deben pedir mostrar operaciones e interpretar el resultado sin revelar la respuesta.'
+      ])
+    }, slot);
+  }
   if (slot.slotId === 'actividades_integradoras:contextualizacion:18'
     && obtenerContratoDatosActividadCentralV3(contextoPlaneacion)) {
     return completeRepresentation({

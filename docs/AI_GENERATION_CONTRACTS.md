@@ -264,6 +264,42 @@ conservar precisión decimal o fraccionaria. Esta es una defensa de prompt y
 revisión pedagógica: el backend no pretende resolver álgebra general ni certificar
 semánticamente resultados mediante expresiones regulares.
 
+La familia `distancia_punto_medio_2d` se activa solamente para la identidad
+académica canónica exacta Matemáticas / Segmentos de recta: cálculo de
+distancia entre dos puntos y punto medio. La IA declara únicamente la familia;
+el slot selecciona un dataset backend inmutable con dos puntos racionales y la
+operación `distancia`, `punto_medio` o `ambas`. El backend calcula diferencias,
+cuadrados, suma, raíz racional exacta, punto
+medio, resultado y comprobación; no persiste el contrato de entrada. Las
+distancias irracionales o aproximadas no están soportadas inicialmente. El
+caso modelo de Guiado y los dos ejemplos de Ejercicios usan esta fuente de
+verdad; los dos ejemplos deben tener datos distintos.
+
+En ese mismo contexto, los tres ejercicios básicos y el planteamiento de la
+actividad integradora reciben datasets distintos asignados por su slot; el
+backend los hidrata como consignas con coordenadas completas, espacio de trabajo
+y sin solución. Los IDs de dataset no viajan al modelo ni se persisten. Así,
+un ejemplo resuelto muestra cálculo y resultado verificados, mientras que el
+trabajo del estudiante conserva datos suficientes sin revelar respuestas. Esta
+especialización no se activa por texto generado, coincidencias parciales ni
+palabras clave y no altera los ejemplos `no_cuantitativo` de materias
+conceptuales.
+
+Los identificadores de familias, slots, grupos, datasets y contratos son
+metadata interna y nunca forman parte del contenido pedagógico. El prompt usa
+la etiqueta humana «distancia entre puntos y punto medio» fuera del contrato
+estructurado, y el linter final rechaza cualquier exposición con
+`metadata_tecnica_expuesta` y path textual exacto. En actividades con dataset,
+el backend también construye las instrucciones y la consigna desde la operación
+asignada (`distancia`, `punto_medio` o `ambas`); la instrucción narrativa del
+modelo no se persiste, por lo que no puede contradecir los datos del slot.
+En la actividad integradora, el mismo owner hidrata también el desarrollo guiado
+y la interpretación: `distancia` exige una fórmula y una longitud,
+`punto_medio` exige la fórmula de promedios y un par ordenado, y `ambas` exige
+las dos fórmulas, las dos comprobaciones y una interpretación diferenciada sin
+alternativas con «o». Los ejemplos cuantitativos de esta familia consolidan sus
+slots complementarios en el único bloque resuelto construido por backend.
+
 V3 declara en el owner grupos pequeños de coherencia. Si falta o falla un
 miembro, el segundo intento descarta solo ese grupo y vuelve a solicitar todos
 sus slots; conserva los bloques válidos ajenos. Ejercicios agrupa por separado
@@ -406,7 +442,7 @@ acciones demostrativas distinguibles, evidencia observada o comparada,
 resultado o conclusión e interpretación. Cuando el owner no asigna una familia
 cuantitativa a la combinación exacta materia/tema, Structured Outputs solo
 admite `no_cuantitativo` y el prompt/schema omite ramas de racionales, matrices,
-determinantes y Cramer. Las tres familias soportadas permanecen aisladas y
+determinantes y Cramer. Las familias soportadas permanecen aisladas y
 nunca se infieren desde contenido generado. La tabla matricial 3×3 de la
 actividad central también se activa únicamente para el contexto canónico
 Matemáticas/Álgebra lineal.

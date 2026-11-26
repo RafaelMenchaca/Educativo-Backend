@@ -9,8 +9,8 @@ import {
   rationalEqual,
   rationalMultiply
 } from '../src/domain/rational.js';
-import { formatearExpresionLineal, verificarContratoCuantitativo } from '../src/domain/cuadernilloV3Quantitative.js';
-import { construirJsonSchemaCompletionV3, obtenerFamiliasCuantitativasContextoV3 } from '../src/domain/cuadernilloV3Contracts.js';
+import { evaluarContratoCuantitativo, formatearExpresionLineal, verificarContratoCuantitativo } from '../src/domain/cuadernilloV3Quantitative.js';
+import { construirContratoDistanciaPuntoMedio2dV3, construirJsonSchemaCompletionV3, obtenerDatasetDistanciaPuntoMedio2dV3, obtenerFamiliasCuantitativasContextoV3 } from '../src/domain/cuadernilloV3Contracts.js';
 import { resolverRepresentacionSlotCuadernilloV3 } from '../src/domain/cuadernilloV3Representations.js';
 import { obtenerContratoPedagogicoSlotV3, obtenerGruposCoherenciaCuadernilloV3, obtenerSlotsCuadernilloV3 } from '../src/domain/cuadernillosV3.js';
 import {
@@ -19,7 +19,7 @@ import {
   resolveCuadernilloV3Model
 } from '../src/services/anexos.service.js';
 import { construirBloqueV3DesdeSlot, lintCuadernilloV3Block } from '../src/validators/cuadernilloV2.validator.js';
-import { construirPromptSegmentoCuadernilloV3, crearPlanSegmentosCuadernilloV3, generarCuadernilloV3, validarRespuestasSlotsCuadernilloV3 } from '../src/services/cuadernilloV3.engine.js';
+import { consolidarGruposCuantitativosV3, construirFamiliasEsperadasSegmentoV3, construirPromptSegmentoCuadernilloV3, crearPlanSegmentosCuadernilloV3, generarCuadernilloV3, validarRespuestasSlotsCuadernilloV3 } from '../src/services/cuadernilloV3.engine.js';
 
 const context = { materia: 'Matematicas', nivel: 'Universidad', tema: 'Algebra lineal', duracion: 60, tabla_ia: [], actividades_momentos: {}, datos_generales: {} };
 function materialize(value, slot) {
@@ -476,5 +476,280 @@ test('refusal and incomplete finish reasons fail closed after two calls', async 
       (error) => error.code === 'segmento_invalido_tras_retry'
     );
     assert.equal(calls, 2);
+  }
+});
+
+const segmentContext = { materia: 'Matemáticas', nivel: 'Preparatoria', tema: 'Segmentos de recta: cálculo de distancia entre dos puntos y punto medio', duracion: 50, tabla_ia: [], actividades_momentos: {}, datos_generales: {} };
+const distanceContract = (operacion = 'ambas') => ({
+  familia_problema: 'distancia_punto_medio_2d',
+  datos: { punto_a: { x: '1', y: '2' }, punto_b: { x: '5', y: '5' } },
+  operacion
+});
+
+test('distance and midpoint family activates only for the exact canonical academic context', () => {
+  assert.deepEqual(obtenerFamiliasCuantitativasContextoV3(segmentContext), ['distancia_punto_medio_2d']);
+  assert.deepEqual(obtenerFamiliasCuantitativasContextoV3({ ...segmentContext, materia: 'Química' }), []);
+  assert.deepEqual(obtenerFamiliasCuantitativasContextoV3({ ...segmentContext, tema: 'Segmentos de recta' }), []);
+  const guidedSegment = crearPlanSegmentosCuadernilloV3('aprendizaje_guiado')[1];
+  assert.equal(construirFamiliasEsperadasSegmentoV3('aprendizaje_guiado', segmentContext, guidedSegment).get('aprendizaje_guiado:apoyos_aprendizaje:17')[0], 'distancia_punto_medio_2d');
+});
+
+test('backend derives exact distance, midpoint, operations and verification from coordinates', () => {
+  const verified = verificarContratoCuantitativo(distanceContract(), ['distancia_punto_medio_2d']);
+  assert.equal(verified.ok, true);
+  assert.equal(verified.contratoHidratadoBackend.distancia, '5');
+  assert.deepEqual(verified.contratoHidratadoBackend.punto_medio, { x: '3', y: '7/2' });
+  assert.match(verified.visible.pasos.join(' '), /16/);
+  assert.match(verified.visible.pasos.join(' '), /9/);
+  assert.match(verified.visible.pasos.join(' '), /√25 = 5/);
+  assert.match(verified.visible.resultado, /distancia = 5/);
+  assert.match(verified.visible.verificaciones[0], /5² = 25/);
+});
+
+test('midpoint accepts integer and rational exact results while distance rejects unsupported roots', () => {
+  const integer = verificarContratoCuantitativo({ ...distanceContract('punto_medio'), datos: { punto_a: { x: '0', y: '0' }, punto_b: { x: '4', y: '6' } } }, ['distancia_punto_medio_2d']);
+  assert.deepEqual(integer.contratoHidratadoBackend.punto_medio, { x: '2', y: '3' });
+  const rational = verificarContratoCuantitativo(distanceContract('punto_medio'), ['distancia_punto_medio_2d']);
+  assert.deepEqual(rational.contratoHidratadoBackend.punto_medio, { x: '3', y: '7/2' });
+  const unsupported = evaluarContratoCuantitativo({ ...distanceContract('distancia'), datos: { punto_a: { x: '0', y: '0' }, punto_b: { x: '1', y: '1' } } }, ['distancia_punto_medio_2d']);
+  assert.equal(unsupported.code, 'raiz_no_racional_soportada');
+});
+
+test('distance contract rejects symbolic coordinates and model-provided results', () => {
+  assert.equal(evaluarContratoCuantitativo({ ...distanceContract(), datos: { punto_a: { x: 'a', y: 'b' }, punto_b: { x: 'c', y: 'd' } } }, ['distancia_punto_medio_2d']).code, 'racional_invalido');
+  assert.equal(evaluarContratoCuantitativo({ ...distanceContract(), resultado: '5' }, ['distancia_punto_medio_2d']).code, 'propiedad_cuantitativa_no_permitida');
+});
+
+test('student coordinate activities require concrete data and persist no solution metadata', () => {
+  const slot = obtenerSlotsCuadernilloV3('ejercicios_aplicacion').find(({ slotId }) => slotId === 'ejercicios_aplicacion:ejercicios_basicos:18');
+  const input = {
+    tipo: 'actividad', modalidad: 'ejercicio', instrucciones: 'Calcula y explica tu procedimiento.',
+    contrato_tarea: { conceptos_requeridos: ['distancia', 'punto medio'], familia_tarea: 'geometria_analitica', datos_necesarios: ['coordenadas de A y B'], objetivo: 'Calcular e interpretar.', condicion_suficiencia: 'Se incluyen ambas coordenadas.', aplicacion_tema: 'Aplica distancia y punto medio.' }
+  };
+  const block = construirBloqueV3DesdeSlot(slot, input, { contextoPlaneacion: segmentContext });
+  assert.match(block.items[0].enunciado, /A\(0, 0\).*B\(3, 4\)/);
+  assert.equal(Object.hasOwn(block, 'punto_a'), false);
+  assert.doesNotMatch(JSON.stringify(block), /distancia = 5|punto medio =/i);
+  assert.ok(block.items[0].espacio_respuesta);
+  assert.throws(() => construirBloqueV3DesdeSlot(slot, { ...input, punto_a: { x: 'p', y: 'q' } }, { contextoPlaneacion: segmentContext }), (error) => error.code === 'propiedad_no_permitida');
+});
+
+test('distance schemas require concrete inputs for examples, basics and the integrative activity', () => {
+  const exercisePlan = crearPlanSegmentosCuadernilloV3('ejercicios_aplicacion');
+  const examples = exercisePlan[1];
+  const exampleFamilies = construirFamiliasEsperadasSegmentoV3('ejercicios_aplicacion', segmentContext, examples);
+  const examplePrompt = construirPromptSegmentoCuadernilloV3({ tipoCuadernillo: 'ejercicios_aplicacion', contextoPlaneacion: segmentContext, segmento: examples, familiasEsperadas: exampleFamilies });
+  const serializedExamples = JSON.stringify(examplePrompt.jsonSchema);
+  assert.match(serializedExamples, /distancia_punto_medio_2d/);
+  assert.doesNotMatch(serializedExamples, /punto_a|punto_b|operacion/);
+  assert.doesNotMatch(serializedExamples, /no_cuantitativo/);
+  assert.doesNotMatch(serializedExamples, /resultado_estructurado/);
+  const retryPrompt = construirPromptSegmentoCuadernilloV3({ tipoCuadernillo: 'ejercicios_aplicacion', contextoPlaneacion: segmentContext, segmento: examples, familiasEsperadas: exampleFamilies, errores: [{ code: 'raiz_no_racional_soportada', path: 'slots[x].bloque' }] });
+  assert.deepEqual(retryPrompt.jsonSchema, examplePrompt.jsonSchema);
+
+  for (const segment of [exercisePlan[2], exercisePlan[3]]) {
+    const prompt = construirPromptSegmentoCuadernilloV3({ tipoCuadernillo: 'ejercicios_aplicacion', contextoPlaneacion: segmentContext, segmento: segment });
+    const schema = JSON.stringify(prompt.jsonSchema);
+    assert.doesNotMatch(schema, /punto_a|punto_b|operacion/);
+    assert.doesNotMatch(schema, /resultado_estructurado|solucion/);
+  }
+});
+
+test('the former generic activity shape is rejected and the final schema matches the validator shape', () => {
+  const slot = obtenerSlotsCuadernilloV3('ejercicios_aplicacion').find(({ slotId }) => slotId === 'ejercicios_aplicacion:ejercicios_basicos:18');
+  const legacyShape = {
+    tipo: 'actividad', modalidad: 'ejercicio', instrucciones: 'Calcula la distancia.',
+    items: [{ enunciado: 'Usa los puntos indicados.' }],
+    contrato_tarea: { conceptos_requeridos: ['distancia'], familia_tarea: 'geometria', datos_necesarios: ['puntos'], objetivo: 'Calcular.', condicion_suficiencia: 'Hay dos puntos.', aplicacion_tema: 'Usa distancia.' }
+  };
+  assert.throws(() => construirBloqueV3DesdeSlot(slot, legacyShape, { contextoPlaneacion: segmentContext }), (error) => error.code === 'propiedad_no_permitida');
+  const schema = construirPromptSegmentoCuadernilloV3({ tipoCuadernillo: 'ejercicios_aplicacion', contextoPlaneacion: segmentContext, segmento: crearPlanSegmentosCuadernilloV3('ejercicios_aplicacion')[2] }).jsonSchema;
+  const definition = schema.$defs.bloque_actividad_coordenadas_2d_ejercicio;
+  assert.deepEqual(definition.required, ['tipo', 'modalidad', 'instrucciones', 'contrato_tarea']);
+  assert.deepEqual(Object.keys(definition.properties), definition.required);
+  assert.equal(definition.additionalProperties, false);
+});
+
+test('all backend coordinate datasets are complete, distinct and safe for their assigned operation', () => {
+  const slotIds = [
+    'aprendizaje_guiado:apoyos_aprendizaje:17',
+    'ejercicios_aplicacion:ejemplos_resueltos:15',
+    'ejercicios_aplicacion:ejemplos_resueltos:36',
+    'ejercicios_aplicacion:ejercicios_basicos:18',
+    'ejercicios_aplicacion:ejercicios_basicos:19',
+    'ejercicios_aplicacion:ejercicios_basicos:20',
+    'ejercicios_aplicacion:actividad_integradora:28'
+  ];
+  const allSlots = ['aprendizaje_guiado', 'ejercicios_aplicacion'].flatMap(obtenerSlotsCuadernilloV3);
+  const signatures = new Set();
+  for (const slotId of slotIds) {
+    const slot = allSlots.find((candidate) => candidate.slotId === slotId);
+    const dataset = obtenerDatasetDistanciaPuntoMedio2dV3(slot, segmentContext);
+    assert.ok(dataset);
+    assert.notDeepEqual(dataset.punto_a, dataset.punto_b);
+    const signature = JSON.stringify(dataset);
+    assert.equal(signatures.has(signature), false);
+    signatures.add(signature);
+    const solved = evaluarContratoCuantitativo(construirContratoDistanciaPuntoMedio2dV3(slot, segmentContext), ['distancia_punto_medio_2d']);
+    assert.equal(solved.ok, true);
+  }
+});
+
+test('two solved distance examples receive different backend-owned coordinate data', () => {
+  const segment = crearPlanSegmentosCuadernilloV3('ejercicios_aplicacion')[1];
+  const slots = segment.slots.filter(({ numero }) => [15, 36].includes(numero));
+  const families = new Map(slots.map(({ slotId }) => [slotId, 'distancia_punto_medio_2d']));
+  const payload = { respuestas: slots.map(({ slotId }) => ({ slot_id: slotId, bloque: { tipo: 'ejemplo_resuelto', contrato_cuantitativo: { familia_problema: 'distancia_punto_medio_2d' } } })) };
+  const analysis = validarRespuestasSlotsCuadernilloV3({ segmento: segment, slotsSolicitados: slots, payload, familiasEsperadas: families, contextoPlaneacion: segmentContext });
+  assert.equal(analysis.validas.size, 2);
+  assert.notEqual(analysis.validas.get(slots[0].slotId).enunciado, analysis.validas.get(slots[1].slotId).enunciado);
+  assert.notDeepEqual(obtenerDatasetDistanciaPuntoMedio2dV3(slots[0], segmentContext), obtenerDatasetDistanciaPuntoMedio2dV3(slots[1], segmentContext));
+});
+
+test('conceptual subjects retain non-quantitative examples and receive no geometry contract', () => {
+  for (const conceptual of [
+    { ...segmentContext, materia: 'Filosofía', tema: 'Argumentación ética' },
+    { ...segmentContext, materia: 'Historia', tema: 'Revolución mexicana' },
+    { ...segmentContext, materia: 'Química', tema: segmentContext.tema }
+  ]) {
+    const segment = crearPlanSegmentosCuadernilloV3('ejercicios_aplicacion')[1];
+    const families = construirFamiliasEsperadasSegmentoV3('ejercicios_aplicacion', conceptual, segment);
+    assert.equal(families.get('ejercicios_aplicacion:ejemplos_resueltos:15'), 'no_cuantitativo');
+    const prompt = construirPromptSegmentoCuadernilloV3({ tipoCuadernillo: 'ejercicios_aplicacion', contextoPlaneacion: conceptual, segmento: segment, familiasEsperadas: families });
+    assert.doesNotMatch(JSON.stringify(prompt.jsonSchema), /distancia_punto_medio_2d|punto_a|punto_b/);
+  }
+});
+
+test('v3 editorial linter rejects technical metadata at its exact visible path', () => {
+  for (const [text, codePath] of [
+    ['Practica la familia distancia_punto_medio_2d.', 'contenido'],
+    ['Usa ejercicios_aplicacion:ejercicios_basicos:18.', 'contenido'],
+    ['Repite el grupo ejemplo_resuelto_15_17.', 'contenido'],
+    ['Consulta dataset_case_01.', 'contenido'],
+    ['Completa contrato_cuantitativo.', 'contenido'],
+    ['Usa contrato_tarea.', 'contenido']
+  ]) {
+    assert.throws(
+      () => lintCuadernilloV3Block({ tipo: 'texto', contenido: text }, 'bloque'),
+      (error) => error.code === 'metadata_tecnica_expuesta' && error.path === `bloque.${codePath}`
+    );
+  }
+  assert.doesNotThrow(() => lintCuadernilloV3Block({ tipo: 'texto', contenido: 'Calcula la distancia entre dos puntos y determina el punto medio.' }, 'bloque'));
+});
+
+test('backend-owned activity instructions always match each assigned operation', () => {
+  const slots = obtenerSlotsCuadernilloV3('ejercicios_aplicacion').filter(({ slotId }) => [
+    'ejercicios_aplicacion:ejercicios_basicos:18',
+    'ejercicios_aplicacion:ejercicios_basicos:19',
+    'ejercicios_aplicacion:ejercicios_basicos:20',
+    'ejercicios_aplicacion:actividad_integradora:28'
+  ].includes(slotId));
+  for (const slot of slots) {
+    const modalidad = slot.slotId.endsWith(':28') ? 'problema' : 'ejercicio';
+    const block = construirBloqueV3DesdeSlot(slot, {
+      tipo: 'actividad', modalidad,
+      instrucciones: 'Calcula deliberadamente una operación contradictoria.',
+      contrato_tarea: { conceptos_requeridos: ['segmentos'], familia_tarea: 'geometria', datos_necesarios: ['dos puntos'], objetivo: 'Resolver.', condicion_suficiencia: 'El backend aporta los puntos.', aplicacion_tema: 'Aplica el tema.' }
+    }, { contextoPlaneacion: segmentContext });
+    const operation = obtenerDatasetDistanciaPuntoMedio2dV3(slot, segmentContext).operacion;
+    const visible = `${block.instrucciones} ${block.items[0].enunciado}`.toLowerCase();
+    if (operation === 'distancia') {
+      assert.match(visible, /calcula la distancia/);
+      assert.doesNotMatch(visible, /punto medio/);
+    } else if (operation === 'punto_medio') {
+      assert.match(visible, /calcula el punto medio/);
+      assert.doesNotMatch(visible, /calcula la distancia/);
+    } else {
+      assert.match(visible, /calcula la distancia y el punto medio/);
+    }
+    assert.doesNotMatch(visible, /contradictoria|distancia_punto_medio_2d|dataset|contrato_/);
+    assert.doesNotMatch(visible, /distancia =|punto medio =/);
+  }
+});
+
+test('the complete integrative group is hydrated from the backend operation without residual alternatives', () => {
+  const slots = obtenerSlotsCuadernilloV3('ejercicios_aplicacion').filter(({ slotId }) => [
+    'ejercicios_aplicacion:actividad_integradora:28',
+    'ejercicios_aplicacion:actividad_integradora:29',
+    'ejercicios_aplicacion:actividad_integradora:30'
+  ].includes(slotId));
+  const task = { conceptos_requeridos: ['segmentos'], familia_tarea: 'geometria', datos_necesarios: ['dos puntos'], objetivo: 'Resolver.', condicion_suficiencia: 'El backend aporta los puntos.', aplicacion_tema: 'Aplica el tema.' };
+  const inputs = new Map([
+    [28, { tipo: 'actividad', modalidad: 'problema', instrucciones: 'Selecciona la fórmula de distancia o de punto medio.', contrato_tarea: task }],
+    [29, { tipo: 'procedimiento', pasos: ['Selecciona la fórmula de distancia o de punto medio.', 'Revisa si obtuviste una longitud o un punto.'] }],
+    [30, { tipo: 'texto', contenido: 'Explica si expresa una longitud o las coordenadas de un punto.' }]
+  ]);
+  const blocks = slots.map((slot) => construirBloqueV3DesdeSlot(slot, inputs.get(slot.numero), { contextoPlaneacion: segmentContext }));
+  const visible = JSON.stringify(blocks).toLowerCase();
+  assert.match(visible, /fórmula d =/);
+  assert.match(visible, /fórmula m =/);
+  assert.match(visible, /una longitud y un par ordenado/);
+  assert.match(visible, /distancia como separación/);
+  assert.match(visible, /punto medio como ubicación central/);
+  assert.doesNotMatch(visible, /distancia o de punto medio|longitud o|distancia_punto_medio_2d|dataset|contrato_/);
+  assert.doesNotMatch(visible, /distancia =|punto medio =/);
+});
+
+test('distance and midpoint solved output uses an operation-specific interpretation', () => {
+  const distance = verificarContratoCuantitativo(distanceContract('distancia'), ['distancia_punto_medio_2d']).visible;
+  assert.match(distance.interpretacion, /distancia.*separación.*longitud/i);
+  assert.doesNotMatch(distance.interpretacion, /punto medio|par ordenado/i);
+  const midpoint = verificarContratoCuantitativo(distanceContract('punto_medio'), ['distancia_punto_medio_2d']).visible;
+  assert.match(midpoint.interpretacion, /punto medio.*ubicación central.*par ordenado/i);
+  assert.doesNotMatch(midpoint.interpretacion, /distancia|separación.*longitud/i);
+  const both = verificarContratoCuantitativo(distanceContract('ambas'), ['distancia_punto_medio_2d']).visible;
+  assert.match(both.interpretacion, /distancia.*longitud.*punto medio.*par ordenado/i);
+});
+
+test('distance examples consolidate each mathematical group into one backend-owned visible block', () => {
+  const segment = crearPlanSegmentosCuadernilloV3('ejercicios_aplicacion')[1];
+  const blocks = new Map(segment.slots.map((slot) => [slot.slotId, { tipo: 'texto', contenido: 'Complemento generado.', cobertura: [slot.numero] }]));
+  for (const principal of segment.slots.filter(({ numero }) => [15, 36].includes(numero))) {
+    blocks.set(principal.slotId, construirBloqueV3DesdeSlot(principal, {
+      tipo: 'ejemplo_resuelto', contrato_cuantitativo: { familia_problema: 'distancia_punto_medio_2d' }
+    }, { contextoPlaneacion: segmentContext }));
+  }
+  consolidarGruposCuantitativosV3('ejercicios_aplicacion', segment, blocks, segmentContext);
+  assert.equal(blocks.has('ejercicios_aplicacion:ejemplos_resueltos:16'), false);
+  assert.equal(blocks.has('ejercicios_aplicacion:ejemplos_resueltos:17'), false);
+  assert.equal(blocks.has('ejercicios_aplicacion:ejemplos_resueltos:37'), false);
+  assert.equal(blocks.has('ejercicios_aplicacion:ejemplos_resueltos:38'), false);
+  assert.deepEqual(blocks.get('ejercicios_aplicacion:ejemplos_resueltos:15').cobertura, [15, 16, 17]);
+  assert.deepEqual(blocks.get('ejercicios_aplicacion:ejemplos_resueltos:36').cobertura, [36, 37, 38]);
+});
+
+test('guided case and solved examples expose calculations but no quantitative metadata', () => {
+  const guidedSlot = obtenerSlotsCuadernilloV3('aprendizaje_guiado').find(({ slotId }) => slotId === 'aprendizaje_guiado:apoyos_aprendizaje:17');
+  const exerciseSlots = obtenerSlotsCuadernilloV3('ejercicios_aplicacion').filter(({ numero }) => [15, 36].includes(numero));
+  for (const slot of [guidedSlot, ...exerciseSlots]) {
+    const block = construirBloqueV3DesdeSlot(slot, { tipo: 'ejemplo_resuelto', contrato_cuantitativo: { familia_problema: 'distancia_punto_medio_2d' } }, { contextoPlaneacion: segmentContext });
+    assert.match(block.resultado, /distancia =/);
+    assert.doesNotMatch(JSON.stringify(block), /distancia_punto_medio_2d|contrato_cuantitativo|dataset_/);
+  }
+});
+
+test('technical metadata retries only its presentation slot and a repeated leak stops after two calls', async () => {
+  for (const alwaysInvalid of [false, true]) {
+    const calls = [];
+    const execution = generarCuadernilloV3({
+      tipoCuadernillo: 'ejercicios_aplicacion', contextoPlaneacion: context,
+      completar: async (request) => {
+        calls.push(request);
+        const payload = responseFor(request.slots);
+        const target = payload.respuestas.find(({ slot_id }) => slot_id === 'ejercicios_aplicacion:presentacion:7');
+        if (target && (alwaysInvalid || request.intento === 1)) target.bloque = { tipo: 'texto', contenido: 'Practica sistema_lineal_2x2.' };
+        return { content: JSON.stringify(payload), finishReason: 'stop', usage: {} };
+      }
+    });
+    if (alwaysInvalid) {
+      await assert.rejects(execution, (error) => error.code === 'segmento_invalido_tras_retry'
+        && error.diagnostics.some(({ errorCode }) => errorCode === 'metadata_tecnica_expuesta'));
+      assert.equal(calls.length, 2);
+    } else {
+      await execution;
+      assert.deepEqual(calls[1].slots.map(({ slotId }) => slotId), ['ejercicios_aplicacion:presentacion:7']);
+      assert.match(calls[1].userPrompt, /metadata_tecnica_expuesta/);
+      assert.equal(calls.length, 5);
+    }
   }
 });

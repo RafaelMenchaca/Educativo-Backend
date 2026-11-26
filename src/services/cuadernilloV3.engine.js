@@ -16,6 +16,7 @@ import { resolverRepresentacionSlotCuadernilloV3 } from '../domain/cuadernilloV3
 import {
   CUADERNILLO_V3_QUANTITATIVE_FAMILIES,
   construirJsonSchemaCompletionV3,
+  esContextoDistanciaPuntoMedio2dV3,
   obtenerContratoAcademicoSlotV3,
   obtenerFamiliasCuantitativasContextoV3,
   obtenerPoliticaCuantitativaContextoV3
@@ -272,6 +273,10 @@ function correctionForSlot(slot, error, inputBlock = null, familiaEsperada = nul
     correctionRules.push('No enumeres categorias disciplinares del caso; usa referencias como "los elementos proporcionados", "los textos del caso" o "los datos incluidos en la actividad".');
     correctionRules.push('Conserva el proposito, aprendizaje, producto o accion del slot sin inventar ni anticipar datos concretos.');
   }
+  if (error?.code === 'metadata_tecnica_expuesta') {
+    correctionRules.push('Elimina identificadores internos de familias, slots, grupos, datasets y contratos; no los conviertas en vocabulario pedagogico.');
+    correctionRules.push('Describe el concepto con lenguaje humano de la materia y el tema, sin copiar nombres tecnicos del schema o del prompt.');
+  }
   const quantitativeFamily = familiaEsperada || cleanText(inputBlock?.contrato_cuantitativo?.familia_problema);
   const quantitativeInputFields = quantitativeFamily === 'sistema_lineal_2x2'
     ? ['familia_problema', 'datos.ecuaciones[2].coeficiente_x', 'datos.ecuaciones[2].coeficiente_y', 'datos.ecuaciones[2].termino_independiente', 'metodo']
@@ -279,10 +284,14 @@ function correctionForSlot(slot, error, inputBlock = null, familiaEsperada = nul
       ? ['familia_problema', 'datos.matriz[2][2]']
       : quantitativeFamily === 'aritmetica_racional'
         ? ['familia_problema', 'datos.valor_inicial', 'operaciones[].operacion', 'operaciones[].operando']
+        : quantitativeFamily === 'distancia_punto_medio_2d'
+          ? ['familia_problema']
         : [];
   if (quantitativeFamily && quantitativeFamily !== 'no_cuantitativo') {
     correctionRules.push(`Conserva obligatoriamente la familia ${quantitativeFamily}; no uses no_cuantitativo ni otra familia.`);
-    correctionRules.push('Devuelve solo datos matematicos de entrada como racionales literales; no uses expresiones, igualdades ni unidades dentro de un numero.');
+    correctionRules.push(quantitativeFamily === 'distancia_punto_medio_2d'
+      ? 'Devuelve unicamente familia_problema; el backend asigna puntos y operacion seguros para este slot.'
+      : 'Devuelve solo datos matematicos de entrada como racionales literales; no uses expresiones, igualdades ni unidades dentro de un numero.');
     correctionRules.push('No devuelvas soluciones, resultados, determinantes, lados de comprobacion ni operaciones ya calculadas; el backend los deriva.');
     correctionRules.push('No devuelvas contexto_pedagogico, interpretacion, pasos ni otro texto libre dentro del contrato cuantitativo.');
     correctionRules.push('Usa valores pedagogicamente manejables y evita denominadores cero o sistemas singulares.');
@@ -301,7 +310,9 @@ function correctionForSlot(slot, error, inputBlock = null, familiaEsperada = nul
     propiedadesOpcionales: threeLearningsSlot || threeProjectLearningsSlot || twoCompactActionsSlot || centralMatrixDataSlot || threeCaseQuestionsSlot || classificationSlot ? [] : contract?.opcionales || [],
     ...(detected.length ? { propiedadesProhibidasDetectadas: detected } : {}),
     schemaMinimoValido: quantitativeFamily
-      ? { tipo: 'ejemplo_resuelto', contrato_cuantitativo: { familia_problema: quantitativeFamily, datos: 'entradas segun JSON Schema' } }
+      ? { tipo: 'ejemplo_resuelto', contrato_cuantitativo: quantitativeFamily === 'distancia_punto_medio_2d'
+          ? { familia_problema: quantitativeFamily }
+          : { familia_problema: quantitativeFamily, datos: 'entradas segun JSON Schema' } }
       : representation.esquemaMinimo,
     ...(Number.isInteger(error?.details?.cantidadEsperada) ? { cantidadEsperada: error.details.cantidadEsperada } : {}),
     ...(Number.isInteger(error?.details?.cantidadEsperadaMin) ? { cantidadEsperadaMin: error.details.cantidadEsperadaMin } : {}),
@@ -372,7 +383,8 @@ Reglas contractuales:
 - Para actividades y proyectos declara conceptos, datos suficientes, objetivo y aplicacion real del tema; no introduzcas herramientas, metodos ni ejemplos de otra asignatura.
 - No reutilices ningun escenario, conjunto de variables, datos, ecuaciones u objetivo de la lista de actividades ya utilizadas; no reformules el mismo problema. La Actividad integradora debe usar un escenario nuevo y combinar los conceptos principales sin duplicar ejemplos o ejercicios basicos.
 - En cada ejemplo resuelto desarrolla un caso concreto del tema con al menos tres acciones distinguibles, evidencia del caso, resultado o conclusion e interpretacion; no basta con "analiza", "aplica" o "revisa" sin mostrar como se ejecuta.
-- Cuando el schema exija no_cuantitativo, desarrolla un analisis disciplinar concreto y no presentes una solucion numerica libre como verificada.
+- Cuando el schema exija un ejemplo conceptual, desarrolla un analisis disciplinar concreto y no presentes una solucion numerica libre como verificada.
+- Los identificadores de familias, slots, grupos, datasets y contratos son metadata interna: nunca los copies, expliques ni muestres en contenido pedagogico.
 - No uses LaTeX (\\(...\\), $, $$, \\begin, \\end, \\frac). Usa texto plano y Unicode basico.
 - Devuelve JSON directo, sin fences ni texto externo.`;
   return Object.freeze({ systemPrompt, userPrompt, jsonSchema });
@@ -426,7 +438,8 @@ export function construirFamiliasEsperadasSegmentoV3(tipoCuadernillo, context, s
   return new Map(segment.slots
     .filter((slot) => resolverRepresentacionSlotCuadernilloV3(slot, context)?.recomendacionPrincipal?.tipo === 'ejemplo_resuelto')
     .map(({ slotId }) => [slotId, familiasContexto.length
-      ? (tipoCuadernillo === 'ejercicios_aplicacion' ? [...familiasContexto] : null)
+      ? (tipoCuadernillo === 'ejercicios_aplicacion' || esContextoDistanciaPuntoMedio2dV3(context)
+          ? [...familiasContexto] : null)
       : 'no_cuantitativo'])
     .filter(([, family]) => family !== null));
 }
@@ -713,12 +726,14 @@ function safeCausalDiagnostic(error) {
   }).filter(([, value]) => value !== undefined && value !== null));
 }
 
-function consolidateQuantitativeCoherenceGroups(tipoCuadernillo, segment, validBlocks) {
+export function consolidarGruposCuantitativosV3(tipoCuadernillo, segment, validBlocks, contextoPlaneacion) {
   for (const group of obtenerGruposCoherenciaCuadernilloV3(tipoCuadernillo)) {
     if (!group.ownerMatematico) continue;
     if (!group.miembros.every(({ slotId }) => segment.slots.some((slot) => slot.slotId === slotId))) continue;
     const principal = validBlocks.get(group.ownerMatematico.slotPrincipalId);
-    if (principal?.tipo !== 'ejemplo_resuelto' || !Array.isArray(principal.matrices)) continue;
+    const backendCoordinateExample = esContextoDistanciaPuntoMedio2dV3(contextoPlaneacion)
+      && ['ejemplo_resuelto_15_17', 'ejemplo_resuelto_36_38'].includes(group.id);
+    if (principal?.tipo !== 'ejemplo_resuelto' || (!Array.isArray(principal.matrices) && !backendCoordinateExample)) continue;
     principal.cobertura = [...group.ownerMatematico.coberturaConsolidada];
     for (const member of group.miembros) {
       if (member.slotId !== group.ownerMatematico.slotPrincipalId) validBlocks.delete(member.slotId);
@@ -726,8 +741,8 @@ function consolidateQuantitativeCoherenceGroups(tipoCuadernillo, segment, validB
   }
 }
 
-function assembleSegment(tipoCuadernillo, segment, validBlocks) {
-  consolidateQuantitativeCoherenceGroups(tipoCuadernillo, segment, validBlocks);
+function assembleSegment(tipoCuadernillo, segment, validBlocks, contextoPlaneacion) {
+  consolidarGruposCuantitativosV3(tipoCuadernillo, segment, validBlocks, contextoPlaneacion);
   const payload = {
     secciones: segment.secciones.map((section) => ({
       id: section.id,
@@ -818,7 +833,7 @@ async function generateSegment({ tipoCuadernillo, context, segment, segmentIndex
           finishReason: completion.finishReason, ...tokenData, durationMs: completion.durationMs
         });
         resumenesPrevios.push(...validSummaries.values());
-        return assembleSegment(tipoCuadernillo, segment, validBlocks);
+        return assembleSegment(tipoCuadernillo, segment, validBlocks, context);
       }
       const initiallyPending = new Set(analysis.pendientes.map(({ slotId }) => slotId));
       causalErrors = causalErrorsForPending(analysis, context);

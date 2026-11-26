@@ -27,6 +27,25 @@ const product = (left, right) => `(${formatRational(left)} × ${formatRational(r
 const isZero = (value) => value.n === 0n;
 const isNegative = (value) => value.n < 0n;
 const absoluteRational = (value) => Object.freeze({ n: abs(value.n), d: value.d });
+const integerSqrt = (value) => {
+  if (value < 0n) return null;
+  if (value < 2n) return value;
+  let left = 1n; let right = value;
+  while (left <= right) {
+    const middle = (left + right) / 2n;
+    const square = middle * middle;
+    if (square === value) return middle;
+    if (square < value) left = middle + 1n;
+    else right = middle - 1n;
+  }
+  return null;
+};
+const exactRationalSqrt = (value, path) => {
+  const numerator = integerSqrt(value.n);
+  const denominator = integerSqrt(value.d);
+  if (numerator === null || denominator === null) fail('raiz_no_racional_soportada', path, 'solve');
+  return Object.freeze({ n: numerator, d: denominator });
+};
 
 function formatLinearTerms(terms) {
   const rendered = [];
@@ -191,6 +210,52 @@ function hydrateSystem(contract, path) {
   };
 }
 
+function hydrateDistanceMidpoint2d(contract, path) {
+  exactKeys(contract, ['familia_problema', 'datos', 'operacion'], path);
+  exactKeys(contract.datos, ['punto_a', 'punto_b'], `${path}.datos`);
+  exactKeys(contract.datos.punto_a, ['x', 'y'], `${path}.datos.punto_a`);
+  exactKeys(contract.datos.punto_b, ['x', 'y'], `${path}.datos.punto_b`);
+  if (!['distancia', 'punto_medio', 'ambas'].includes(contract.operacion)) fail('operacion_no_permitida', `${path}.operacion`);
+  const ax = parsed(contract.datos.punto_a.x, `${path}.datos.punto_a.x`);
+  const ay = parsed(contract.datos.punto_a.y, `${path}.datos.punto_a.y`);
+  const bx = parsed(contract.datos.punto_b.x, `${path}.datos.punto_b.x`);
+  const by = parsed(contract.datos.punto_b.y, `${path}.datos.punto_b.y`);
+  const dx = rationalSubtract(bx, ax); const dy = rationalSubtract(by, ay);
+  const dx2 = rationalMultiply(dx, dx); const dy2 = rationalMultiply(dy, dy);
+  const squaredDistance = rationalAdd(dx2, dy2);
+  const two = parseRational('2');
+  const mx = rationalDivide(rationalAdd(ax, bx), two);
+  const my = rationalDivide(rationalAdd(ay, by), two);
+  const pointA = `A(${formatRational(ax)}, ${formatRational(ay)})`;
+  const pointB = `B(${formatRational(bx)}, ${formatRational(by)})`;
+  const wantsDistance = contract.operacion !== 'punto_medio';
+  const wantsMidpoint = contract.operacion !== 'distancia';
+  const distance = wantsDistance ? exactRationalSqrt(squaredDistance, `${path}.datos`) : null;
+  const pasos = [`Datos: ${pointA} y ${pointB}.`];
+  if (wantsDistance) pasos.push('Fórmula: d = √((x₂ − x₁)² + (y₂ − y₁)²).');
+  if (wantsDistance) pasos.push(
+    `Diferencias: Δx = ${formatRational(bx)} − ${formatRational(ax)} = ${formatRational(dx)}; Δy = ${formatRational(by)} − ${formatRational(ay)} = ${formatRational(dy)}.`,
+    `Cuadrados: (${formatRational(dx)})² = ${formatRational(dx2)} y (${formatRational(dy)})² = ${formatRational(dy2)}.`,
+    `Distancia = √(${formatRational(dx2)} + ${formatRational(dy2)}) = √${formatRational(squaredDistance)} = ${formatRational(distance)}.`
+  );
+  if (wantsMidpoint) pasos.push(`Punto medio = ((${formatRational(ax)} + ${formatRational(bx)})/2, (${formatRational(ay)} + ${formatRational(by)})/2) = (${formatRational(mx)}, ${formatRational(my)}).`);
+  const results = []; const checks = [];
+  if (wantsDistance) { results.push(`distancia = ${formatRational(distance)}`); checks.push(`${formatRational(distance)}² = ${formatRational(squaredDistance)} = ${formatRational(dx2)} + ${formatRational(dy2)}.`); }
+  if (wantsMidpoint) {
+    results.push(`punto medio = (${formatRational(mx)}, ${formatRational(my)})`);
+    checks.push(`Coordenada x: (${formatRational(ax)} + ${formatRational(bx)})/2 = ${formatRational(mx)}; coordenada y: (${formatRational(ay)} + ${formatRational(by)})/2 = ${formatRational(my)}.`);
+  }
+  const interpretation = contract.operacion === 'distancia'
+    ? 'La distancia expresa la separación exacta entre los dos puntos como una longitud.'
+    : contract.operacion === 'punto_medio'
+      ? 'El punto medio expresa la ubicación central del segmento como un par ordenado.'
+      : 'La distancia expresa la separación como una longitud y el punto medio expresa la ubicación central como un par ordenado.';
+  return {
+    hydrated: Object.freeze({ familia_problema: contract.familia_problema, operacion: contract.operacion, punto_a: Object.freeze({ x: formatRational(ax), y: formatRational(ay) }), punto_b: Object.freeze({ x: formatRational(bx), y: formatRational(by) }), ...(distance ? { distancia: formatRational(distance) } : {}), punto_medio: Object.freeze({ x: formatRational(mx), y: formatRational(my) }) }),
+    visible: { enunciado: `Calcula ${contract.operacion === 'ambas' ? 'la distancia y el punto medio' : contract.operacion === 'distancia' ? 'la distancia' : 'el punto medio'} entre ${pointA} y ${pointB}.`, pasos, resultado: results.join('; '), verificaciones: checks, interpretacion: interpretation }
+  };
+}
+
 export function hidratarContratoCuantitativo(contract, allowedFamilies, path = 'contrato_cuantitativo') {
   const family = contract?.familia_problema;
   if (family === 'no_cuantitativo') {
@@ -199,7 +264,9 @@ export function hidratarContratoCuantitativo(contract, allowedFamilies, path = '
   }
   if (!CUADERNILLO_V3_QUANTITATIVE_FAMILIES.includes(family) || !allowedFamilies?.includes(family)) fail('familia_no_permitida', `${path}.familia_problema`);
   const result = family === 'aritmetica_racional' ? hydrateArithmetic(contract, path)
-    : family === 'determinante_2x2' ? hydrateDeterminant(contract, path) : hydrateSystem(contract, path);
+    : family === 'determinante_2x2' ? hydrateDeterminant(contract, path)
+      : family === 'sistema_lineal_2x2' ? hydrateSystem(contract, path)
+        : hydrateDistanceMidpoint2d(contract, path);
   return Object.freeze({ ok: true, familia: family, contratoEntradaIA: contract, contratoHidratadoBackend: result.hydrated, visible: Object.freeze(result.visible) });
 }
 
